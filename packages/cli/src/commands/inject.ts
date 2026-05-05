@@ -12,7 +12,7 @@
 
 import chalk   from 'chalk'
 import ora     from 'ora'
-import { readConfig, isAuthenticated } from '../lib/config.js'
+import { readConfig } from '../lib/config.js'
 import { gatherProjectInfo }           from '../lib/project.js'
 import { cwd }                         from 'process'
 import { execSync }                    from 'child_process'

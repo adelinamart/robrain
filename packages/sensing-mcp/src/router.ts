@@ -10,9 +10,8 @@ import { config } from './config.js'
 // ── Route decision signal → Perception API ─────────────────
 
 export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<void> {
-  if (!config.perceptionApiUrl || config.perceptionApiUrl.includes('localhost')) {
-    // Perception not yet wired — log locally for debugging
-    console.log('[Sensing] Decision signal (Perception not connected):', {
+  if (!config.perceptionApiUrl) {
+    console.log('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
       decision_type: signal.decision_type,
       confidence:    signal.confidence,
       files:         signal.files_affected,
@@ -43,8 +42,8 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
 // ── Route reply score → Perception API ────────────────────
 
 export async function routeReplyScore(score: ReplyScore): Promise<void> {
-  if (!config.perceptionApiUrl || config.perceptionApiUrl.includes('localhost')) {
-    console.log('[Sensing] Reply score (Perception not connected):', score)
+  if (!config.perceptionApiUrl) {
+    console.log('[Sensing] Reply score (PERCEPTION_API_URL unset):', score)
     return
   }
 
@@ -70,8 +69,8 @@ export async function routeFlushTurns(
 ): Promise<void> {
   if (turns.length === 0) return
 
-  if (!config.perceptionApiUrl || config.perceptionApiUrl.includes('localhost')) {
-    console.log(`[Sensing] Flush: ${turns.length} unclassified turns (Perception not connected)`)
+  if (!config.perceptionApiUrl) {
+    console.log(`[Sensing] Flush: ${turns.length} unclassified turns (PERCEPTION_API_URL unset)`)
     return
   }
 

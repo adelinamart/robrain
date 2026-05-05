@@ -284,7 +284,7 @@ server.tool(
 async function fetchAlwaysOnSummary(projectId: string): Promise<string> {
   // TODO: fetch from Perception API / projects table
   // Returns placeholder until Perception is wired
-  if (!config.perceptionApiUrl || config.perceptionApiUrl.includes('localhost')) {
+  if (!config.perceptionApiUrl) {
     return `Project: ${projectId}. No summary yet — will be populated after first session completes.`
   }
   try {

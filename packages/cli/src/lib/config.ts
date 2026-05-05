@@ -14,6 +14,8 @@ const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
 export interface RoMemoryConfig {
   token?:          string        // Rory Plans API token
   email?:          string        // authenticated user email
+  /** Set when using install --self-hosted (no Rory token) */
+  selfHosted?:     boolean
   perceptionUrl?:  string        // Rory-hosted Perception API URL
   perceptionKey?:  string        // Perception API key (cloud install; optional self-hosted)
   planningUrl?:    string        // Rory-hosted Planning API URL
@@ -45,9 +47,18 @@ export function mergeConfig(updates: Partial<RoMemoryConfig>): void {
   writeConfig({ ...current, ...updates })
 }
 
+/** True if Rory cloud login, or OSS self-hosted install (no Rory token). */
 export function isAuthenticated(): boolean {
   const config = readConfig()
-  return !!config.token && !!config.email
+  if (config.token && config.email) return true
+  if (config.selfHosted) return true
+  // Legacy self-hosted before selfHosted flag: perception configured, never logged into Rory
+  return Boolean(
+    config.perceptionUrl &&
+      config.installedAt &&
+      !config.token &&
+      !config.email,
+  )
 }
 
 export function getToken(): string | undefined {

@@ -90,7 +90,7 @@ Sensing MCP needs: `ANTHROPIC_API_KEY`, `EMBEDDING_PROVIDER`, embedding API key,
 
 Perception needs: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `EMBEDDING_PROVIDER`, embedding API key
 
-See `packages/sensing-mcp/.env.example` and `docker/.env.example`.
+See the repo-root `.env.example` (canonical for Docker + `robrain install`), and `packages/sensing-mcp/.env.example` for local MCP-only runs.
 
 **Critical:** `EMBEDDING_PROVIDER` and model must be identical in Sensing and Perception. Different providers produce vectors in incompatible spaces — similarity search breaks silently.
 
@@ -99,8 +99,8 @@ See `packages/sensing-mcp/.env.example` and `docker/.env.example`.
 ## Running locally
 
 ```bash
-# Start Postgres + Perception
-cp docker/.env.example docker/.env   # fill in keys
+# Start Postgres + Perception (run from repo root; requires `.env`)
+cp .env.example .env   # fill in keys once
 pnpm docker:up
 
 # Install dependencies and build

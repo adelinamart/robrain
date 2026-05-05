@@ -79,12 +79,23 @@ program
   .option('-e, --editor <editor>',    'Target editor: claude-code | cursor | copilot')
   .option('--self-hosted',            'Self-hosted mode — skip Rory Plans auth')
   .option('--perception-url <url>',   'Perception URL for self-hosted mode (default: http://localhost:3001)')
-  .action(async (opts: { token?: string; editor?: string; selfHosted?: boolean; perceptionUrl?: string }) => {
+  .option(
+    '--repo-root <path>',
+    'Path to your robrain git clone (links built sensing-mcp into ~/.robrain/mcp). Or set ROBRAIN_REPO.',
+  )
+  .action(async (opts: {
+    token?: string
+    editor?: string
+    selfHosted?: boolean
+    perceptionUrl?: string
+    repoRoot?: string
+  }) => {
     await installCommand({
       token:         opts.token ?? process.env.RORY_TOKEN,
       editor:        opts.editor,
       selfHosted:    opts.selfHosted,
       perceptionUrl: opts.perceptionUrl,
+      repoRoot:      opts.repoRoot,
     })
   })
 

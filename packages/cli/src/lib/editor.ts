@@ -23,11 +23,12 @@ export function detectEditors(): DetectedEditor[] {
   const found: DetectedEditor[] = []
   const home = homedir()
 
-  // Claude Code — ~/.claude/mcp.json
-  const claudePath = join(home, '.claude', 'mcp.json')
+  // Claude Code — user-scope config lives in ~/.claude.json
+  // (not ~/.claude/mcp.json — that path is unread by Claude Code)
+  const claudeJson = join(home, '.claude.json')
   const claudeDir  = join(home, '.claude')
-  if (existsSync(claudeDir) || existsSync(claudePath)) {
-    found.push({ editor: 'claude-code', configPath: claudePath, label: 'Claude Code' })
+  if (existsSync(claudeJson) || existsSync(claudeDir)) {
+    found.push({ editor: 'claude-code', configPath: claudeJson, label: 'Claude Code' })
   }
 
   // Cursor — ~/.cursor/mcp.json
@@ -75,22 +76,33 @@ export interface McpWriteOptions {
   planningKey:     string
   embeddingProvider: string
   embeddingKey:    string
+  /** When false, drops robrain-control (OSS self-hosted — Control ships with Rory cloud only). Default true. */
+  includeControl?: boolean
 }
 
 export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void {
-  // Read existing config if present
+  // Read existing config if present.
+  // Refuse to proceed on parse failure: configPath may be a shared file (e.g. ~/.claude.json
+  // contains theme, projects, history) — overwriting it with `{ mcpServers: ... }` would
+  // destroy unrelated user settings.
   let existing: Record<string, unknown> = {}
   if (existsSync(configPath)) {
+    const raw = readFileSync(configPath, 'utf8')
     try {
-      existing = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+      existing = JSON.parse(raw) as Record<string, unknown>
     } catch {
-      existing = {}
+      throw new Error(
+        `Refusing to overwrite ${configPath}: file exists but is not valid JSON. ` +
+        `Fix or remove it manually, then re-run robrain install.`
+      )
     }
   }
 
   const mcpServers = (existing.mcpServers as Record<string, unknown>) ?? {}
 
-  // Add / overwrite sensing and control
+  const includeControl = opts.includeControl ?? true
+
+  // Add / overwrite sensing (always)
   mcpServers['robrain-sensing'] = {
     command: 'node',
     args:    [opts.sensingMcpPath],
@@ -105,15 +117,19 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
     },
   }
 
-  mcpServers['robrain-control'] = {
-    command: 'node',
-    args:    [opts.controlMcpPath],
-    env: {
-      PLANNING_API_URL:   opts.planningUrl,
-      PLANNING_API_KEY:   opts.planningKey,
-      PERCEPTION_API_URL: opts.perceptionUrl,
-      PERCEPTION_API_KEY: opts.perceptionKey,
-    },
+  if (includeControl) {
+    mcpServers['robrain-control'] = {
+      command: 'node',
+      args:    [opts.controlMcpPath],
+      env: {
+        PLANNING_API_URL:   opts.planningUrl,
+        PLANNING_API_KEY:   opts.planningKey,
+        PERCEPTION_API_URL: opts.perceptionUrl,
+        PERCEPTION_API_KEY: opts.perceptionKey,
+      },
+    }
+  } else {
+    delete mcpServers['robrain-control']
   }
 
   const updated = { ...existing, mcpServers }
@@ -125,22 +141,14 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
   writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf8')
 }
 
-// ── CLAUDE.md writer ───────────────────────────────────────────
+// ── RoBrain instruction text (CLAUDE.md + Cursor rule) ───────
 
-export function writeClaudeMd(projectRoot: string, projectId: string): void {
-  const claudeMdPath = join(projectRoot, 'CLAUDE.md')
+const ROBRAIN_MARKER_START = '<!-- robrain -->'
+const ROBRAIN_MARKER_END   = '<!-- /robrain -->'
 
-  // If CLAUDE.md already exists, append the RoBrain block
-  let existing = ''
-  if (existsSync(claudeMdPath)) {
-    existing = readFileSync(claudeMdPath, 'utf8')
-    // Don't double-write if already configured
-    if (existing.includes('<!-- robrain -->')) return
-    existing = existing.trimEnd() + '\n\n'
-  }
-
-  const block = `<!-- robrain -->
-## RoBrain — Context Management
+/** Shared body for CLAUDE.md and `.cursor/rules/robrain.mdc` (keep in sync). */
+function roBrainInstructionsMarkdown(projectId: string): string {
+  return `## RoBrain — Context Management
 
 This project uses RoBrain for persistent institutional memory across sessions.
 Call these tools as instructed to maintain causal memory of decisions.
@@ -185,8 +193,51 @@ control_end_session(project_id="${projectId}", session_id=...)
 ### Acknowledgement rule
 When injected context contains a question marked ⚠, you must explicitly state
 whether the constraint applies to the current task before proceeding.
-<!-- /robrain -->
 `
+}
 
-  writeFileSync(claudeMdPath, existing + block, 'utf8')
+function roBrainMarkedBlock(projectId: string): string {
+  return `${ROBRAIN_MARKER_START}
+${roBrainInstructionsMarkdown(projectId)}${ROBRAIN_MARKER_END}
+`
+}
+
+// ── CLAUDE.md writer ───────────────────────────────────────────
+
+export function writeClaudeMd(projectRoot: string, projectId: string): void {
+  const claudeMdPath = join(projectRoot, 'CLAUDE.md')
+
+  // If CLAUDE.md already exists, append the RoBrain block
+  let existing = ''
+  if (existsSync(claudeMdPath)) {
+    existing = readFileSync(claudeMdPath, 'utf8')
+    // Don't double-write if already configured
+    if (existing.includes(ROBRAIN_MARKER_START)) return
+    existing = existing.trimEnd() + '\n\n'
+  }
+
+  writeFileSync(claudeMdPath, existing + roBrainMarkedBlock(projectId), 'utf8')
+}
+
+/** Writes `.cursor/rules/robrain.mdc` when Cursor is used; skips if RoBrain block already present. Returns true if a new file was written. */
+export function writeCursorRoBrainRule(projectRoot: string, projectId: string): boolean {
+  const rulePath = join(projectRoot, '.cursor', 'rules', 'robrain.mdc')
+
+  if (existsSync(rulePath)) {
+    const existing = readFileSync(rulePath, 'utf8')
+    if (existing.includes(ROBRAIN_MARKER_START)) return false
+  }
+
+  const dir = dirname(rulePath)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+
+  const content = `---
+description: RoBrain MCP — session lifecycle and context tools
+alwaysApply: true
+---
+
+${roBrainMarkedBlock(projectId)}`
+
+  writeFileSync(rulePath, content, 'utf8')
+  return true
 }

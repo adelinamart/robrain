@@ -13,9 +13,16 @@
 import chalk    from 'chalk'
 import ora      from 'ora'
 import prompts  from 'prompts'
-import { readConfig, writeConfig, mergeConfig, RORY_API_BASE } from '../lib/config.js'
+import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
 import { validateToken, fetchProvisionedConfig }                from '../lib/auth.js'
 import { detectEditors, writeMcpConfig }                        from '../lib/editor.js'
+import {
+  ensureSensingMcpBundle,
+  controlBundleReady,
+  sensingBundleReady,
+  McpBundleError,
+} from '../lib/mcp-bundle.js'
+import { loadInstallEnv }                                       from '../lib/load-env.js'
 import { join }                                                  from 'path'
 import { homedir }                                               from 'os'
 
@@ -26,17 +33,51 @@ interface InstallOptions {
   editor?:        string
   selfHosted?:    boolean
   perceptionUrl?: string
+  /** Path to the robrain monorepo root — used to link/copy built sensing-mcp into ~/.robrain/mcp */
+  repoRoot?:      string
+}
+
+function resolveRepoRoot(opts: InstallOptions): string | undefined {
+  return opts.repoRoot ?? process.env.ROBRAIN_REPO
+}
+
+function prepareMcpBundles(opts: InstallOptions): void {
+  const repoRoot = resolveRepoRoot(opts)
+  if (!repoRoot && !sensingBundleReady(ROBRAIN_MCP_DIR)) {
+    console.log(chalk.red('\n  ✗ Sensing MCP bundle missing.'))
+    console.log(chalk.dim('    Expected: ') + join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'))
+    console.log(chalk.dim('\n    Fix: from your robrain clone run ') + chalk.cyan('pnpm install') + chalk.dim(' + ') + chalk.cyan('pnpm build'))
+    console.log(chalk.dim('    Then reinstall with: ') + chalk.cyan('robrain install --repo-root /path/to/robrain'))
+    console.log(chalk.dim('    (or set ') + chalk.cyan('ROBRAIN_REPO') + chalk.dim(' to that path)\n'))
+    process.exit(1)
+  }
+  if (!repoRoot && sensingBundleReady(ROBRAIN_MCP_DIR)) return
+
+  try {
+    ensureSensingMcpBundle(repoRoot!, ROBRAIN_MCP_DIR)
+  } catch (e) {
+    if (e instanceof McpBundleError) {
+      console.log(chalk.red(`\n  ✗ ${e.message}\n`))
+      process.exit(1)
+    }
+    throw e
+  }
 }
 
 export async function installCommand(opts: InstallOptions): Promise<void> {
+  loadInstallEnv(resolveRepoRoot(opts))
+
   console.log()
   console.log(chalk.bold('  RoBrain') + chalk.dim(' — institutional memory for AI coding agents'))
   console.log(chalk.dim('  by roryplans.ai\n'))
 
   // ── Self-hosted mode — skip Rory Plans auth entirely ──────
   if (opts.selfHosted) {
+    prepareMcpBundles(opts)
     return installSelfHosted(opts)
   }
+
+  prepareMcpBundles(opts)
 
   // ── Cloud mode — authenticate with Rory Plans ─────────────
   let token = opts.token ?? readConfig().token
@@ -104,12 +145,17 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
       cohere: 'COHERE_API_KEY',
     }[embeddingProvider] ?? 'EMBEDDING_API_KEY'
 
-    const { key } = await prompts({
-      type:    'password',
-      name:    'key',
-      message: `${keyName}:`,
-    })
-    embeddingKey = key as string
+    embeddingKey = process.env[keyName] ?? ''
+    if (embeddingKey) {
+      console.log(chalk.dim(`  Using ${keyName} from environment`))
+    } else {
+      const { key } = await prompts({
+        type:    'password',
+        name:    'key',
+        message: `${keyName}:`,
+      })
+      embeddingKey = key as string
+    }
   }
 
   // ── Step 5: Detect / select editors ───────────────────────
@@ -121,7 +167,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     if (editorsToConfig.length === 0) {
       // Force the specified editor even if not detected
       const configPaths: Record<string, string> = {
-        'claude-code': join(homedir(), '.claude', 'mcp.json'),
+        'claude-code': join(homedir(), '.claude.json'),
         'cursor':      join(homedir(), '.cursor', 'mcp.json'),
       }
       const configPath = configPaths[opts.editor]
@@ -137,7 +183,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     console.log(chalk.yellow('\n  No AI editors detected. Configuring Claude Code by default.'))
     editorsToConfig = [{
       editor:     'claude-code',
-      configPath: join(homedir(), '.claude', 'mcp.json'),
+      configPath: join(homedir(), '.claude.json'),
       label:      'Claude Code',
     }]
   } else if (detected.length > 1) {
@@ -154,6 +200,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   // ── Step 6: Write MCP configs ──────────────────────────────
   spinner.start('Writing MCP configuration...')
 
+  const includeControl = controlBundleReady(ROBRAIN_MCP_DIR)
+
   const mcpOpts = {
     sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
     controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
@@ -164,10 +212,19 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     planningKey:       provisioned.planningKey,
     embeddingProvider: embeddingProvider ?? 'openai',
     embeddingKey,
+    includeControl,
   }
 
   for (const editor of editorsToConfig) {
     writeMcpConfig(editor.configPath, mcpOpts)
+  }
+
+  if (!includeControl) {
+    console.log(chalk.yellow(
+      '  ⚠ robrain-control was not registered — no Control MCP bundle under ~/.robrain/mcp/control.\n' +
+      '    OSS/manual retrieval: use robrain inject. Rory Plans cloud supplies Control for auto-injection.',
+    ))
+    console.log()
   }
 
   // ── Step 7: Save local config ──────────────────────────────
@@ -197,7 +254,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   // Check if ANTHROPIC_API_KEY is set — needed by Sensing
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log(chalk.yellow('  ⚠ ANTHROPIC_API_KEY not found in environment.'))
-    console.log(chalk.dim('  Add it to your shell profile and re-run, or set it in the MCP config manually.'))
+    console.log(chalk.dim('  Add it to repo-root `.env`, your shell profile, or the MCP config env block, then re-run install if needed.'))
     console.log()
   }
 }
@@ -213,27 +270,49 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   console.log(chalk.dim('  Sensing MCP will connect to: ') + chalk.cyan(perceptionUrl))
   console.log(chalk.dim('  Make sure Perception is running: ') + chalk.cyan('pnpm docker:up\n'))
 
-  // Prompt for embedding provider
-  const { provider } = await prompts({
-    type:    'select',
-    name:    'provider',
-    message: 'Embedding provider (must match what you set in docker/.env):',
-    choices: [
-      { title: 'OpenAI  text-embedding-3-small', value: 'openai'  },
-      { title: 'Voyage  voyage-3-lite',           value: 'voyage'  },
-      { title: 'Cohere  embed-english-v3.0',       value: 'cohere'  },
-    ],
-  })
+  const envProvider = process.env.EMBEDDING_PROVIDER
+  let provider: string
+  if (envProvider === 'openai' || envProvider === 'voyage' || envProvider === 'cohere') {
+    provider = envProvider
+    console.log(chalk.dim(`  Using EMBEDDING_PROVIDER from environment (${provider})`))
+    console.log(chalk.dim('  Must match the repo-root `.env` used by `pnpm docker:up`.\n'))
+  } else {
+    const { provider: choice } = await prompts({
+      type:    'select',
+      name:    'provider',
+      message: 'Embedding provider (must match repo-root `.env` for `pnpm docker:up`):',
+      choices: [
+        { title: 'OpenAI  text-embedding-3-small', value: 'openai'  },
+        { title: 'Voyage  voyage-3-lite',           value: 'voyage'  },
+        { title: 'Cohere  embed-english-v3.0',       value: 'cohere'  },
+      ],
+    })
+    provider = choice as string
+  }
 
-  const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider as string] ?? 'EMBEDDING_API_KEY'
-  const { embKey } = await prompts({ type: 'password', name: 'embKey', message: `${keyName}:` })
-  const { anthropicKey } = await prompts({ type: 'password', name: 'anthropicKey', message: 'ANTHROPIC_API_KEY (for Sensing classifiers):' })
+  const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider] ?? 'EMBEDDING_API_KEY'
+
+  let embKey = process.env[keyName] ?? ''
+  if (embKey) {
+    console.log(chalk.dim(`  Using ${keyName} from environment`))
+  } else {
+    const answer = await prompts({ type: 'password', name: 'embKey', message: `${keyName}:` })
+    embKey = answer.embKey as string
+  }
+
+  let anthropicKey = process.env.ANTHROPIC_API_KEY ?? ''
+  if (anthropicKey) {
+    console.log(chalk.dim('  Using ANTHROPIC_API_KEY from environment'))
+  } else {
+    const answer = await prompts({ type: 'password', name: 'anthropicKey', message: 'ANTHROPIC_API_KEY (for Sensing classifiers):' })
+    anthropicKey = answer.anthropicKey as string
+  }
 
   // Detect editors
   const detected = detectEditors()
   const editorsToConfig = detected.length > 0 ? detected : [{
     editor:     'claude-code' as const,
-    configPath: join(homedir(), '.claude', 'mcp.json'),
+    configPath: join(homedir(), '.claude.json'),
     label:      'Claude Code',
   }]
 
@@ -242,13 +321,14 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   const mcpOpts = {
     sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
     controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
-    anthropicKey:      anthropicKey as string,
+    anthropicKey,
     perceptionUrl,
     perceptionKey:     '',
     planningUrl:       '',    // no Planning in self-hosted OSS
     planningKey:       '',
-    embeddingProvider: provider as string,
-    embeddingKey:      embKey as string,
+    embeddingProvider: provider,
+    embeddingKey:      embKey,
+    includeControl:    false as const,
   }
 
   for (const editor of editorsToConfig) {
@@ -257,9 +337,10 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   mergeConfig({
     perceptionUrl,
-    embeddingProvider: provider as string,
+    embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
     version:           '0.1.0',
+    selfHosted:        true,
   })
 
   spinner.succeed('MCP servers configured for self-hosted mode')

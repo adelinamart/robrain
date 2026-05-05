@@ -20,7 +20,9 @@ export async function statusCommand(): Promise<void> {
   const info   = gatherProjectInfo(cwd())
 
   console.log(chalk.bold('  RoBrain status\n'))
-  console.log(chalk.dim('  Account:     ') + config.email)
+  const accountLabel =
+    config.token && config.email ? config.email : 'self-hosted (OSS)'
+  console.log(chalk.dim('  Account:     ') + accountLabel)
   console.log(chalk.dim('  Installed:   ') + (config.installedAt
     ? new Date(config.installedAt).toLocaleDateString()
     : 'unknown'))
