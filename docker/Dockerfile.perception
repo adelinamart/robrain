@@ -2,7 +2,7 @@
 # Build context: repository root (see docker-compose build.context)
 FROM node:20-alpine AS builder
 WORKDIR /app
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@10.33.3
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 # All workspace package.json files must exist so the lockfile importers match
 COPY packages/shared/package.json ./packages/shared/
@@ -12,16 +12,14 @@ COPY packages/sensing-mcp/package.json ./packages/sensing-mcp/
 RUN pnpm install --frozen-lockfile
 COPY packages/shared ./packages/shared
 COPY packages/perception-self-hosted ./packages/perception-self-hosted
-RUN pnpm --filter @robrain/shared build && pnpm --filter @robrain/perception-self-hosted build
+RUN pnpm --filter @robrain/shared build \
+ && pnpm --filter @robrain/perception-self-hosted build \
+ && pnpm --filter @robrain/perception-self-hosted deploy --prod --legacy /deploy
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache curl
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/
-COPY --from=builder /app/packages/perception-self-hosted/dist ./packages/perception-self-hosted/dist
-COPY --from=builder /app/packages/perception-self-hosted/package.json ./packages/perception-self-hosted/
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /deploy ./
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["node", "packages/perception-self-hosted/dist/index.js"]
+CMD ["node", "dist/index.js"]

@@ -17,8 +17,11 @@ pnpm docker:up
 # CLI from this repo (build first, then use node …/dist/index.js)
 pnpm build
 
-# Register Sensing MCP with Claude Code
-node packages/cli/dist/index.js install --self-hosted
+#  Install the local package globally — then use robrain normally:
+pnpm install -g /absolute/path/to/robrain/robrain/packages/cli
+
+# Register Sensing MCP (links built packages/sensing-mcp → ~/.robrain/mcp/sensing)
+node packages/cli/dist/index.js install --self-hosted --repo-root "$(pwd)"
 
 # Initialize your project
 node packages/cli/dist/index.js init-project
@@ -249,11 +252,14 @@ curl http://localhost:3001/health
 
 ### 3. Install CLI and register with Claude Code
 
+#  Install the local package globally — then use robrain normally:
+pnpm install -g /absolute/path/to/robrain/robrain/packages/cli
+
 ```bash
 pnpm install && pnpm build
 
-# Register Sensing MCP with Claude Code
-npx robrain install --self-hosted --perception-url http://localhost:3001
+# Register Sensing MCP (pass repo root so ~/.robrain/mcp/sensing is populated)
+npx robrain install --self-hosted --repo-root "$(pwd)" --perception-url http://localhost:3001
 
 # Initialize your project (run in your repo root)
 cd /path/to/your/project

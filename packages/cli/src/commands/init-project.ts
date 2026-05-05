@@ -4,7 +4,8 @@
 //
 // Warm-starts the memory store from existing codebase context.
 // Reads: package.json, README, git log, CLAUDE.md
-// Writes: CLAUDE.md instructions, seeds 3-5 inferred decisions,
+// Writes: CLAUDE.md instructions, optional .cursor/rules/robrain.mdc,
+//         seeds 3-5 inferred decisions,
 //         triggers always-on summary generation.
 //
 // Run once per project, in the project root.
@@ -16,7 +17,7 @@ import prompts from 'prompts'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { gatherProjectInfo, seedProjectMemory } from '../lib/project.js'
-import { writeClaudeMd } from '../lib/editor.js'
+import { detectEditors, writeClaudeMd, writeCursorRoBrainRule } from '../lib/editor.js'
 
 interface InitProjectOptions {
   projectId?: string
@@ -79,10 +80,24 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
     process.exit(0)
   }
 
-  // ── Write CLAUDE.md ────────────────────────────────────────
-  const mdSpinner = ora({ text: 'Writing CLAUDE.md instructions...', color: 'green' }).start()
+  // ── Write CLAUDE.md (+ Cursor rule if Cursor is installed) ─
+  const hasCursor = detectEditors().some(e => e.editor === 'cursor')
+  const mdSpinner = ora({
+    text: hasCursor
+      ? 'Writing editor instructions (CLAUDE.md + Cursor)...'
+      : 'Writing CLAUDE.md instructions...',
+    color: 'green',
+  }).start()
   writeClaudeMd(projectRoot, info.id)
-  mdSpinner.succeed('CLAUDE.md updated with RoBrain instructions')
+  let cursorRuleApplied = false
+  if (hasCursor) {
+    cursorRuleApplied = writeCursorRoBrainRule(projectRoot, info.id)
+  }
+  mdSpinner.succeed(
+    hasCursor
+      ? 'Editor instructions updated (CLAUDE.md + Cursor rule)'
+      : 'CLAUDE.md updated with RoBrain instructions',
+  )
 
   // ── Seed memory ────────────────────────────────────────────
   const seedSpinner = ora({ text: 'Inferring architectural decisions from codebase...', color: 'green' }).start()
@@ -108,9 +123,23 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   console.log(chalk.green('  ✓ Project initialized\n'))
   console.log(chalk.dim('  Project ID: ') + chalk.cyan(info.id))
   console.log(chalk.dim('  CLAUDE.md:  ') + chalk.dim('updated with RoBrain instructions'))
+  if (hasCursor) {
+    console.log(
+      chalk.dim('  Cursor:    ') +
+        chalk.dim(
+          cursorRuleApplied
+            ? 'added .cursor/rules/robrain.mdc'
+            : 'RoBrain rule already present',
+        ),
+    )
+  }
   console.log()
   console.log(chalk.bold('  You\'re ready.'))
-  console.log(chalk.dim('  Open Claude Code and start a session.'))
+  if (hasCursor) {
+    console.log(chalk.dim('  Open Claude Code or Cursor and start a session.'))
+  } else {
+    console.log(chalk.dim('  Open Claude Code and start a session.'))
+  }
   console.log(chalk.dim('  Session 2 will remember what happened in session 1.'))
   console.log()
 }

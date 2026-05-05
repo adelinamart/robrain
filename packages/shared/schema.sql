@@ -226,13 +226,13 @@ $$ LANGUAGE plpgsql;
 -- ── Useful views ───────────────────────────────────────────────
 
 CREATE OR REPLACE VIEW context_system.active_decisions AS
-  SELECT d.*, s.project_id
+  SELECT d.*
   FROM context_system.decisions d
   JOIN context_system.sessions s ON s.id = d.session_id
   WHERE d.invalidated_at IS NULL;
 
 CREATE OR REPLACE VIEW context_system.pending_conflicts AS
-  SELECT d.*, s.project_id
+  SELECT d.*
   FROM context_system.decisions d
   JOIN context_system.sessions s ON s.id = d.session_id
   WHERE d.conflict_flag = true
