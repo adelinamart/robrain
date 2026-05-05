@@ -8,23 +8,27 @@ Works across Claude Code, Cursor, and Copilot sessions.
 
 ## Setup — four steps, then fully automatic
 
-Do these four things once. After that, capture runs in the background whenever Claude Code is open.
+The user has to do four things, in order. After that it's fully automatic.
+
+**One-time setup (do once, ever):**
 
 ```bash
 # 1. Start the Docker stack (Postgres + Perception)
 pnpm docker:up
 
-# 2. Install the CLI and wire Sensing into Claude Code
+# 2. Install CLI and wire Sensing into Claude Code
 npx robrain install --self-hosted
 
-# 3. Go to your project
+# 3. Initialize your project (run in your repo root)
 cd /path/to/your/project
-
-# 4. Initialize the project (writes CLAUDE.md so Claude calls Sensing)
 npx robrain init-project
 ```
 
-That's it. Step 4 is per-repo — every other step is one-time, ever.
+**Per-project (do once per repo):**
+
+Step 3 above — `init-project` — writes the `CLAUDE.md` instructions that tell Claude Code to call the Sensing MCP tools at session start and end. This only needs to happen once per project.
+
+That's it. After that — nothing.
 
 > **Running from a local clone?** `npx robrain` is the short form used throughout this README. If the package isn't published yet, run `pnpm install && pnpm build` once, then substitute `node packages/cli/dist/index.js` for `npx robrain` (same arguments).
 
@@ -422,22 +426,21 @@ The extraction quality difference is real but secondary. Both versions use Claud
 
 ## Troubleshooting
 
-After the four-step setup, Sensing runs automatically whenever Claude Code is open. The MCP server is registered in `~/.claude/mcp.json`, so Claude Code launches it on startup, and the `CLAUDE.md` written by `init-project` tells Claude to call `sensing_start_session` at the beginning of each session and `sensing_record_turn` after every exchange.
+After setup, Sensing runs automatically whenever Claude Code is open. The MCP server is registered in `~/.claude/mcp.json`, so Claude Code starts it automatically on launch. The `CLAUDE.md` instructions tell Claude to call `sensing_start_session` at the beginning of each session and `sensing_record_turn` after every exchange.
 
 **The one thing that can break it:**
 
-Claude Code doesn't always follow `CLAUDE.md` instructions reliably. If it stops calling `sensing_record_turn`, Sensing goes silent. To check:
+Claude Code doesn't always follow `CLAUDE.md` instructions reliably — this is the compliance problem from pre-launch testing. If Claude stops calling `sensing_record_turn`, Sensing goes silent. The way to check:
 
 ```bash
 npx robrain status
 ```
 
-If `Decisions: 0` after a session where you made architectural choices, Claude probably didn't call the tools. Two fixes:
-- Make the `CLAUDE.md` instructions more explicit, or
-- Remind Claude at the start of the session: *"please follow the RoBrain instructions in CLAUDE.md."*
+If `Decisions: 0` after a session where you made architectural choices, Claude probably didn't call the tools. The fix is to make the `CLAUDE.md` instructions more explicit or remind Claude at the start of the session: *"please follow the RoBrain instructions in CLAUDE.md."*
 
-**The two habits worth keeping:**
+**The practical reality:**
 
+The developer needs two habits:
 - `npx robrain review` after sessions where important decisions were made
 - `npx robrain inject --copy` before starting a new task that builds on prior work
 
