@@ -6,11 +6,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/roryplans/robrain.git"
+    "url": "git+https://github.com/adelinamart/robrain.git"
   },
-  "homepage": "https://github.com/roryplans/robrain#readme",
+  "homepage": "https://github.com/adelinamart/robrain#readme",
   "bugs": {
-    "url": "https://github.com/roryplans/robrain/issues"
+    "url": "https://github.com/adelinamart/robrain/issues"
   },
   "bin": {
     "robrain": "./dist/index.js"

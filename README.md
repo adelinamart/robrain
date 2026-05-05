@@ -257,7 +257,7 @@ Your infrastructure / Rory Plans:
 From the repository root, create a single `.env` used by both `pnpm docker:up` and `robrain install --self-hosted --repo-root`:
 
 ```bash
-git clone https://github.com/roryplans/robrain
+git clone https://github.com/adelinamart/robrain
 cd robrain
 cp .env.example .env
 ```
