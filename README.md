@@ -64,7 +64,9 @@ This improves reliability when Cursor does not consistently follow general instr
 
 ## What makes this different
 
-Most memory tools rely on explicit calls like `remember()` or manual logging. RoBrain doesn't. It watches your Claude Code sessions passively and captures decisions automatically — including **what was tried and ruled out**.
+Many third-party coding memories still rely on explicit APIs or manual notebooks. Claude Code itself now ships **Auto memory**, where Claude maintains `MEMORY.md` and related notes locally (see Anthropic's [memory docs](https://docs.anthropic.com/en/docs/claude-code/memory)) — so passive note-taking alone is **not unique** to RoBrain.
+
+RoBrain focuses on turning session context into **structured, queryable decision records** stored in Postgres: explicit **`rejected[]`**, **`files_affected`**, embeddings for retrieval, decision lifecycle hooks, and a CLI/editor surface that stays useful when notes get long-lived or contradictory. It complements Auto memory rather than denying that it exists.
 
 ```
 Session 3, turn 12:
@@ -216,13 +218,29 @@ The limits show up as a project grows:
 | Agent suggests something you already ruled out | you re-explain manually | RoBrain injects the veto |
 | Session ends mid-task | you forget to update | flush-on-close captures it |
 
-**The core difference is maintenance burden.** CLAUDE.md requires you to decide what to write, remember to write it, and keep it accurate as decisions change. RoBrain captures passively and invalidates stale decisions automatically.
+**The core difference is maintenance burden.** CLAUDE.md requires you to decide what to write, remember to write it, and keep it accurate as decisions change. Claude Code **Auto memory** automates some of that note-taking but still leaves you with markdown that can drift unless you curate it — RoBrain pushes durable decisions into Postgres with explicit lifecycle when better evidence arrives.
 
 **Use CLAUDE.md for:** project setup instructions, coding conventions, one-time onboarding context. These are stable facts that don't change often and are easy to write once.
 
 **Use RoBrain for:** architectural decisions, library choices, rejected alternatives, anything that was decided during a session rather than before the project started. These are the things nobody writes down because they happen in the middle of work.
 
 The two are complementary. RoBrain's `npx robrain init-project` reads your existing CLAUDE.md as part of the warm-start, and injects session summaries back into it at session end. You keep writing CLAUDE.md for setup context. RoBrain handles the decision history automatically.
+
+### Claude Code Auto Memory — overlap and gaps
+
+Anthropic describes Auto memory notes as things Claude discovers while you work (build/debug/architecture/style/workflow habits) and selectively persists; **`MEMORY.md` is loaded up to roughly the first ~200 lines or 25 KB per session**, and separate topic markdown files can be pulled in **on demand** with normal editor/file tools (`read_file`-style workflows), [per the docs](https://docs.anthropic.com/en/docs/claude-code/memory). Requires **Claude Code v2.1.59+**. Storage is **machine-local** under `~/.claude/projects/`.
+
+| | Auto memory | RoBrain OSS |
+|---|---|---|
+| **Who writes durable notes** | Claude (into local markdown files) | Sensing extracts into Postgres |
+| **Structured vetoes (`rejected[]`)** | Prose-only unless you impose structure | First-class schema field |
+| **File-scoped “why this module?” (`explain`)** | Not modeled as relational `files_affected` | Stored per decision |
+| **Long-history retrieval** | Index + topical md + file tooling | **pgvector** semantic search + filters |
+| **Stale / contradictory decisions** | You edit/delete markdown; no built-in invalidation graph | Lifecycle + invalidation + linked supersession (see above) |
+| **Setup** | Effectively none for Claude Code users | Docker + Postgres + CLI + MCP wiring |
+| **Beyond Claude Code** | Tied to local Claude storage | Any **MCP-capable** editor surface you wire up |
+
+**Positioning in one line:** Auto memory is excellent **low-friction scratch paper** for one editor. RoBrain is for teams and long-running codebases that need **decisions as data** (vetoes, file scope, semantic recall, and honest history when things change).
 
 ---
 
