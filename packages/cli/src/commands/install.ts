@@ -13,7 +13,7 @@
 import chalk    from 'chalk'
 import ora      from 'ora'
 import prompts  from 'prompts'
-import { readConfig, writeConfig, mergeConfig, RORY_API_BASE } from '../lib/config.js'
+import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
 import { validateToken, fetchProvisionedConfig }                from '../lib/auth.js'
 import { detectEditors, writeMcpConfig }                        from '../lib/editor.js'
 import {
@@ -22,6 +22,7 @@ import {
   sensingBundleReady,
   McpBundleError,
 } from '../lib/mcp-bundle.js'
+import { loadInstallEnv }                                       from '../lib/load-env.js'
 import { join }                                                  from 'path'
 import { homedir }                                               from 'os'
 
@@ -64,6 +65,8 @@ function prepareMcpBundles(opts: InstallOptions): void {
 }
 
 export async function installCommand(opts: InstallOptions): Promise<void> {
+  loadInstallEnv(resolveRepoRoot(opts))
+
   console.log()
   console.log(chalk.bold('  RoBrain') + chalk.dim(' — institutional memory for AI coding agents'))
   console.log(chalk.dim('  by roryplans.ai\n'))
@@ -142,12 +145,17 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
       cohere: 'COHERE_API_KEY',
     }[embeddingProvider] ?? 'EMBEDDING_API_KEY'
 
-    const { key } = await prompts({
-      type:    'password',
-      name:    'key',
-      message: `${keyName}:`,
-    })
-    embeddingKey = key as string
+    embeddingKey = process.env[keyName] ?? ''
+    if (embeddingKey) {
+      console.log(chalk.dim(`  Using ${keyName} from environment`))
+    } else {
+      const { key } = await prompts({
+        type:    'password',
+        name:    'key',
+        message: `${keyName}:`,
+      })
+      embeddingKey = key as string
+    }
   }
 
   // ── Step 5: Detect / select editors ───────────────────────
@@ -246,7 +254,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   // Check if ANTHROPIC_API_KEY is set — needed by Sensing
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log(chalk.yellow('  ⚠ ANTHROPIC_API_KEY not found in environment.'))
-    console.log(chalk.dim('  Add it to your shell profile and re-run, or set it in the MCP config manually.'))
+    console.log(chalk.dim('  Add it to repo-root `.env`, your shell profile, or the MCP config env block, then re-run install if needed.'))
     console.log()
   }
 }
@@ -262,19 +270,27 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   console.log(chalk.dim('  Sensing MCP will connect to: ') + chalk.cyan(perceptionUrl))
   console.log(chalk.dim('  Make sure Perception is running: ') + chalk.cyan('pnpm docker:up\n'))
 
-  // Prompt for embedding provider
-  const { provider } = await prompts({
-    type:    'select',
-    name:    'provider',
-    message: 'Embedding provider (must match what you set in docker/.env):',
-    choices: [
-      { title: 'OpenAI  text-embedding-3-small', value: 'openai'  },
-      { title: 'Voyage  voyage-3-lite',           value: 'voyage'  },
-      { title: 'Cohere  embed-english-v3.0',       value: 'cohere'  },
-    ],
-  })
+  const envProvider = process.env.EMBEDDING_PROVIDER
+  let provider: string
+  if (envProvider === 'openai' || envProvider === 'voyage' || envProvider === 'cohere') {
+    provider = envProvider
+    console.log(chalk.dim(`  Using EMBEDDING_PROVIDER from environment (${provider})`))
+    console.log(chalk.dim('  Must match the repo-root `.env` used by `pnpm docker:up`.\n'))
+  } else {
+    const { provider: choice } = await prompts({
+      type:    'select',
+      name:    'provider',
+      message: 'Embedding provider (must match repo-root `.env` for `pnpm docker:up`):',
+      choices: [
+        { title: 'OpenAI  text-embedding-3-small', value: 'openai'  },
+        { title: 'Voyage  voyage-3-lite',           value: 'voyage'  },
+        { title: 'Cohere  embed-english-v3.0',       value: 'cohere'  },
+      ],
+    })
+    provider = choice as string
+  }
 
-  const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider as string] ?? 'EMBEDDING_API_KEY'
+  const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider] ?? 'EMBEDDING_API_KEY'
 
   let embKey = process.env[keyName] ?? ''
   if (embKey) {
@@ -310,7 +326,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     perceptionKey:     '',
     planningUrl:       '',    // no Planning in self-hosted OSS
     planningKey:       '',
-    embeddingProvider: provider as string,
+    embeddingProvider: provider,
     embeddingKey:      embKey,
     includeControl:    false as const,
   }
@@ -321,7 +337,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   mergeConfig({
     perceptionUrl,
-    embeddingProvider: provider as string,
+    embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
     version:           '0.1.0',
     selfHosted:        true,

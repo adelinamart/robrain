@@ -9,8 +9,8 @@ Works across Claude Code, Cursor, and Copilot sessions.
 ```bash
 # Install and start
 git clone https://github.com/roryplans/robrain
-cd robrain && cp docker/.env.example docker/.env
-# Add your ANTHROPIC_API_KEY and OPENAI_API_KEY (or another embedding provider) to docker/.env
+cd robrain && cp .env.example .env
+# Add API keys once (shared by Docker and `robrain install --repo-root`)
 pnpm install
 pnpm docker:up
 
@@ -225,18 +225,22 @@ Your infrastructure / Rory Plans:
 
 ### 1. Clone and configure
 
+From the repository root, create a single `.env` used by both `pnpm docker:up` and `robrain install --self-hosted --repo-root`:
+
 ```bash
 git clone https://github.com/roryplans/robrain
 cd robrain
-cp docker/.env.example docker/.env
+cp .env.example .env
 ```
 
-Edit `docker/.env`:
+Edit `.env` at the repo root (same keys power Perception in Docker and the CLI install prompts):
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 EMBEDDING_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 ```
+
+Keep `EMBEDDING_PROVIDER` identical between this file and what you select when running install (or set `EMBEDDING_PROVIDER` in `.env` and install will pick it up without prompting).
 
 ### 2. Start Postgres + Perception
 

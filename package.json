@@ -11,8 +11,8 @@
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
-    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
-    "docker:down": "docker compose -f docker/docker-compose.yml down"
+    "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env up -d",
+    "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env down"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

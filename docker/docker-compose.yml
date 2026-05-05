@@ -3,9 +3,9 @@
 # RoBrain self-hosted stack
 # Includes: Postgres + pgvector, Perception API (basic extraction)
 #
-# Quick start:
-#   cp docker/.env.example docker/.env   # fill in ANTHROPIC_API_KEY
-#   docker compose -f docker/docker-compose.yml up -d
+# Quick start (from repo root):
+#   cp .env.example .env   # fill in API keys
+#   pnpm docker:up
 #   docker compose -f docker/docker-compose.yml logs -f perception
 # ─────────────────────────────────────────────────────────────
 
