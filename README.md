@@ -205,7 +205,12 @@ npx robrain init-project
 
 Open Claude Code normally. Sensing watches in the background.
 
-#### 5. Review what was captured
+-hosted`robrain init-project` writes mode-aware instructions:
+
+- **OSS self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
+- **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
+
+### 5. Review what was captured
 
 ```bash
 npx robrain review
@@ -447,7 +452,23 @@ The two are complementary. RoBrain's `npx robrain init-project` reads your exist
 
 For how RoBrain compares to Claude’s built-in **Auto memory** (same problem space, different tradeoffs), see [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory).
 
-### Pairing with Zep
+| Feature | OSS self-hosted | Rory Plans cloud |
+|---------|----------------|-----------------|
+| Passive session capture | ✓ | ✓ |
+| `rejected[]` field | ✓ | ✓ |
+| Decision lifecycle tracking | ✓ | ✓ |
+| `npx robrain review` | ✓ | ✓ |
+| `npx robrain inject` (manual paste) | ✓ | ✓ |
+| Self-host on your infrastructure | ✓ | — |
+| Your data stays local | ✓ | processed remotely |
+| Haiku extraction (functional) | ✓ | ✓ |
+| Calibrated extraction (fewer false positives) | — | ✓ |
+| Generated instructions include `control_*` calls | — | ✓ |
+| **Automatic injection at task boundaries** | — | ✓ |
+| **Relevance scoring — surfaces what matters now** | — | ✓ |
+| Web dashboard | — | ✓ |
+| Team memory + shared scope | — | ✓ |
+| Conflict auto-resolution | — | ✓ |
 
 RoBrain and Zep answer different questions and work well together.
 

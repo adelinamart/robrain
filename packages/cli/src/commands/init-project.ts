@@ -18,6 +18,7 @@ import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { gatherProjectInfo, seedProjectMemory } from '../lib/project.js'
 import { detectEditors, writeClaudeMd, writeCursorRoBrainRule } from '../lib/editor.js'
+import type { RoBrainInstructionMode } from '../lib/editor.js'
 
 interface InitProjectOptions {
   projectId?: string
@@ -35,6 +36,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   }
 
   const config = readConfig()
+  const instructionMode: RoBrainInstructionMode = config.selfHosted ? 'sensing-only' : 'sensing+control'
 
   if (!config.perceptionUrl) {
     console.log(chalk.red('  ✗ Perception URL not configured. Run: robrain install'))
@@ -88,10 +90,10 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
       : 'Writing CLAUDE.md instructions...',
     color: 'green',
   }).start()
-  writeClaudeMd(projectRoot, info.id)
+  writeClaudeMd(projectRoot, info.id, instructionMode)
   let cursorRuleApplied = false
   if (hasCursor) {
-    cursorRuleApplied = writeCursorRoBrainRule(projectRoot, info.id)
+    cursorRuleApplied = writeCursorRoBrainRule(projectRoot, info.id, instructionMode)
   }
   mdSpinner.succeed(
     hasCursor
