@@ -4,6 +4,7 @@
 // the appropriate MCP server configuration for each.
 // Supported: Claude Code, Cursor, GitHub Copilot (VS Code)
 // ─────────────────────────────────────────────────────────────
+// ----ROBRAIN___
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
@@ -145,9 +146,38 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
 
 const ROBRAIN_MARKER_START = '<!-- robrain -->'
 const ROBRAIN_MARKER_END   = '<!-- /robrain -->'
+export type RoBrainInstructionMode = 'sensing-only' | 'sensing+control'
 
 /** Shared body for CLAUDE.md and `.cursor/rules/robrain.mdc` (keep in sync). */
-function roBrainInstructionsMarkdown(projectId: string): string {
+function roBrainInstructionsMarkdown(projectId: string, mode: RoBrainInstructionMode): string {
+  if (mode === 'sensing-only') {
+    return `## RoBrain — Context Management (OSS self-hosted)
+
+This project uses RoBrain Sensing MCP for passive session capture.
+Control MCP is not available in OSS self-hosted mode.
+Call Sensing tools exactly as instructed to maintain session memory.
+
+### Session start (mandatory, first thing in every new chat)
+\`\`\`
+sensing_start_session(project_id="${projectId}", session_id="<ISO-timestamp>-<4-random-chars>", working_dir="<cwd>")
+\`\`\`
+Store the returned session_id and initialize sequence=1 before your first reply.
+
+### After every response (mandatory)
+\`\`\`
+sensing_record_turn(session_id="<stored session_id>", sequence=<n>, user_message="<full user message>", claude_reply="<full assistant reply>", files_touched=[...], injected_memory_ids=[])
+\`\`\`
+Increment sequence by 1 after each successful call.
+
+If topic_shift=true is returned, note it for follow-up context retrieval.
+
+### Session end (last thing)
+\`\`\`
+sensing_end_session(session_id="<stored session_id>", summary="one sentence: what was accomplished")
+\`\`\`
+`
+  }
+
   return `## RoBrain — Context Management
 
 This project uses RoBrain for persistent institutional memory across sessions.
@@ -196,15 +226,19 @@ whether the constraint applies to the current task before proceeding.
 `
 }
 
-function roBrainMarkedBlock(projectId: string): string {
+function roBrainMarkedBlock(projectId: string, mode: RoBrainInstructionMode): string {
   return `${ROBRAIN_MARKER_START}
-${roBrainInstructionsMarkdown(projectId)}${ROBRAIN_MARKER_END}
+${roBrainInstructionsMarkdown(projectId, mode)}${ROBRAIN_MARKER_END}
 `
 }
 
 // ── CLAUDE.md writer ───────────────────────────────────────────
 
-export function writeClaudeMd(projectRoot: string, projectId: string): void {
+export function writeClaudeMd(
+  projectRoot: string,
+  projectId: string,
+  mode: RoBrainInstructionMode = 'sensing+control',
+): void {
   const claudeMdPath = join(projectRoot, 'CLAUDE.md')
 
   // If CLAUDE.md already exists, append the RoBrain block
@@ -216,11 +250,15 @@ export function writeClaudeMd(projectRoot: string, projectId: string): void {
     existing = existing.trimEnd() + '\n\n'
   }
 
-  writeFileSync(claudeMdPath, existing + roBrainMarkedBlock(projectId), 'utf8')
+  writeFileSync(claudeMdPath, existing + roBrainMarkedBlock(projectId, mode), 'utf8')
 }
 
 /** Writes `.cursor/rules/robrain.mdc` when Cursor is used; skips if RoBrain block already present. Returns true if a new file was written. */
-export function writeCursorRoBrainRule(projectRoot: string, projectId: string): boolean {
+export function writeCursorRoBrainRule(
+  projectRoot: string,
+  projectId: string,
+  mode: RoBrainInstructionMode = 'sensing+control',
+): boolean {
   const rulePath = join(projectRoot, '.cursor', 'rules', 'robrain.mdc')
 
   if (existsSync(rulePath)) {
@@ -236,7 +274,7 @@ description: RoBrain MCP — session lifecycle and context tools
 alwaysApply: true
 ---
 
-${roBrainMarkedBlock(projectId)}`
+${roBrainMarkedBlock(projectId, mode)}`
 
   writeFileSync(rulePath, content, 'utf8')
   return true

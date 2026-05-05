@@ -274,6 +274,11 @@ npx robrain init-project
 
 Open Claude Code normally. Sensing watches in the background.
 
+`robrain init-project` writes mode-aware instructions:
+
+- **OSS self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
+- **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
+
 ### 5. Review what was captured
 
 ```bash
@@ -415,6 +420,7 @@ The self-hosted version captures decisions and lets you retrieve them manually. 
 | Your data stays local | ✓ | processed remotely |
 | Haiku extraction (functional) | ✓ | ✓ |
 | Calibrated extraction (fewer false positives) | — | ✓ |
+| Generated instructions include `control_*` calls | — | ✓ |
 | **Automatic injection at task boundaries** | — | ✓ |
 | **Relevance scoring — surfaces what matters now** | — | ✓ |
 | Web dashboard | — | ✓ |

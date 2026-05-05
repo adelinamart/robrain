@@ -117,6 +117,11 @@ pnpm cli review
 pnpm cli inject --query "auth decisions" --copy
 ```
 
+`pnpm cli init-project` writes mode-aware instructions:
+
+- If installed with `--self-hosted`, generated `CLAUDE.md` and `.cursor/rules/robrain.mdc` are Sensing-only (`sensing_*` tools).
+- If installed in cloud mode with Control available, generated instructions include `control_*` calls as well.
+
 ---
 
 ## What NOT to build in this repo
