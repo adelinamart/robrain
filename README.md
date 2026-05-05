@@ -2,7 +2,8 @@
 
 **Institutional memory for AI coding agents.**
 
-Your AI agent resets every session. RoBrain fixes that — passively capturing architectural decisions, rationale, and rejected alternatives across Claude Code, Cursor, and Copilot sessions.
+RoBrain remembers architectural decisions, rationale, and rejected alternatives from your AI coding sessions, so future agents stop repeating old mistakes.
+Works across Claude Code, Cursor, and Copilot sessions.
 
 ```bash
 # Install and start
@@ -56,7 +57,8 @@ Six sessions later, Claude Code knows why your codebase looks the way it does.
 
 ## The `rejected[]` array
 
-No other memory tool stores this. Mem0 stores facts. Zep stores entity relationships. Neither stores what was tried and ruled out — which means your agent will keep suggesting Redux until you tell it again.
+Your AI agent resets every session. 
+ Mem0 stores facts. Zep stores entity relationships. Neither stores what was tried and ruled out — which means your agent will keep suggesting Redux until you tell it again.
 
 RoBrain stores the veto. That's the differentiator.
 
@@ -192,7 +194,7 @@ The self-hosted version is fully functional for solo developers. The cloud versi
 | Conflict auto-resolution | — | ✓ |
 | Unlimited decisions | up to your Postgres | ✓ |
 
-The OSS extraction prompt is functional but without the calibrated few-shot examples and veto-preserving logic in the cloud version. You'll get 80% of decisions correctly — the cloud version gets closer to 95%.
+The OSS extraction prompt is functional but without the calibrated few-shot examples and veto-preserving logic in the cloud version. You'll get most of decisions correctly — the cloud version gets you even closer.
 
 **Get cloud access:** [roryplans.ai](https://roryplans.ai)
 
