@@ -32,6 +32,10 @@ const DECISION_KEYWORDS = [
   'instead of', 'switched to', 'switching to', 'rejected', 'won\'t use',
   'we tried', 'too slow', 'doesn\'t work', 'went with', 'chosen',
   'settled on', 'ruling out', 'dropping', 'replacing',
+  // Casual commitments / conventions (often no spelled-out alternatives)
+  'standardize', 'standardise', 'standardizing', 'moving to ',
+  'migrate to', 'migrate from', 'defaults to', 'default to',
+  'stick with', 'locking in', 'lock in',
 ]
 
 const IMPLICIT_DECISION_PATTERNS = [
@@ -40,6 +44,8 @@ const IMPLICIT_DECISION_PATTERNS = [
   /require\(['"][^'"]+['"]\)/,
   // Framework switches
   /npm install|pnpm add|yarn add/,
+  // Brief “let’s …” commitments without keyword hits above
+  /\blet['']s\s+(standardize|standardise|use|go with|stick with|adopt)\b/i,
 ]
 
 export async function classifyDecision(
@@ -79,10 +85,23 @@ export async function classifyDecision(
 
 async function extractDecision(turn: SessionTurn): Promise<ExtractedDecision> {
   const systemPrompt = `You extract technical decisions from software development conversations.
-A decision is: a choice made between alternatives, an approach selected, a tool adopted or rejected, or a constraint established.
-Not every turn contains a decision.
-Output ONLY valid JSON matching this schema. If no decision: output {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
-Never add explanation outside the JSON. Keep rationale to 15 words maximum.
+
+A decision includes ANY of the following (not only formal deliberation):
+- Explicit choice between alternatives, or adopting/rejecting a tool or approach
+- Brief agreements or directions: e.g. "let's use X", "standardize on Y", "we'll go with Z", "stick with W"
+- Constraints or conventions established for the repo or team (defaults, policies, "from now on")
+- Plans that commit the work to a specific stack, package manager, library, or pattern
+
+NOT a decision: pure questions with no commitment, vague brainstorming with no resolution, or execution-only steps with no stable choice (e.g. "run the tests" with no policy change).
+
+Fields:
+- "decision": one short imperative sentence stating WHAT was chosen or agreed (max ~20 words). If nothing was committed, null.
+- "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
+- "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
+- "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
+
+Output ONLY valid JSON. If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
+Never add explanation outside the JSON.
 Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}`
 
   const userPrompt = `Session turn:
