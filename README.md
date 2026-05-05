@@ -32,6 +32,33 @@ That's it. After that — nothing.
 
 > **Running from a local clone?** `npx robrain` is the short form used throughout this README. If the package isn't published yet, run `pnpm install && pnpm build` once, then substitute `node packages/cli/dist/index.js` for `npx robrain` (same arguments).
 
+## Cursor-specific setup (most reliable path)
+
+For Cursor users specifically, the most reliable OSS path is Cursor Background Agent or Cursor Rules plus self-hosted install:
+
+```bash
+npx robrain install --self-hosted
+```
+
+Then add project rules in `.cursorrules` so Cursor consistently calls the Sensing tools:
+
+```md
+At session start, call sensing_start_session.
+After every response, call sensing_record_turn with the current turn details.
+At session end, call sensing_end_session.
+```
+
+Copy-paste starter `.cursorrules`:
+
+```md
+# RoBrain sensing hooks (Cursor)
+At session start, call sensing_start_session.
+After every response, call sensing_record_turn with the current turn details.
+At session end, call sensing_end_session.
+```
+
+This improves reliability when Cursor does not consistently follow general instructions by default.
+
 ---
 
 ## What makes this different
