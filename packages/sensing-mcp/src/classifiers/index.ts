@@ -19,7 +19,19 @@ import { THRESHOLDS } from '@robrain/shared'
 import { config } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
 
-const anthropic = new Anthropic({ apiKey: config.anthropicApiKey })
+/** Lazily built so the MCP process can start without ANTHROPIC_API_KEY (Cursor often omits it on reconnect). */
+let anthropicClient: Anthropic | null | undefined
+
+function getAnthropicClient(): Anthropic | null {
+  if (anthropicClient !== undefined) return anthropicClient
+  const key = config.anthropicApiKey.trim()
+  if (!key) {
+    anthropicClient = null
+    return null
+  }
+  anthropicClient = new Anthropic({ apiKey: key })
+  return anthropicClient
+}
 
 // ─────────────────────────────────────────────────────────────
 // CLASSIFIER 1 — Decision classifier
@@ -89,8 +101,14 @@ Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"optio
 User: ${turn.user_message}
 Claude: ${turn.claude_reply}`
 
+  const client = getAnthropicClient()
+  if (!client) {
+    console.error('[Sensing] ANTHROPIC_API_KEY is not set — skipping Haiku decision extraction')
+    return { decision: null, rationale: null, rejected: [], confidence: 0 }
+  }
+
   try {
-    const response = await anthropic.messages.create({
+    const response = await client.messages.create({
       model:      config.anthropicModel,
       max_tokens: 300,
       system:     systemPrompt,
@@ -145,10 +163,12 @@ const embeddingWindows = new Map<string, number[][]>()
 export async function classifyTopicShift(
   turn: SessionTurn,
 ): Promise<TopicShiftSignal | null> {
+  if (config.topicShiftDisableEmbedding) return null
+
   const sessionId = turn.session_id
   const window = embeddingWindows.get(sessionId) ?? []
 
-  // Embed current user message
+  // One embeddings API request per sensing_record_turn (user_message only).
   const currentEmbedding = await embed(turn.user_message)
 
   let maxDistance = 0

@@ -5,12 +5,14 @@
 // ─────────────────────────────────────────────────────────────
 
 export const config = {
-  // ── Anthropic (required — for decision classifier) ─────────
-  // Model used for the LLM-confirm stage of the decision classifier.
-  anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
+  // ── Anthropic (needed for decision classifier Stage 2 — Haiku) ─
+  // Not validated at process start so the MCP server can boot when Cursor
+  // does not inject env (set ANTHROPIC_API_KEY in MCP server config or shell).
+  // If unset, keyword hits still run but LLM extraction is skipped.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   anthropicModel:  process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
 
-  // ── Embeddings (required — for topic-shift classifier) ─────
+  // ── Embeddings (for topic-shift in sensing_record_turn unless disabled) ─
   // Choose ONE provider by setting EMBEDDING_PROVIDER.
   // Options: 'openai' | 'voyage' | 'cohere'
   // Then set the corresponding API key below.
@@ -47,12 +49,9 @@ export const config = {
   flushGraceWindowMs:    Number(process.env.FLUSH_GRACE_WINDOW_MS    ?? 2000),
   // How many past messages to compare for topic-shift embedding delta.
   topicShiftWindowSize:  Number(process.env.TOPIC_SHIFT_WINDOW_SIZE  ?? 3),
+  // When true, skip embedding API calls — topic_shift is never detected via embeddings.
+  topicShiftDisableEmbedding: process.env.SENSING_TOPIC_SHIFT_DISABLE_EMBEDDING === 'true',
 } as const
 
 export type EmbeddingProvider = 'openai' | 'voyage' | 'cohere'
 
-function requireEnv(key: string): string {
-  const val = process.env[key]
-  if (!val) throw new Error(`Missing required environment variable: ${key}`)
-  return val
-}

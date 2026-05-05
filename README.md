@@ -274,7 +274,7 @@ npx robrain init-project
 
 Open Claude Code normally. Sensing watches in the background.
 
-`robrain init-project` writes mode-aware instructions:
+-hosted`robrain init-project` writes mode-aware instructions:
 
 - **OSS self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
 - **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.

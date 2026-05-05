@@ -147,8 +147,11 @@ server.tool(
         const decisionSignal = await classifyDecision(turn, projectId)
         if (decisionSignal) {
           await routeDecisionSignal(decisionSignal, projectId)  // Bug 3 fix
+          // Mark as classified only when a decision signal was produced.
+          // If no signal is produced, keep this turn unclassified so
+          // sensing_end_session can flush it for Perception-side extraction.
+          streamBuffer.markClassified(session_id, sequence)
         }
-        streamBuffer.markClassified(session_id, sequence)
       } catch (err) {
         console.error('[Sensing] Decision classifier error:', err)
       }
@@ -271,6 +274,7 @@ server.tool(
           unclassified:     bufferStats.unclassified,
           perception_url:   config.perceptionApiUrl,
           embedding_provider: config.embeddingProvider,
+          topic_shift_embeddings_disabled: config.topicShiftDisableEmbedding,
         }),
       }],
     }

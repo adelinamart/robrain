@@ -5,6 +5,7 @@
 // Supported: Claude Code, Cursor, GitHub Copilot (VS Code)
 // ─────────────────────────────────────────────────────────────
 // ----ROBRAIN___
+// ****RADU****
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
