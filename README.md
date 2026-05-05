@@ -6,36 +6,59 @@ RoBrain remembers architectural decisions, rationale, and rejected alternatives 
 
 Works across Claude Code, Cursor, and Copilot sessions.
 
+## Setup — four steps, then fully automatic
+
+The user has to do four things, in order. After that it's fully automatic.
+
+**One-time setup (do once, ever):**
+
 ```bash
-# Install and start
-git clone https://github.com/roryplans/robrain
-cd robrain && cp .env.example .env
-# Add API keys once (shared by Docker and `robrain install --repo-root`)
-pnpm install
+# 1. Start the Docker stack (Postgres + Perception)
+#    (run this from the robrain repo root)
 pnpm docker:up
 
-# CLI from this repo (build first, then use node …/dist/index.js)
-pnpm build
+# 2. Install CLI and wire Sensing into Claude Code
+npx robrain install --self-hosted
 
-#  Install the local package globally — then use robrain normally:
-pnpm install -g /absolute/path/to/robrain/robrain/packages/cli
-
-# Register Sensing MCP (links built packages/sensing-mcp → ~/.robrain/mcp/sensing)
-node packages/cli/dist/index.js install --self-hosted --repo-root "$(pwd)"
-
-# Initialize your project
-node packages/cli/dist/index.js init-project
-
-# After sessions: review what was captured
-node packages/cli/dist/index.js review
-
-# Get context to paste into Claude Code
-node packages/cli/dist/index.js inject --query "auth decisions" --copy
+# 3. Initialize your project (run in your repo root)
+cd /path/to/your/project
+npx robrain init-project
 ```
 
-When the CLI is published to npm under a usable package name, you can replace `node packages/cli/dist/index.js` with `npx robrain` or `npx @robrain/cli` (depending on publish settings).
+**Per-project (do once per repo):**
 
-Throughout this README, `npx robrain …` appears as the short form for the CLI; **from a local clone**, run `pnpm build` once and substitute `node packages/cli/dist/index.js` for `npx robrain` (same arguments).
+Step 3 above — `init-project` — writes the `CLAUDE.md` instructions that tell Claude Code to call the Sensing MCP tools at session start and end. This only needs to happen once per project.
+
+That's it. After that — nothing.
+
+`npx robrain` is the canonical CLI path used throughout this README.
+
+## Cursor-specific setup (most reliable path)
+
+For Cursor users specifically, the most reliable OSS path is Cursor Background Agent or Cursor Rules plus self-hosted install:
+
+```bash
+npx robrain install --self-hosted
+```
+
+Then add project rules in `.cursorrules` so Cursor consistently calls the Sensing tools:
+
+```md
+At session start, call sensing_start_session.
+After every response, call sensing_record_turn with the current turn details.
+At session end, call sensing_end_session.
+```
+
+Copy-paste starter `.cursorrules`:
+
+```md
+# RoBrain sensing hooks (Cursor)
+At session start, call sensing_start_session.
+After every response, call sensing_record_turn with the current turn details.
+At session end, call sensing_end_session.
+```
+
+This improves reliability when Cursor does not consistently follow general instructions by default.
 
 ---
 
@@ -127,6 +150,12 @@ This lifecycle tracking happens automatically. When Sensing detects a new decisi
 In self-hosted mode: no. Conversation turns are processed by your local Perception API running in Docker and stored in your local Postgres instance. Nothing is sent to Rory Plans or any external service.
 
 When using Rory Plans cloud: conversation turns are sent to Rory Plans' hosted Perception API for extraction. The extracted decision object is stored on Rory Plans infrastructure. Raw conversation text is not retained after extraction.
+
+**Why are there two API keys in self-hosted mode?**
+
+RoBrain uses Anthropic (Haiku) for decision extraction/classification and a separate embeddings provider (`openai`, `voyage`, or `cohere`) for semantic vector search. That is why you may see both `ANTHROPIC_API_KEY` and an embedding key in setup.
+
+**Cheapest recommended combo:** `ANTHROPIC_API_KEY` (Haiku) + `EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` (`text-embedding-3-small`).
 
 ---
 
@@ -228,7 +257,7 @@ Your infrastructure / Rory Plans:
 From the repository root, create a single `.env` used by both `pnpm docker:up` and `robrain install --self-hosted --repo-root`:
 
 ```bash
-git clone https://github.com/roryplans/robrain
+git clone https://github.com/adelinamart/robrain
 cd robrain
 cp .env.example .env
 ```
@@ -432,6 +461,30 @@ The honest difference: OSS gives you the capture and storage layer — decisions
 The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. But the bigger gap is automatic injection vs manual paste. That's a workflow change, not just an accuracy improvement.
 
 **Get cloud access:** [roryplans.ai](https://roryplans.ai)
+
+---
+
+## Troubleshooting
+
+After setup, Sensing runs automatically whenever Claude Code is open. The MCP server is registered in `~/.claude/mcp.json`, so Claude Code starts it automatically on launch. The `CLAUDE.md` instructions tell Claude to call `sensing_start_session` at the beginning of each session and `sensing_record_turn` after every exchange.
+
+**The one thing that can break it:**
+
+Claude Code doesn't always follow `CLAUDE.md` instructions reliably — this is the compliance problem from pre-launch testing. If Claude stops calling `sensing_record_turn`, Sensing goes silent. The way to check:
+
+```bash
+npx robrain status
+```
+
+If `Decisions: 0` after a session where you made architectural choices, Claude probably didn't call the tools. The fix is to make the `CLAUDE.md` instructions more explicit or remind Claude at the start of the session: *"please follow the RoBrain instructions in CLAUDE.md."*
+
+**The practical reality:**
+
+The developer needs two habits:
+- `npx robrain review` after sessions where important decisions were made
+- `npx robrain inject --copy` before starting a new task that builds on prior work
+
+Everything else — capture, extraction, storage, embedding — happens without you doing anything.
 
 ---
 
