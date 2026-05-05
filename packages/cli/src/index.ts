@@ -145,7 +145,7 @@ program
 
 program.addHelpText('beforeAll', `
   RoBrain v${VERSION} — institutional memory for AI coding agents
-  by roryplans.ai · private · not open source
+  by roryplans.ai
 `)
 
 program.addHelpText('afterAll', `

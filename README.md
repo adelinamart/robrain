@@ -150,6 +150,12 @@ In self-hosted mode: no. Conversation turns are processed by your local Percepti
 
 When using Rory Plans cloud: conversation turns are sent to Rory Plans' hosted Perception API for extraction. The extracted decision object is stored on Rory Plans infrastructure. Raw conversation text is not retained after extraction.
 
+**Why are there two API keys in self-hosted mode?**
+
+RoBrain uses Anthropic (Haiku) for decision extraction/classification and a separate embeddings provider (`openai`, `voyage`, or `cohere`) for semantic vector search. That is why you may see both `ANTHROPIC_API_KEY` and an embedding key in setup.
+
+**Cheapest recommended combo:** `ANTHROPIC_API_KEY` (Haiku) + `EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` (`text-embedding-3-small`).
+
 ---
 
 ## "Why does this code exist?"
