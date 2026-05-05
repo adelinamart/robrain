@@ -39,16 +39,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Load API keys / model embed settings from repo-root `.env` inside the container.
+    # Omitting `${VAR}` for those keys avoids Compose shell substitution: an empty exported
+    # `ANTHROPIC_API_KEY=` in the host would otherwise win over values in `--env-file .env`.
+    env_file:
+      - ../.env
     environment:
       PORT:              ${PERCEPTION_PORT:-3001}
       DATABASE_URL:      postgres://${POSTGRES_USER:-robrain}:${POSTGRES_PASSWORD:-robrain}@postgres:5432/${POSTGRES_DB:-robrain}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ANTHROPIC_MODEL:   ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
-      OPENAI_API_KEY:    ${OPENAI_API_KEY:-}
-      VOYAGE_API_KEY:    ${VOYAGE_API_KEY:-}
-      COHERE_API_KEY:    ${COHERE_API_KEY:-}
-      PERCEPTION_API_KEY: ${PERCEPTION_API_KEY:-}
       DB_SCHEMA:         context_system
       # OSS mode — basic extraction, no veto-preserving prompt
       OSS_MODE:          "true"
