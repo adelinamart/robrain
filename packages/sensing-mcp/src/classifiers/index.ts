@@ -92,6 +92,7 @@ export async function classifyDecision(
     confidence:    extracted.confidence,
     files_affected: turn.files_touched,
     scope,
+    extracted,
   }
 }
 

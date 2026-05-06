@@ -241,17 +241,30 @@ export function writeClaudeMd(
   mode: RoBrainInstructionMode = 'sensing+control',
 ): void {
   const claudeMdPath = join(projectRoot, 'CLAUDE.md')
+  const canonicalBlock = roBrainMarkedBlock(projectId, mode)
 
-  // If CLAUDE.md already exists, append the RoBrain block
   let existing = ''
   if (existsSync(claudeMdPath)) {
     existing = readFileSync(claudeMdPath, 'utf8')
-    // Don't double-write if already configured
-    if (existing.includes(ROBRAIN_MARKER_START)) return
+    const start = existing.indexOf(ROBRAIN_MARKER_START)
+    const end   = existing.indexOf(ROBRAIN_MARKER_END, start)
+    if (start !== -1 && end !== -1) {
+      const endInclusive = end + ROBRAIN_MARKER_END.length
+      const currentBlock = existing.slice(start, endInclusive)
+      if (currentBlock === canonicalBlock) return
+      const next =
+        existing.slice(0, start).trimEnd() +
+        '\n\n' +
+        canonicalBlock +
+        '\n\n' +
+        existing.slice(endInclusive).trimStart()
+      writeFileSync(claudeMdPath, next.trimEnd() + '\n', 'utf8')
+      return
+    }
     existing = existing.trimEnd() + '\n\n'
   }
 
-  writeFileSync(claudeMdPath, existing + roBrainMarkedBlock(projectId, mode), 'utf8')
+  writeFileSync(claudeMdPath, existing + canonicalBlock + '\n', 'utf8')
 }
 
 /** Writes `.cursor/rules/robrain.mdc` when Cursor is used; skips if RoBrain block already present. Returns true if a new file was written. */

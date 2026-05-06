@@ -9,7 +9,8 @@ import { config } from './config.js'
 
 // ── Route decision signal → Perception API ─────────────────
 
-export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<void> {
+/** Returns true only when Perception accepted the signal (2xx). */
+export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<boolean> {
   if (!config.perceptionApiUrl) {
     console.log('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
       decision_type: signal.decision_type,
@@ -17,7 +18,7 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
       files:         signal.files_affected,
       scope:         signal.scope,
     })
-    return
+    return false
   }
 
   try {
@@ -32,10 +33,14 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
     })
 
     if (!res.ok) {
-      console.error('[Sensing] Perception API error:', res.status, await res.text())
+      const detail = await res.text()
+      console.error('[Sensing] Perception API error:', res.status, detail)
+      return false
     }
+    return true
   } catch (err) {
     console.error('[Sensing] Failed to reach Perception API:', err)
+    return false
   }
 }
 

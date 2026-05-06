@@ -4,24 +4,16 @@
 This project uses RoBrain for persistent institutional memory across sessions.
 Call these tools as instructed to maintain causal memory of decisions.
 
-### Session start (mandatory)
-Before your first reply in each new chat, call:
+### Session start (every session, first thing)
+```
 sensing_start_session(project_id="846e5e429167", session_id="<ISO-timestamp>-<4-random-chars>", working_dir="<cwd>")
-Store session_id and set sequence=1.
+control_get_session_context(project_id="846e5e429167", session_id="<same-id>")
+```
+Inject the always_on_summary returned by control_get_session_context into your context.
 
-
-### After every response (mandatory)
-Call:
-sensing_record_turn(
-  session_id="<stored session_id>",
-  sequence=<current sequence>,
-  user_message="<full user message>",
-  claude_reply="<your full reply>",
-  files_touched=[...],
-  injected_memory_ids=[]
-)
-Then increment sequence by 1.
-
+### After every response
+```
+sensing_record_turn(session_id=..., sequence=<n>, user_message=..., claude_reply=..., files_touched=[...], injected_memory_ids=[...])
 ```
 If topic_shift=true is returned, immediately call:
 ```

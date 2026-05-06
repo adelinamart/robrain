@@ -33,6 +33,9 @@ interface ActiveSession {
 }
 const activeSessions = new Map<string, ActiveSession>()
 
+/** Last Perception POST /signals failure for diagnostics (sensing_get_status). */
+let lastDecisionShipFailure: string | null = null
+
 // ── MCP Server setup ───────────────────────────────────────
 
 const server = new McpServer({
@@ -146,11 +149,15 @@ server.tool(
         // Decision classifier
         const decisionSignal = await classifyDecision(turn, projectId)
         if (decisionSignal) {
-          await routeDecisionSignal(decisionSignal, projectId)  // Bug 3 fix
-          // Mark as classified only when a decision signal was produced.
-          // If no signal is produced, keep this turn unclassified so
-          // sensing_end_session can flush it for Perception-side extraction.
-          streamBuffer.markClassified(session_id, sequence)
+          const shipped = await routeDecisionSignal(decisionSignal, projectId)
+          if (shipped) {
+            lastDecisionShipFailure = null
+            streamBuffer.markClassified(session_id, sequence)
+          }
+          else {
+            lastDecisionShipFailure =
+              `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
+          }
         }
       } catch (err) {
         console.error('[Sensing] Decision classifier error:', err)
@@ -272,6 +279,7 @@ server.tool(
           turn_count:       session?.turn_count ?? 0,
           buffer_size:      bufferStats.total,
           unclassified:     bufferStats.unclassified,
+          last_decision_ship_failure: lastDecisionShipFailure,
           perception_url:   config.perceptionApiUrl,
           embedding_provider: config.embeddingProvider,
           topic_shift_embeddings_disabled: config.topicShiftDisableEmbedding,

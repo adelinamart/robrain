@@ -1,6 +1,6 @@
 // ============================================================
 // Shared types — context-system/packages/shared/src/types.ts
-// Imported by sensing-mcp, control-mcp, perception-api, planning-api
+// Imported by sensing-mcp, perception-self-hosted, cli, etc.
 // ============================================================
 
 // ── Primitives ────────────────────────────────────────────────
@@ -57,6 +57,8 @@ export interface DecisionSignal {
   files_affected: string[]
   scope: Scope
   needs_classification?: boolean   // true = flush-on-close raw turn
+  /** When set (Sensing Haiku path), Perception OSS should prefer this over re-extraction. */
+  extracted?: ExtractedDecision
 }
 
 /** Output of the topic-shift classifier */

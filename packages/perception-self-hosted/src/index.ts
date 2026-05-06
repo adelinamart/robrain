@@ -22,6 +22,7 @@ import { serve }             from '@hono/node-server'
 import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
+import { THRESHOLDS }        from '@robrain/shared'
 
 const { Pool } = pg
 
@@ -77,6 +78,13 @@ app.get('/health', async (c) => {
 })
 
 // ── POST /signals — receive from Sensing MCP ──────────────────
+const ExtractedSchema = z.object({
+  decision:   z.string().nullable(),
+  rationale:  z.string().nullable(),
+  rejected:   z.array(z.object({ option: z.string(), reason: z.string() })),
+  confidence: z.number(),
+})
+
 const SignalSchema = z.object({
   signal: z.object({
     turn: z.object({
@@ -92,11 +100,13 @@ const SignalSchema = z.object({
     files_affected:       z.array(z.string()).default([]),
     scope:                z.enum(['user','local','team','global']).default('team'),
     needs_classification: z.boolean().optional(),
+    extracted:            ExtractedSchema.optional(),
   }),
 })
 
 app.post('/signals', async (c) => {
   const projectId = c.req.header('X-Project-Id') ?? 'default'
+  const minConf = THRESHOLDS.DECISION_CONFIDENCE_MIN
 
   let body: z.infer<typeof SignalSchema>
   try {
@@ -107,53 +117,70 @@ app.post('/signals', async (c) => {
 
   const { signal } = body
 
-  // Confidence gate — discard low-confidence signals
-  if (signal.confidence < 0.6 && !signal.needs_classification) {
-    return c.json({ accepted: false, action: 'discarded', message: 'Confidence below threshold' })
+  try {
+    // Confidence gate — discard low-confidence signals (flush-on-close bypasses via needs_classification)
+    if (signal.confidence < minConf && !signal.needs_classification) {
+      return c.json({ accepted: false, action: 'discarded', message: 'Confidence below threshold' })
+    }
+
+    // Ensure project row exists before sessions (defense even if init-project failed)
+    await pool.query(`
+      INSERT INTO ${S}.projects (id, name)
+      VALUES ($1, $2)
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+    `, [projectId, projectId])
+
+    // Ensure session exists
+    await pool.query(`
+      INSERT INTO ${S}.sessions (id, project_id)
+      VALUES ($1, $2)
+      ON CONFLICT (id) DO NOTHING
+    `, [signal.turn.session_id, projectId])
+
+    const trustSensingExtract =
+      Boolean(
+        signal.extracted?.decision &&
+        (signal.extracted.confidence ?? 0) >= minConf &&
+        signal.needs_classification !== true,
+      )
+
+    // Prefer Sensing's Haiku extraction when present; otherwise OSS re-extract (flush path, etc.)
+    const extracted = trustSensingExtract
+      ? signal.extracted!
+      : await extractDecisionOSS(signal.turn.user_message, signal.turn.claude_reply)
+
+    if (!extracted.decision || extracted.confidence < minConf) {
+      return c.json({ accepted: false, action: 'discarded', message: 'No decision extracted' })
+    }
+
+    // Embed the decision
+    const embedding = await embed(`${extracted.decision}. ${extracted.rationale ?? ''}`)
+
+    const { rows } = await pool.query<{ id: string }>(`
+      INSERT INTO ${S}.decisions (
+        project_id, session_id, decision, rationale,
+        rejected, files_affected, confidence, scope, source, embedding
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector)
+      RETURNING id
+    `, [
+      projectId,
+      signal.turn.session_id,
+      extracted.decision,
+      extracted.rationale ?? null,
+      JSON.stringify(extracted.rejected ?? []),
+      signal.files_affected,
+      extracted.confidence,
+      signal.scope,
+      'sensing',
+      JSON.stringify(embedding),
+    ])
+
+    return c.json({ accepted: true, action: 'written', decision_id: rows[0].id })
   }
-
-  // Ensure session exists
-  await pool.query(`
-    INSERT INTO ${S}.sessions (id, project_id)
-    VALUES ($1, $2)
-    ON CONFLICT (id) DO NOTHING
-  `, [signal.turn.session_id, projectId])
-
-  // ── OSS extraction prompt (basic — no veto-preserving logic) ──
-  // Note: The cloud version uses a calibrated prompt with few-shot
-  // negative examples and structured veto preservation that took
-  // significant iteration to get right. This version is functional
-  // but will miss some edge cases the cloud version catches.
-  const extracted = await extractDecisionOSS(signal.turn.user_message, signal.turn.claude_reply)
-
-  if (!extracted.decision || extracted.confidence < 0.6) {
-    return c.json({ accepted: false, action: 'discarded', message: 'No decision extracted' })
+  catch (err) {
+    console.error('[Perception OSS] POST /signals error:', err)
+    return c.json({ error: 'Internal error', detail: String(err) }, 500)
   }
-
-  // Embed the decision
-  const embedding = await embed(`${extracted.decision}. ${extracted.rationale ?? ''}`)
-
-  // Write to Postgres
-  const { rows } = await pool.query<{ id: string }>(`
-    INSERT INTO ${S}.decisions (
-      project_id, session_id, decision, rationale,
-      rejected, files_affected, confidence, scope, source, embedding
-    ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector)
-    RETURNING id
-  `, [
-    projectId,
-    signal.turn.session_id,
-    extracted.decision,
-    extracted.rationale ?? null,
-    JSON.stringify(extracted.rejected),
-    signal.files_affected,
-    extracted.confidence,
-    signal.scope,
-    'sensing',
-    JSON.stringify(embedding),
-  ])
-
-  return c.json({ accepted: true, action: 'written', decision_id: rows[0].id })
 })
 
 // ── GET /decisions — for robrain review + robrain inject ───────

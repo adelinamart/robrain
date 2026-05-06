@@ -91,6 +91,9 @@ export function buildInitContext(info: ProjectInfo): string {
   return parts.join('\n\n')
 }
 
+/** Minimum confidence for inferred init decisions — must match Perception OSS gate (THRESHOLDS.DECISION_CONFIDENCE_MIN). */
+const INIT_DECISION_MIN_CONFIDENCE = 0.6
+
 /** Call Perception to register project and seed warm-start summary */
 export async function seedProjectMemory(
   perceptionUrl: string,
@@ -98,8 +101,8 @@ export async function seedProjectMemory(
   info: ProjectInfo,
 ): Promise<{ ok: boolean; decisionsWritten: number }> {
   try {
-    // 1. Register the project
-    await fetch(`${perceptionUrl}/projects`, {
+    // 1. Register the project (required for sessions / signals FK chain)
+    const regRes = await fetch(`${perceptionUrl}/projects`, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -107,6 +110,11 @@ export async function seedProjectMemory(
       },
       body: JSON.stringify({ id: info.id, name: info.name }),
     })
+    if (!regRes.ok) {
+      const detail = await regRes.text().catch(() => '')
+      console.error('[init-project] POST /projects failed:', regRes.status, detail)
+      return { ok: false, decisionsWritten: 0 }
+    }
 
     // 2. Use Anthropic to infer architectural decisions from context
     const anthropicKey = process.env.ANTHROPIC_API_KEY
@@ -158,40 +166,11 @@ No explanation outside the JSON.`,
       if (!Array.isArray(decisions)) decisions = []
     } catch { decisions = [] }
 
-    // 3. Seed a stub session for init decisions
+    // 3. Seed inferred decisions (sessions rows are created inside POST /signals; stub signal removed — it was discarded by the confidence gate)
     const sessionId = `init-${info.id}-${Date.now()}`
-
-    // Register stub session
-    await fetch(`${perceptionUrl}/signals`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        ...(perceptionKey ? { 'Authorization': `Bearer ${perceptionKey}` } : {}),
-        'X-Project-Id':  info.id,
-      },
-      body: JSON.stringify({
-        signal: {
-          turn: {
-            session_id:    sessionId,
-            sequence:      1,
-            user_message:  'Project initialization scan',
-            claude_reply:  context,
-            files_touched: [],
-            timestamp:     new Date().toISOString(),
-          },
-          decision_type:        'init',
-          confidence:           0.0,    // won't pass confidence gate — just registers session
-          files_affected:       [],
-          scope:                'team',
-          needs_classification: false,
-        },
-      }),
-    }).catch(() => { /* ignore */ })
-
-    // Write each inferred decision
     let written = 0
     for (const d of decisions.slice(0, 5)) {
-      if (!d.decision || d.confidence < 0.5) continue
+      if (!d.decision || d.confidence < INIT_DECISION_MIN_CONFIDENCE) continue
 
       const res = await fetch(`${perceptionUrl}/signals`, {
         method: 'POST',
