@@ -185,7 +185,8 @@ app.post('/signals', async (c) => {
       JSON.stringify(embedding),
     ])
 
-    return c.json({ accepted: true, action: 'written', decision_id: rows[0].id })
+    scheduleRegenerateSummary(projectId)
+    return c.json({ accepted: true, action: 'written', decision_id: rows[0]?.id })
   }
   catch (err) {
     if (err instanceof EmbeddingProviderError) {
@@ -469,8 +470,9 @@ Claude: ${claudeReply}`
       system,
       messages:     [{ role: 'user', content: user }],
     })
-    const text = resp.content[0].type === 'text'
-      ? stripMarkdownJsonFence(resp.content[0].text)
+    const block = resp.content[0]
+    const text  = block?.type === 'text'
+      ? stripMarkdownJsonFence(block.text)
       : '{}'
     const raw = JSON.parse(text) as {
       decision?: string | null
@@ -560,6 +562,25 @@ async function embed(text: string): Promise<number[]> {
   return pad(ensureEmbedding('openai', d.data?.[0]?.embedding))
 }
 
+const REGENERATE_SUMMARY_DEBOUNCE_MS = 30_000
+
+/** Per-project trailing debounce — coalesces burst writes (e.g. init-project) into one Haiku call per window. */
+const regenerateSummaryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function scheduleRegenerateSummary(projectId: string): void {
+  const pending = regenerateSummaryTimers.get(projectId)
+  if (pending !== undefined) clearTimeout(pending)
+  regenerateSummaryTimers.set(
+    projectId,
+    setTimeout(() => {
+      regenerateSummaryTimers.delete(projectId)
+      regenerateSummary(projectId).catch(err =>
+        console.error('[Perception OSS] regenerateSummary failed:', projectId, err)
+      )
+    }, REGENERATE_SUMMARY_DEBOUNCE_MS),
+  )
+}
+
 async function regenerateSummary(projectId: string): Promise<void> {
   const { rows } = await pool.query(`
     SELECT d.decision, d.rationale, d.rejected FROM ${S}.decisions d
@@ -579,7 +600,8 @@ async function regenerateSummary(projectId: string): Promise<void> {
     system: 'Summarise project decisions in exactly 3 lines. Format: "Chose X over Y (reason)." Preserve rejected alternatives verbatim.',
     messages: [{ role: 'user', content: `Summarise:\n${list}` }],
   })
-  const summary = resp.content[0].type === 'text' ? resp.content[0].text.trim() : null
+  const block   = resp.content[0]
+  const summary = block?.type === 'text' ? block.text.trim() : null
   if (summary) {
     await pool.query(`UPDATE ${S}.projects SET always_on_summary=$2, updated_at=now() WHERE id=$1`, [projectId, summary])
   }

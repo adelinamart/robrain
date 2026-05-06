@@ -146,7 +146,8 @@ Claude: ${turn.claude_reply}`
       messages:   [{ role: 'user', content: userPrompt }],
     })
 
-    const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
+    const block   = response.content[0]
+    const rawText = block?.type === 'text' ? block.text : '{}'
     const text = stripMarkdownJsonFence(rawText)
     const parsed = JSON.parse(text) as ExtractedDecision
     lastClassifierFailure = null
@@ -262,7 +263,7 @@ function checkFileContextShift(sessionId: string, newFiles: string[]): boolean {
 
 function deriveTaskDescription(userMessage: string): string {
   // Use first sentence or first 100 chars as task description
-  const firstSentence = userMessage.split(/[.!?]/)[0].trim()
+  const firstSentence = userMessage.split(/[.!?]/)[0]!.trim()
   return firstSentence.length > 100
     ? firstSentence.slice(0, 97) + '...'
     : firstSentence

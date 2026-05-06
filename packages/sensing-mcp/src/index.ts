@@ -8,22 +8,27 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import type { SessionTurn } from '@robrain/shared'
+import { loadEnv, type SessionTurn } from '@robrain/shared'
 
-import { streamBuffer } from './buffer.js'
-import {
+// `.env` is the single source of truth for API keys; values there override anything
+// already in process.env (including the env block injected from ~/.claude.json),
+// which only acts as a fallback for keys missing from `.env`.
+loadEnv()
+
+const { streamBuffer } = await import('./buffer.js')
+const {
   classifyDecision,
   classifyTopicShift,
   getLastClassifierFailure,
   scoreReply,
   clearSessionEmbeddings,
-} from './classifiers/index.js'
-import {
+} = await import('./classifiers/index.js')
+const {
   routeDecisionSignal,
   routeReplyScore,
   routeFlushTurns,
-} from './router.js'
-import { config } from './config.js'
+} = await import('./router.js')
+const { config } = await import('./config.js')
 
 // ── Active session registry ────────────────────────────────
 

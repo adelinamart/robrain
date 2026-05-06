@@ -17,6 +17,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@robrain/shared':
+        specifier: workspace:*
+        version: link:../shared
       chalk:
         specifier: ^5.3.0
         version: 5.6.2
@@ -101,6 +104,9 @@ importers:
 
   packages/shared:
     devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
       typescript:
         specifier: ^5.4.0
         version: 5.9.3

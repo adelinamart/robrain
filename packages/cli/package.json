@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "RoBrain CLI for installation, setup, and memory workflows",
   "license": "Apache-2.0",
@@ -33,6 +33,7 @@
     "postinstall": "node scripts/chmod-bin.cjs"
   },
   "dependencies": {
+    "@robrain/shared": "workspace:*",
     "dotenv": "^16.4.5",
     "chalk": "^5.3.0",
     "ora": "^8.0.1",

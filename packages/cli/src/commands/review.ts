@@ -107,8 +107,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   }
 
   // ── Display each decision ──────────────────────────────────
-  for (let i = 0; i < decisions.length; i++) {
-    const d     = decisions[i]
+  for (const [i, d] of decisions.entries()) {
     const index = chalk.dim(`[${i + 1}/${decisions.length}]`)
     const date  = new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     const conf  = d.confidence >= 0.9 ? chalk.green('high')

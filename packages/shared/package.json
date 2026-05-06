@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types":  "./dist/index.d.ts"
+    },
+    "./load-env": {
+      "import": "./dist/load-env.js",
+      "types":  "./dist/load-env.d.ts"
     }
   },
   "scripts": {
@@ -15,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.4.0"
   }
 }

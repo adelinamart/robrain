@@ -144,7 +144,9 @@ async function embedCohere(text: string): Promise<number[]> {
     'Cohere',
   )
   const data = await res.json() as { embeddings: { float: number[][] } }
-  return data.embeddings.float[0]
+  const vec  = data.embeddings.float[0]
+  if (!vec) throw new Error('Cohere returned no embedding')
+  return vec
 }
 
 // ── Utilities ─────────────────────────────────────────────────
@@ -158,9 +160,11 @@ function padToLength(vec: number[], length: number): number[] {
 export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, normA = 0, normB = 0
   for (let i = 0; i < a.length; i++) {
-    dot   += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    const ai = a[i]!
+    const bi = b[i]!
+    dot   += ai * bi
+    normA += ai * ai
+    normB += bi * bi
   }
   if (normA === 0 || normB === 0) return 0
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
