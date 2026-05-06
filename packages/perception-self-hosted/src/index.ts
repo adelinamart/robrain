@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { Hono }              from 'hono'
+import type { Context }      from 'hono'
 import { serve }             from '@hono/node-server'
 import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
@@ -60,6 +61,21 @@ class EmbeddingProviderError extends Error {
     this.name = 'EmbeddingProviderError'
     this.provider = provider
   }
+}
+
+/** Projects are registered only via POST /projects (e.g. robrain init-project). Reject typos / stale ids loudly. */
+async function jsonIfProjectUnknown(projectId: string, c: Context): Promise<Response | undefined> {
+  const r = await pool.query(`SELECT 1 FROM ${S}.projects WHERE id = $1 LIMIT 1`, [projectId])
+  if (!r.rowCount) {
+    return c.json(
+      {
+        error:   'project_not_registered',
+        message: `project_id ${projectId} not registered — did you run robrain init-project?`,
+      },
+      404,
+    )
+  }
+  return undefined
 }
 
 // ── Auth ──────────────────────────────────────────────────────
@@ -125,6 +141,9 @@ app.post('/signals', async (c) => {
     return c.json({ error: 'Invalid body', detail: String(err) }, 400)
   }
 
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+
   const { signal } = body
 
   try {
@@ -132,13 +151,6 @@ app.post('/signals', async (c) => {
     if (signal.confidence < minConf && !signal.needs_classification) {
       return c.json({ accepted: false, action: 'discarded', message: 'Confidence below threshold' })
     }
-
-    // Ensure project row exists before sessions (defense even if init-project failed)
-    await pool.query(`
-      INSERT INTO ${S}.projects (id, name)
-      VALUES ($1, $2)
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
-    `, [projectId, projectId])
 
     // Ensure session exists
     await pool.query(`
@@ -215,6 +227,9 @@ app.get('/decisions', async (c) => {
     : 20
 
   if (!projectId) return c.json({ error: 'project_id required' }, 400)
+
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
 
   try {
     let rows: unknown[]
@@ -377,6 +392,9 @@ app.post('/corrections', async (c) => {
 
   if (body.corrected_decision) {
     const projectId = c.req.header('X-Project-Id') ?? 'default'
+    const unknownProject = await jsonIfProjectUnknown(projectId, c)
+    if (unknownProject) return unknownProject
+
     const sessionId = c.req.header('X-Session-Id') ?? 'correction'
     const embedding  = await embed(`${body.corrected_decision}. ${body.corrected_rationale ?? ''}`)
 
@@ -412,15 +430,28 @@ app.post('/projects', async (c) => {
 
 // ── GET /projects/:id/summary ──────────────────────────────────
 app.get('/projects/:id/summary', async (c) => {
+  const id = c.req.param('id')
   const { rows } = await pool.query<{ always_on_summary: string | null; mission: string | null }>(`
     SELECT always_on_summary, mission FROM ${S}.projects WHERE id = $1
-  `, [c.req.param('id')])
-  return c.json(rows[0] ?? { always_on_summary: null, mission: null })
+  `, [id])
+  if (!rows[0]) {
+    return c.json(
+      {
+        error:   'project_not_registered',
+        message: `project_id ${id} not registered — did you run robrain init-project?`,
+      },
+      404,
+    )
+  }
+  return c.json(rows[0])
 })
 
 // ── POST /projects/:id/regenerate-summary ─────────────────────
 app.post('/projects/:id/regenerate-summary', async (c) => {
   const projectId = c.req.param('id')
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+
   regenerateSummary(projectId).catch(console.error)
   return c.json({ accepted: true })
 })

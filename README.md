@@ -10,10 +10,12 @@ Works across Claude Code, Cursor, and Copilot sessions.
 
 - [Overview](#overview)
 - [Install and usage](#install-and-usage)
+  - [Synthesis](#synthesis)
 - [CLI commands](#cli-commands)
 - [OSS vs Rory Plans cloud](#oss-vs-rory-plans-cloud)
 - [Comparisons](#comparisons)
 - [Troubleshooting](#troubleshooting)
+- [Follow-ups (TODO)](#follow-ups-todo)
 - [Reference](#reference)
 
 ---
@@ -162,6 +164,12 @@ Your infrastructure / Rory Plans:
   Planning API    ← ranks relevant memories per task (cloud only)
   Control MCP     ← auto-injects context at task boundaries (cloud only)
 ```
+
+### Synthesis
+
+Synthesis is a scheduled background pass that re-reads RoBrain's decision corpus to cluster by topic, detect contradictions and stance-drift across sessions, promote recurring entities into first-class entries, and surface what's missing — turning a reactive decision log into memory that compounds on its own.
+
+And it's worth noting: this is the thing that separates RoBrain from Auto Memory most clearly at the architecture level. Auto Memory captures and retrieves. Synthesis means the memory reflects on itself. That's a qualitatively different capability — and it's the one that makes the "memory that compounds on its own" claim true rather than just aspirational.
 
 ### Quick start — self-hosted
 
@@ -348,7 +356,7 @@ This happens at the right moment — before the agent has suggested anything —
 
 Both features are built on top of the `rejected[]` field that the OSS version captures. The data is collected in OSS — the intelligence that acts on it is in the cloud.
 
-**Get cloud access:** [roryplans.ai](https://roryplans.ai)
+**Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
 The self-hosted version captures decisions and lets you retrieve them manually. The cloud version adds the layer that makes retrieval automatic — context arrives in your sessions without you doing anything.
 
@@ -373,7 +381,7 @@ The honest difference: OSS gives you the capture and storage layer — decisions
 
 The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. But the bigger gap is automatic injection vs manual paste. That's a workflow change, not just an accuracy improvement.
 
-**Get cloud access:** [roryplans.ai](https://roryplans.ai)
+**Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
 ---
 
@@ -528,6 +536,18 @@ The developer needs two habits:
 - `npx robrain inject --copy` before starting a new task that builds on prior work
 
 Everything else — capture, extraction, storage, embedding — happens without you doing anything.
+
+---
+
+## Follow-ups (TODO)
+
+Tracked improvements not yet implemented in this repo:
+
+- **Sensing MCP — loud failures when the project is unknown.** After Perception returns **404** for an unregistered `project_id`, `fetchAlwaysOnSummary` should log a clear **`console.error`** (status + hint to run `robrain init-project` / verify `project_id`) instead of only showing a generic placeholder.
+
+- **Stable project identity.** Replace cwd-hash `project_id` with a content-based id where possible: hash of `git config --get remote.origin.url` (normalized), with a `.robrain/project.json` UUID fallback for non-git or no-remote repos — plus a migration story for existing DB rows. Survives `mv`, `cp -r`, and nested clones without orphaning decisions.
+
+You can open matching GitHub issues locally with `./scripts/create-follow-up-issues.sh` (requires [`gh`](https://cli.github.com/) and `gh auth login`).
 
 ---
 
