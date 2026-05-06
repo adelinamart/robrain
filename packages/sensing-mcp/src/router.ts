@@ -12,7 +12,7 @@ import { config } from './config.js'
 /** Returns true only when Perception persisted the decision ({ accepted:true, action:'written' }). */
 export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<boolean> {
   if (!config.perceptionApiUrl) {
-    console.log('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
+    console.error('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
       decision_type: signal.decision_type,
       confidence:    signal.confidence,
       files:         signal.files_affected,
@@ -66,7 +66,7 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
 
 export async function routeReplyScore(score: ReplyScore): Promise<void> {
   if (!config.perceptionApiUrl) {
-    console.log('[Sensing] Reply score (PERCEPTION_API_URL unset):', score)
+    console.error('[Sensing] Reply score (PERCEPTION_API_URL unset):', score)
     return
   }
 
@@ -93,7 +93,7 @@ export async function routeFlushTurns(
   if (turns.length === 0) return
 
   if (!config.perceptionApiUrl) {
-    console.log(`[Sensing] Flush: ${turns.length} unclassified turns (PERCEPTION_API_URL unset)`)
+    console.error(`[Sensing] Flush: ${turns.length} unclassified turns (PERCEPTION_API_URL unset)`)
     return
   }
 

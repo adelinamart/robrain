@@ -4,8 +4,7 @@
 // the appropriate MCP server configuration for each.
 // Supported: Claude Code, Cursor, GitHub Copilot (VS Code)
 // ─────────────────────────────────────────────────────────────
-// ----ROBRAIN___
-// ****RADU****
+// ******ROBRAIN****
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
@@ -251,7 +250,7 @@ export function writeClaudeMd(
     if (start !== -1 && end !== -1) {
       const endInclusive = end + ROBRAIN_MARKER_END.length
       const currentBlock = existing.slice(start, endInclusive)
-      if (currentBlock === canonicalBlock) return
+      if (currentBlock.trimEnd() === canonicalBlock.trimEnd()) return
       const next =
         existing.slice(0, start).trimEnd() +
         '\n\n' +
@@ -267,17 +266,35 @@ export function writeClaudeMd(
   writeFileSync(claudeMdPath, existing + canonicalBlock + '\n', 'utf8')
 }
 
-/** Writes `.cursor/rules/robrain.mdc` when Cursor is used; skips if RoBrain block already present. Returns true if a new file was written. */
+/** Writes `.cursor/rules/robrain.mdc` when Cursor is used. Replaces any existing RoBrain block in place; appends if markers are missing; creates the file (with frontmatter) if absent. Returns true when the file is written or updated. */
 export function writeCursorRoBrainRule(
   projectRoot: string,
   projectId: string,
   mode: RoBrainInstructionMode = 'sensing+control',
 ): boolean {
   const rulePath = join(projectRoot, '.cursor', 'rules', 'robrain.mdc')
+  const canonicalBlock = roBrainMarkedBlock(projectId, mode)
 
   if (existsSync(rulePath)) {
     const existing = readFileSync(rulePath, 'utf8')
-    if (existing.includes(ROBRAIN_MARKER_START)) return false
+    const start = existing.indexOf(ROBRAIN_MARKER_START)
+    const end   = existing.indexOf(ROBRAIN_MARKER_END, start)
+    if (start !== -1 && end !== -1) {
+      const endInclusive = end + ROBRAIN_MARKER_END.length
+      const currentBlock = existing.slice(start, endInclusive)
+      if (currentBlock.trimEnd() === canonicalBlock.trimEnd()) return false
+      const next =
+        existing.slice(0, start).trimEnd() +
+        '\n\n' +
+        canonicalBlock +
+        '\n\n' +
+        existing.slice(endInclusive).trimStart()
+      writeFileSync(rulePath, next.trimEnd() + '\n', 'utf8')
+      return true
+    }
+    const next = existing.trimEnd() + '\n\n' + canonicalBlock
+    writeFileSync(rulePath, next.trimEnd() + '\n', 'utf8')
+    return true
   }
 
   const dir = dirname(rulePath)
@@ -288,7 +305,7 @@ description: RoBrain MCP — session lifecycle and context tools
 alwaysApply: true
 ---
 
-${roBrainMarkedBlock(projectId, mode)}`
+${canonicalBlock}`
 
   writeFileSync(rulePath, content, 'utf8')
   return true

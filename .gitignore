@@ -19,3 +19,6 @@ docker/.env
 #Coding agents files
 CLAUDE.md
 CURSOR.md
+.claude/
+.cursor/
+
