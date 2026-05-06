@@ -15,3 +15,7 @@ docker/.env
 # Tooling / OS
 .DS_Store
 *.log
+
+#Coding agents files
+CLAUDE.md
+CURSOR.md
