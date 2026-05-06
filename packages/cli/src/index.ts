@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { program } from 'commander'
+import { loadCliEnv }                             from './lib/load-env.js'
 import { installCommand }     from './commands/install.js'
 import { initProjectCommand }  from './commands/init-project.js'
 import { statusCommand, ruleCommand, logoutCommand } from './commands/status.js'
@@ -147,6 +148,12 @@ program.addHelpText('beforeAll', `
   RoBrain v${VERSION} — institutional memory for AI coding agents
   by roryplans.ai
 `)
+
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  const opts = actionCommand.opts() as { repoRoot?: string }
+  const repoRoot = opts.repoRoot ?? process.env.ROBRAIN_REPO
+  loadCliEnv(repoRoot)
+})
 
 program.addHelpText('afterAll', `
   Self-hosted quick start:

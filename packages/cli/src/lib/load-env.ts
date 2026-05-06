@@ -1,6 +1,5 @@
-// Load repo-root `.env` for `robrain install` without overriding non-empty shell values.
-// Empty-string shell vars (`ANTHROPIC_API_KEY=`) block dotenv.config({ override: false });
-// treat them as unset so `.env` can populate them (Claude/Code sometimes inject empty keys).
+// Merge repo-root / cwd `.env` for all CLI commands without overriding non-empty shell values.
+// Empty-string shell vars (`ANTHROPIC_API_KEY=`) block naive dotenv — treat them as unset so `.env` fills in.
 // ─────────────────────────────────────────────────────────────
 
 import { createRequire } from 'node:module'
@@ -12,35 +11,15 @@ const dotenvParse = createRequire(import.meta.url)('dotenv') as {
   parse(src: Buffer | string): Record<string, string>
 }
 
-/**
- * True only for the RoBrain OSS monorepo layout — not "any repo with docker-compose".
- * Avoids loading an unrelated project's `.env` when `repoRoot` is unset and cwd happens
- * to have a generic `docker/docker-compose.yml` + `.env`.
- */
-function isRobrainMonorepoRoot(dir: string): boolean {
-  const pkgPath = join(dir, 'package.json')
-  if (!existsSync(pkgPath)) return false
-  if (!existsSync(join(dir, 'docker', 'Dockerfile.perception'))) return false
-  if (!existsSync(join(dir, 'packages', 'sensing-mcp', 'package.json'))) return false
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { name?: string }
-    return pkg.name === 'robrain'
-  }
-  catch {
-    return false
-  }
-}
-
-/** Paths checked in order; entries in earlier files win over later paths for the same key. */
+/** Paths checked in order; earlier paths win per key when merging into process.env. */
 function candidateEnvPaths(repoRoot?: string): string[] {
   const paths: string[] = []
   if (repoRoot) {
     paths.push(join(repoRoot, '.env'))
   }
-  const cwd = process.cwd()
-  const cwdEnv = join(cwd, '.env')
-  if (isRobrainMonorepoRoot(cwd) && existsSync(cwdEnv)) {
-    if (!paths.includes(cwdEnv)) paths.push(cwdEnv)
+  const cwdEnv = join(process.cwd(), '.env')
+  if (existsSync(cwdEnv) && !paths.includes(cwdEnv)) {
+    paths.push(cwdEnv)
   }
   return paths
 }
@@ -59,9 +38,12 @@ function mergeEnvFromFile(path: string): void {
   }
 }
 
-/** Merge `.env` values into `process.env` for install prompts and MCP config. */
-export function loadInstallEnv(repoRoot?: string): void {
+/** Merge `.env` into `process.env` for CLI commands (install, inject, status, …). */
+export function loadCliEnv(repoRoot?: string): void {
   for (const path of candidateEnvPaths(repoRoot)) {
     if (existsSync(path)) mergeEnvFromFile(path)
   }
 }
+
+/** @deprecated Use `loadCliEnv` */
+export const loadInstallEnv = loadCliEnv

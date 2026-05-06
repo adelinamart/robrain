@@ -150,7 +150,7 @@ Your infrastructure / Rory Plans:
 
 #### Prerequisites
 - Docker + Docker Compose
-- Node.js 18+, pnpm
+- Node.js **18.18+** (older 18.x + npm 9.6 can break `npx` bin permissions; upgrade Node or use `pnpm dlx robrain`), pnpm
 - Anthropic API key (for Haiku extraction)
 - OpenAI, Voyage, or Cohere API key (for embeddings)
 

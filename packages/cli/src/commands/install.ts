@@ -22,7 +22,6 @@ import {
   sensingBundleReady,
   McpBundleError,
 } from '../lib/mcp-bundle.js'
-import { loadInstallEnv }                                       from '../lib/load-env.js'
 import { join }                                                  from 'path'
 import { homedir }                                               from 'os'
 
@@ -65,8 +64,6 @@ function prepareMcpBundles(opts: InstallOptions): void {
 }
 
 export async function installCommand(opts: InstallOptions): Promise<void> {
-  loadInstallEnv(resolveRepoRoot(opts))
-
   console.log()
   console.log(chalk.bold('  RoBrain') + chalk.dim(' — institutional memory for AI coding agents'))
   console.log(chalk.dim('  by roryplans.ai\n'))
