@@ -101,7 +101,24 @@ Step 3 above — `init-project` — writes the `CLAUDE.md` instructions that tel
 
 That's it. After that — nothing.
 
-`npx robrain` is the canonical CLI path used throughout this README.
+`npx robrain` is the canonical CLI path used throughout this README. Anywhere you see that, you can use plain `robrain` instead if the CLI is installed globally (see below).
+
+### CLI on your `PATH` (optional)
+
+If you prefer not to use `npx` every time, install the package globally, then use the `robrain` command directly:
+
+```bash
+npm install -g robrain
+```
+
+Open a **new** terminal, or in zsh run `rehash` so your shell picks up the new binary. Then:
+
+```bash
+robrain install --self-hosted
+# …and the same for other commands: robrain init-project, robrain review, etc.
+```
+
+If you get `command not found: robrain`, either use `npx robrain …` or ensure your global npm `bin` directory is on your `PATH` (see `npm prefix -g`).
 
 ### Cursor-specific setup (most reliable path)
 
