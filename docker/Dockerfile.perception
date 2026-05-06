@@ -9,7 +9,8 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/perception-self-hosted/package.json ./packages/perception-self-hosted/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/sensing-mcp/package.json ./packages/sensing-mcp/
-RUN pnpm install --frozen-lockfile
+# Avoid workspace postinstall (e.g. cli chmod-bin) — source not copied yet; scripts irrelevant in this image
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY packages/shared ./packages/shared
 COPY packages/perception-self-hosted ./packages/perception-self-hosted
 RUN pnpm --filter @robrain/shared build \
