@@ -4,12 +4,12 @@
 // Stateless. Classifiers do the hard work; router just directs.
 // ─────────────────────────────────────────────────────────────
 
-import type { DecisionSignal, ReplyScore } from '@robrain/shared'
+import type { DecisionSignal, IngestSignalResponse, ReplyScore } from '@robrain/shared'
 import { config } from './config.js'
 
 // ── Route decision signal → Perception API ─────────────────
 
-/** Returns true only when Perception accepted the signal (2xx). */
+/** Returns true only when Perception persisted the decision ({ accepted:true, action:'written' }). */
 export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<boolean> {
   if (!config.perceptionApiUrl) {
     console.log('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
@@ -32,9 +32,27 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
       body: JSON.stringify({ signal }),
     })
 
+    const raw = await res.text()
     if (!res.ok) {
-      const detail = await res.text()
-      console.error('[Sensing] Perception API error:', res.status, detail)
+      console.error('[Sensing] Perception API error:', res.status, raw)
+      return false
+    }
+
+    let payload: IngestSignalResponse
+    try {
+      payload = JSON.parse(raw) as IngestSignalResponse
+    } catch {
+      console.error('[Sensing] Perception /signals returned non-JSON:', raw.slice(0, 500))
+      return false
+    }
+
+    // Perception often returns HTTP 200 for discarded signals — body must drive success.
+    if (!payload.accepted || payload.action !== 'written') {
+      console.error(
+        '[Sensing] Perception did not persist signal:',
+        payload.action,
+        payload.message ?? '',
+      )
       return false
     }
     return true

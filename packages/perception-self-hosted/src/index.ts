@@ -4,7 +4,7 @@
 //
 // What this does:
 //   - Receives decision signals from Sensing MCP
-//   - Runs basic Haiku extraction (decision, rationale, rejected[])
+//   - Re-extracts with Sensing-aligned Haiku when needed; prefers signal.extracted from Sensing when present
 //   - Writes to Postgres with pgvector
 //   - Serves GET /decisions for robrain review + robrain inject
 //
@@ -409,23 +409,77 @@ app.post('/projects/:id/regenerate-summary', async (c) => {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-// OSS extraction prompt — functional but without the calibrated
-// veto-preserving logic in the cloud version
+// OSS extraction — kept in sync with Sensing Haiku prompt (packages/sensing-mcp classifyDecision extractDecision)
+// so flush-on-close and any path without signal.extracted still sees the happy path.
+function stripMarkdownJsonFence(raw: string): string {
+  const t = raw.trim()
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  return m?.[1]?.trim() ?? t
+}
+
 async function extractDecisionOSS(userMsg: string, claudeReply: string) {
-  const system = `Extract technical decisions from software development conversations.
-Output ONLY valid JSON: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}
-If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}
-Keep rationale under 15 words. Never add explanation outside the JSON.`
+  const system = `You extract technical decisions from software development conversations.
+
+A decision includes ANY of the following (not only formal deliberation):
+- Explicit choice between alternatives, or adopting/rejecting a tool or approach
+- Brief agreements or directions: e.g. "let's use X", "standardize on Y", "we'll go with Z", "stick with W"
+- Constraints or conventions established for the repo or team (defaults, policies, "from now on")
+- Plans that commit the work to a specific stack, package manager, library, or pattern
+
+NOT a decision: pure questions with no commitment, vague brainstorming with no resolution, or execution-only steps with no stable choice (e.g. "run the tests" with no policy change).
+
+Fields:
+- "decision": one short imperative sentence stating WHAT was chosen or agreed (max ~20 words). If nothing was committed, null.
+- "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
+- "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
+- "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
+
+Output ONLY valid JSON. If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
+Never add explanation outside the JSON.
+Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}`
+
+  const user = `Session turn:
+User: ${userMsg}
+Claude: ${claudeReply}`
+
+  const empty = (): { decision: null; rationale: null; rejected: []; confidence: number } =>
+    ({ decision: null, rationale: null, rejected: [], confidence: 0 })
 
   try {
     const resp = await anthropic.messages.create({
-      model: config.anthropicModel, max_tokens: 300, system,
-      messages: [{ role: 'user', content: `User: ${userMsg}\nClaude: ${claudeReply}` }],
+      model:        config.anthropicModel,
+      max_tokens:   300,
+      system,
+      messages:     [{ role: 'user', content: user }],
     })
-    const text = resp.content[0].type === 'text' ? resp.content[0].text.trim() : '{}'
-    return JSON.parse(text) as { decision: string | null; rationale: string | null; rejected: Array<{ option: string; reason: string }>; confidence: number }
+    const text = resp.content[0].type === 'text'
+      ? stripMarkdownJsonFence(resp.content[0].text)
+      : '{}'
+    const raw = JSON.parse(text) as {
+      decision?: string | null
+      rationale?: string | null
+      rejected?: unknown
+      confidence?: number
+    }
+    const rejected = Array.isArray(raw.rejected)
+      ? raw.rejected.filter(
+          (x): x is { option: string; reason: string } =>
+            x !== null && typeof x === 'object' &&
+            typeof (x as { option?: unknown }).option === 'string' &&
+            typeof (x as { reason?: unknown }).reason === 'string',
+        )
+      : []
+    const confidence = typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
+      ? raw.confidence
+      : 0
+    return {
+      decision: typeof raw.decision === 'string' ? raw.decision : null,
+      rationale: typeof raw.rationale === 'string' ? raw.rationale : null,
+      rejected,
+      confidence,
+    }
   } catch {
-    return { decision: null, rationale: null, rejected: [], confidence: 0 }
+    return empty()
   }
 }
 
