@@ -1,7 +1,7 @@
 {
   "name": "robrain",
-  "version": "0.1.9",
-  "description": "Institutional memory for AI coding agents — capture decisions, rejected alternatives, and rationale across sessions",
+  "version": "0.2.0",
+  "description": "Institutional memory for AI coding agents \u2014 capture decisions, rejected alternatives, and rationale across sessions",
   "private": true,
   "packageManager": "pnpm@10.33.3",
   "workspaces": [

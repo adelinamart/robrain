@@ -1,26 +1,26 @@
 {
   "name": "@robrain/perception-self-hosted",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build":     "tsc",
-    "dev":       "tsc --watch & node --watch dist/index.js",
-    "start":     "node dist/index.js",
+    "build": "tsc",
+    "dev": "tsc --watch & node --watch dist/index.js",
+    "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk":     "^0.24.0",
-    "@robrain/shared":       "workspace:*",
-    "hono":                  "^4.0.0",
-    "@hono/node-server":     "^1.9.0",
-    "pg":                    "^8.11.0",
-    "zod":                   "^3.23.0"
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@robrain/shared": "workspace:*",
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.9.0",
+    "pg": "^8.11.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
-    "typescript":  "^5.4.0",
+    "typescript": "^5.4.0",
     "@types/node": "^20.0.0",
-    "@types/pg":   "^8.11.0"
+    "@types/pg": "^8.11.0"
   }
 }

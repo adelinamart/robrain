@@ -1,21 +1,21 @@
 {
   "name": "@robrain/shared",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types":  "./dist/index.d.ts"
+      "types": "./dist/index.d.ts"
     },
     "./load-env": {
       "import": "./dist/load-env.js",
-      "types":  "./dist/load-env.d.ts"
+      "types": "./dist/load-env.d.ts"
     }
   },
   "scripts": {
-    "build":     "tsc",
+    "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
