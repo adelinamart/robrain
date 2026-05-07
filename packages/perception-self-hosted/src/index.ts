@@ -255,7 +255,6 @@ app.get('/decisions', async (c) => {
         WHERE s.project_id = $2
           AND d.invalidated_at IS NULL
           AND d.embedding IS NOT NULL
-          AND 1 - (d.embedding <=> $1::vector) > 0.4
         ORDER BY d.embedding <=> $1::vector
         LIMIT $3
       `, [JSON.stringify(embedding), projectId, limit])

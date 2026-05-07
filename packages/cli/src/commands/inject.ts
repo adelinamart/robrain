@@ -97,7 +97,9 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
 
   if (decisions.length === 0) {
     console.log(chalk.dim(`  No decisions found for "${query ?? 'recent'}"\n`))
-    console.log(chalk.dim('  Run a Claude Code session first to capture decisions.\n'))
+    console.log(chalk.dim(query
+      ? '  No semantic matches were returned. Try a broader query (for example: "build tooling" instead of "env precedence").\n'
+      : '  Run a Claude Code session first to capture decisions.\n'))
     return
   }
 
@@ -106,7 +108,7 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     `[RoBrain context — ${info.name}${query ? ` — "${query}"` : ' — recent decisions'}]`,
   ]
 
-  for (const d of decisions) {
+  const formatDecisionLine = (d: typeof decisions[number]): string => {
     const date   = new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     const conf   = d.confidence >= 0.9 ? 'high' : d.confidence >= 0.6 ? 'medium' : 'low'
     const vetoes = (d.rejected ?? []).map(r => `${r.option} (${r.reason})`).join(' over ')
@@ -115,8 +117,34 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     const supersedes = (d as any).supersedes_id
       ? ` [supersedes earlier decision]`
       : ''
+    const similarityStr = typeof d.similarity === 'number'
+      ? ` [sim ${(d.similarity * 100).toFixed(0)}%]`
+      : ''
 
-    lines.push(`• Chose ${d.decision}${vetoStr}${rationale} [${date}, ${conf} confidence${supersedes}]`)
+    return `• Chose ${d.decision}${vetoStr}${rationale} [${date}, ${conf} confidence${supersedes}]${similarityStr}`
+  }
+
+  const hasSimilarityScores = query && decisions.some(d => typeof d.similarity === 'number')
+
+  if (hasSimilarityScores) {
+    const highConfidence = decisions.filter(d => (d.similarity ?? 0) >= 0.5)
+    const nearestMatches = decisions.filter(d => (d.similarity ?? 0) < 0.5)
+
+    if (highConfidence.length > 0) {
+      lines.push('')
+      lines.push('High-confidence matches:')
+      for (const d of highConfidence) lines.push(formatDecisionLine(d))
+    }
+
+    if (nearestMatches.length > 0) {
+      lines.push('')
+      lines.push(highConfidence.length > 0
+        ? 'Nearest matches (lower semantic confidence):'
+        : 'No high-confidence matches; nearest were:')
+      for (const d of nearestMatches) lines.push(formatDecisionLine(d))
+    }
+  } else {
+    for (const d of decisions) lines.push(formatDecisionLine(d))
   }
 
   // Cloud upgrade note (for OSS users)
