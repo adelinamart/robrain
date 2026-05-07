@@ -15,6 +15,8 @@ import chalk   from 'chalk'
 import ora     from 'ora'
 import prompts from 'prompts'
 import { cwd } from 'process'
+import { existsSync, readFileSync } from 'fs'
+import { dirname, join } from 'path'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { gatherProjectInfo, seedProjectMemory } from '../lib/project.js'
 import { detectEditors, writeClaudeMd, writeCursorRoBrainRule } from '../lib/editor.js'
@@ -49,12 +51,22 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   const spinner = ora({ text: 'Scanning project...', color: 'green' }).start()
 
   const projectRoot = cwd()
+  const detectedAncestor = findAncestorRoBrainProject(projectRoot)
   const info = gatherProjectInfo(projectRoot)
+  const resolvedProjectId = opts.projectId
+    ?? detectedAncestor?.projectId
+    ?? info.id
 
   spinner.text = `Detected: ${chalk.bold(info.name)}`
   await sleep(400)  // brief pause so user sees the detection
 
-  spinner.succeed(`Project: ${chalk.bold(info.name)} ${chalk.dim(`(id: ${info.id})`)}`)
+  spinner.succeed(`Project: ${chalk.bold(info.name)} ${chalk.dim(`(id: ${resolvedProjectId})`)}`)
+
+  if (!opts.projectId && detectedAncestor?.projectId && detectedAncestor.dir !== projectRoot) {
+    console.log(chalk.dim(
+      `  Reusing existing RoBrain project id from ${detectedAncestor.source} in ${detectedAncestor.dir}: ${detectedAncestor.projectId}`,
+    ))
+  }
 
   // Display what was found
   console.log()
@@ -94,10 +106,10 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
       : 'Writing CLAUDE.md instructions...',
     color: 'green',
   }).start()
-  writeClaudeMd(projectRoot, info.id, instructionMode)
+  writeClaudeMd(projectRoot, resolvedProjectId, instructionMode)
   let cursorRuleApplied = false
   if (hasCursor) {
-    cursorRuleApplied = writeCursorRoBrainRule(projectRoot, info.id, instructionMode)
+    cursorRuleApplied = writeCursorRoBrainRule(projectRoot, resolvedProjectId, instructionMode)
   }
   mdSpinner.succeed(
     hasCursor
@@ -113,7 +125,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   const result = await seedProjectMemory(
     config.perceptionUrl!,
     perceptionKey,
-    info,
+    { ...info, id: resolvedProjectId },
   )
 
   if (result.ok && result.decisionsWritten > 0) {
@@ -127,7 +139,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   // ── Done ───────────────────────────────────────────────────
   console.log()
   console.log(chalk.green('  ✓ Project initialized\n'))
-  console.log(chalk.dim('  Project ID: ') + chalk.cyan(info.id))
+  console.log(chalk.dim('  Project ID: ') + chalk.cyan(resolvedProjectId))
   console.log(chalk.dim('  CLAUDE.md:  ') + chalk.dim('updated with RoBrain instructions'))
   if (hasCursor) {
     console.log(
@@ -152,4 +164,42 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function findAncestorRoBrainProject(startDir: string): { projectId: string; source: string; dir: string } | null {
+  let dir = startDir
+  for (;;) {
+    const claudeMdPath = join(dir, 'CLAUDE.md')
+    const cursorRulePath = join(dir, '.cursor', 'rules', 'robrain.mdc')
+
+    const claudeMdProjectId = readRoBrainProjectIdFromFile(claudeMdPath)
+    if (claudeMdProjectId) return { projectId: claudeMdProjectId, source: 'CLAUDE.md', dir }
+
+    const cursorProjectId = readRoBrainProjectIdFromFile(cursorRulePath)
+    if (cursorProjectId) return { projectId: cursorProjectId, source: '.cursor/rules/robrain.mdc', dir }
+
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+function readRoBrainProjectIdFromFile(path: string): string | null {
+  if (!existsSync(path)) return null
+  const text = readFileSync(path, 'utf8')
+  return extractProjectIdFromRoBrainBlock(text)
+}
+
+function extractProjectIdFromRoBrainBlock(text: string): string | null {
+  const startMarker = '<!-- robrain -->'
+  const endMarker = '<!-- /robrain -->'
+  const startIdx = text.indexOf(startMarker)
+  const endIdx = startIdx === -1 ? -1 : text.indexOf(endMarker, startIdx + startMarker.length)
+  const scope = (startIdx !== -1 && endIdx !== -1)
+    ? text.slice(startIdx, endIdx + endMarker.length)
+    : text
+
+  const match = scope.match(/project_id="([^"]+)"/)
+  const projectId = match?.[1]?.trim()
+  return projectId ? projectId : null
 }
