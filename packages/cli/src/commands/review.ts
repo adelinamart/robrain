@@ -37,6 +37,7 @@ interface StoredDecision {
   conflict_flag:   boolean
   supersedes_id:   string | null    // lifecycle: decision this one replaced
   invalidated_at:  string | null    // lifecycle: when this was superseded
+  reviewed_at?:    string | null    // lifecycle: when the user explicitly approved (older Perception versions omit)
   superseded_by?:  string | null    // lifecycle: id of decision that replaced this
 }
 
@@ -98,8 +99,13 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   spinner.stop()
 
   if (decisions.length === 0) {
-    console.log(chalk.dim(`  No decisions stored yet for ${chalk.bold(info.name)}.`))
-    console.log(chalk.dim('  Run a Claude Code session to start capturing memory.\n'))
+    if (opts.history) {
+      console.log(chalk.dim(`  No decisions stored yet for ${chalk.bold(info.name)}.`))
+      console.log(chalk.dim('  Run a Claude Code session to start capturing memory.\n'))
+    } else {
+      console.log(chalk.green(`  ✓ All caught up — no decisions need review for ${chalk.bold(info.name)}.`))
+      console.log(chalk.dim('  Run a Claude Code session to capture more, or use --history to see all decisions.\n'))
+    }
     return
   }
 
@@ -107,9 +113,9 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   console.log(chalk.bold(`  Memory review — ${info.name}`))
   console.log(chalk.dim(`  ${decisions.length} decision${decisions.length === 1 ? '' : 's'} · Project ID: ${info.id}`))
   if (opts.history) {
-    console.log(chalk.dim('  Showing full history including superseded decisions\n'))
+    console.log(chalk.dim('  Showing full history including approved and superseded decisions\n'))
   } else {
-    console.log(chalk.dim('  Showing active decisions only · use --history to see full lifecycle\n'))
+    console.log(chalk.dim('  Showing decisions that still need review · use --history to see full lifecycle\n'))
   }
 
   // ── Display each decision ──────────────────────────────────
@@ -122,8 +128,15 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     // Lifecycle state
     const isSuperseded = !!d.invalidated_at
+    const isApproved   = !isSuperseded && !!d.reviewed_at
+    const reviewedDate = isApproved && d.reviewed_at
+      ? new Date(d.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : null
+
     const statusLabel  = isSuperseded
       ? chalk.dim('  ↩ SUPERSEDED')
+      : isApproved
+      ? chalk.green(`  ✓ APPROVED — ${reviewedDate}`)
       : d.conflict_flag
       ? chalk.yellow('  ⚠ CONFLICT — needs resolution')
       : null
@@ -160,19 +173,28 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     console.log(chalk.dim(`     ${date} · confidence: `) + conf + chalk.dim(` · scope: ${d.scope}`))
 
-    // Skip per-decision prompt for superseded decisions in history mode
+    // Superseded rows are read-only in the UI (history only).
     if (isSuperseded) {
       console.log()
       continue
     }
 
     // ── Per-decision inline action ─────────────────────────
+    // Default review (unreviewed only from API): Accept / Edit / Reject …
+    // `--history`: already-approved rows stay visible with a ✓ badge; keep
+    // Edit / Reject / Skip so users can change their mind without repeating Accept.
     const { action } = await prompts({
       type:    'select',
       name:    'action',
-      message: 'Action:',
+      message: isApproved ? 'Action (already approved — edit or reject if needed):' : 'Action:',
       choices: [
-        { title: '✔  Accept — looks correct',    value: 'accept'  },
+        ...(!isApproved
+          ? [
+              { title: '✔  Accept — looks correct',    value: 'accept' },
+            ]
+          : [
+              { title: '✓  Already approved (no change)', value: 'noop_approved' },
+            ]),
         { title: '✏️  Edit — fix decision text',  value: 'edit'    },
         { title: '❌ Reject — delete this',       value: 'reject'  },
         ...(d.conflict_flag
@@ -187,6 +209,11 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     if (!action || action === 'skip_all') break
 
+    if (action === 'noop_approved') {
+      console.log()
+      continue
+    }
+
     if (action === 'edit') {
       await editDecisionInline(d, percUrl, percKey, info.id)
     }
@@ -198,7 +225,10 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
     if (action === 'resolve') {
       await resolveConflictInline(d, percUrl, percKey, info.id)
     }
-    // 'accept' — no action needed, move to next
+
+    if (action === 'accept') {
+      await approveDecisionInline(d, percUrl, percKey)
+    }
   }
 
   console.log(chalk.green('  ✓ Review complete\n'))
@@ -289,6 +319,35 @@ async function editDecisionInline(
   }
 }
 
+// ── Inline: approve (mark as reviewed) a single decision ──────
+
+async function approveDecisionInline(
+  d: StoredDecision,
+  percUrl: string,
+  percKey: string,
+): Promise<void> {
+  const spinner = ora('Recording approval...').start()
+  try {
+    const res = await fetch(`${percUrl}/corrections`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(percKey ? { 'Authorization': `Bearer ${percKey}` } : {}),
+      },
+      body: JSON.stringify({
+        decision_id: d.id,
+        approve:     true,
+        source:      'user_correction',
+      }),
+    })
+    res.ok
+      ? spinner.succeed(chalk.green('✔ Approved — won\'t show in default review until edited'))
+      : spinner.fail(chalk.yellow(`Could not record approval (${res.status}) — decision will reappear.`))
+  } catch {
+    spinner.fail(chalk.yellow('Could not reach Perception API — approval not recorded; decision will reappear.'))
+  }
+}
+
 // ── Inline: reject (invalidate) a single decision ─────────────
 
 async function rejectDecisionInline(
@@ -361,9 +420,10 @@ async function resolveConflictInline(
         'X-Session-Id':  'robrain-review-cli',
       },
       body: JSON.stringify({
-        decision_id: d.id,
-        invalidate:  resolution === 'invalidate',
-        source:      'user_correction',
+        decision_id:              d.id,
+        invalidate:             resolution === 'invalidate',
+        resolved_conflict_keep: resolution === 'keep',
+        source:                   'user_correction',
       }),
     })
     if (res.ok) {

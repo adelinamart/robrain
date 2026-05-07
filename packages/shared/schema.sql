@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   invalidated_at      TIMESTAMPTZ,
   auto_resolved       BOOLEAN NOT NULL DEFAULT false,
 
+  -- Set when the user explicitly approves a decision in `robrain review`.
+  -- Approved decisions are filtered out of the default review feed so
+  -- the user only sees what still needs attention; they remain visible
+  -- under `robrain review --history`.
+  reviewed_at         TIMESTAMPTZ,
+
   -- Embedding for semantic search (must match provider in Sensing + Perception)
   embedding           vector(1536),
 
@@ -96,6 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decision
 CREATE INDEX IF NOT EXISTS idx_decisions_created      ON context_system.decisions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_decisions_conflict     ON context_system.decisions(conflict_flag) WHERE conflict_flag = true;
 CREATE INDEX IF NOT EXISTS idx_decisions_active       ON context_system.decisions(project_id) WHERE invalidated_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_decisions_unreviewed   ON context_system.decisions(project_id) WHERE invalidated_at IS NULL AND reviewed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_embedding    ON context_system.decisions USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 

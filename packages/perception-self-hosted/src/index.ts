@@ -241,6 +241,10 @@ app.get('/decisions', async (c) => {
   try {
     let rows: unknown[]
 
+    // `robrain review` filters out user-approved decisions so the feed shows
+    // only what still needs attention. `robrain review --history` and
+    // `robrain inject` (semantic search) both ignore reviewed_at because they
+    // want full visibility / retrieval coverage.
     if (query_text) {
       // Semantic search for robrain inject
       const embedding = await embed(query_text)
@@ -248,7 +252,7 @@ app.get('/decisions', async (c) => {
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
-               d.supersedes_id, d.invalidated_at,
+               d.supersedes_id, d.invalidated_at, d.reviewed_at,
                1 - (d.embedding <=> $1::vector) AS similarity
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
@@ -264,22 +268,26 @@ app.get('/decisions', async (c) => {
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
-               d.supersedes_id, d.invalidated_at
+               d.supersedes_id, d.invalidated_at, d.reviewed_at
         FROM ${S}.decisions d
-        WHERE d.session_id = $1 AND d.invalidated_at IS NULL
+        WHERE d.session_id = $1
+          AND d.invalidated_at IS NULL
+          AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [sessionId, limit])
       rows = result.rows
     } else if ((all || recent) && !history) {
-      // `all` (review --all) or `recent` (default review + inject): active project-wide, newest first
+      // `all` (review --all) or `recent` (default review): unreviewed + active, newest first
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
-               d.supersedes_id, d.invalidated_at
+               d.supersedes_id, d.invalidated_at, d.reviewed_at
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
-        WHERE s.project_id = $1 AND d.invalidated_at IS NULL
+        WHERE s.project_id = $1
+          AND d.invalidated_at IS NULL
+          AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -289,7 +297,7 @@ app.get('/decisions', async (c) => {
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
-               d.supersedes_id, d.invalidated_at
+               d.supersedes_id, d.invalidated_at, d.reviewed_at
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
@@ -297,15 +305,17 @@ app.get('/decisions', async (c) => {
       `, [projectId, limit])
       rows = result.rows
     } else {
-      // Bare query (no mode flags): same as recent — newest active decisions project-wide
+      // Bare query (no mode flags): same as recent — unreviewed + active, newest first
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
-               d.supersedes_id, d.invalidated_at
+               d.supersedes_id, d.invalidated_at, d.reviewed_at
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
-        WHERE s.project_id = $1 AND d.invalidated_at IS NULL
+        WHERE s.project_id = $1
+          AND d.invalidated_at IS NULL
+          AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -376,12 +386,39 @@ function extractKeyTerms(text: string): string[] {
 // ── POST /corrections — from robrain review ────────────────────
 app.post('/corrections', async (c) => {
   const body = await c.req.json<{
-    decision_id:         string
-    corrected_decision?: string
-    corrected_rationale?: string
-    invalidate:          boolean
-    source:              string
+    decision_id:               string
+    corrected_decision?:       string
+    corrected_rationale?:      string
+    invalidate?:               boolean
+    approve?:                  boolean
+    /** From robrain review "keep this decision" conflict resolution — clears flag + marks reviewed. */
+    resolved_conflict_keep?:   boolean
+    source:                    string
   }>()
+
+  // Approval is exclusive of invalidation/edit; once a user explicitly
+  // approves a decision it disappears from the default review feed.
+  if (body.approve) {
+    await pool.query(`
+      UPDATE ${S}.decisions
+      SET reviewed_at = now(),
+          conflict_flag = false,
+          updated_at = now()
+      WHERE id = $1
+    `, [body.decision_id])
+    return c.json({ accepted: true, action: 'approved' })
+  }
+
+  if (body.resolved_conflict_keep && !body.invalidate) {
+    await pool.query(`
+      UPDATE ${S}.decisions
+      SET conflict_flag = false,
+          reviewed_at = COALESCE(reviewed_at, now()),
+          updated_at = now()
+      WHERE id = $1
+    `, [body.decision_id])
+    return c.json({ accepted: true, action: 'conflict_resolved_kept' })
+  }
 
   if (body.invalidate) {
     await pool.query(`
@@ -705,7 +742,29 @@ async function regenerateSummary(projectId: string): Promise<void> {
   }
 }
 
+// ── Migrations ────────────────────────────────────────────────
+// Idempotent ALTERs for installs that predate a schema change.
+// Fresh installs already get these columns from schema.sql.
+async function runMigrations(): Promise<void> {
+  await pool.query(`
+    ALTER TABLE ${S}.decisions
+      ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
+  `)
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_decisions_unreviewed
+      ON ${S}.decisions(project_id)
+      WHERE invalidated_at IS NULL AND reviewed_at IS NULL
+  `)
+}
+
 // ── Start ──────────────────────────────────────────────────────
-serve({ fetch: app.fetch, port: config.port }, () => {
-  console.log(`[RoBrain Perception OSS] Running on port ${config.port} — mode: ${config.ossMode ? 'self-hosted' : 'cloud'}`)
-})
+runMigrations()
+  .then(() => {
+    serve({ fetch: app.fetch, port: config.port }, () => {
+      console.log(`[RoBrain Perception OSS] Running on port ${config.port} — mode: ${config.ossMode ? 'self-hosted' : 'cloud'}`)
+    })
+  })
+  .catch((err) => {
+    console.error('[RoBrain Perception OSS] Startup migration failed:', err)
+    process.exit(1)
+  })

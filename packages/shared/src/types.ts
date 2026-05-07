@@ -105,7 +105,10 @@ export interface CorrectionRequest {
   decision_id: string
   corrected_decision?: string
   corrected_rationale?: string
-  invalidate: boolean              // true = mark old as invalid
+  invalidate?: boolean             // true = mark old as invalid
+  approve?: boolean                // true = mark as user-approved (exclusive of invalidate)
+  /** Clear conflict_flag and treat as reviewed (robrain review: "keep this" for conflicts). */
+  resolved_conflict_keep?: boolean
   source: 'user_correction' | 'claude_disagreement'
 }
 
@@ -133,6 +136,7 @@ export interface Decision {
   source: DecisionSource
   supersedes_id?: string
   invalidated_at?: string
+  reviewed_at?: string
   auto_resolved: boolean
   conflict_flag: boolean
   needs_classification: boolean
