@@ -2,7 +2,7 @@
 
 **Stop watching your AI agent repeat the same mistakes.**
 
-RoBrain is shared institutional memory for teams using AI agents — across users, machines, and tools, captured passively with no agent-side discipline required.
+RoBrain is shared institutional memory for teams using AI agents — across users, machines, and tools, with systematic passive capture and no agent-side discipline required.
 
 Works across Claude Code, Cursor, and Copilot sessions.
 
@@ -165,7 +165,7 @@ Your infrastructure / Rory Plans:
   Control MCP     ← auto-injects context at task boundaries (cloud only)
 ```
 
-### Synthesis
+### Synthesis (Coming soon)
 
 Synthesis is a scheduled background pass that re-reads RoBrain's decision corpus to cluster by topic, detect contradictions and stance-drift across sessions, promote recurring entities into first-class entries, and surface what's missing — turning a reactive decision log into memory that compounds on its own.
 
@@ -396,7 +396,7 @@ The extraction quality difference is real but secondary. Both versions use Claud
 | Capability | Claude auto-memory | RoBrain |
 |---|---|---|
 | Storage | Local markdown files, per-user, per-machine | Postgres, can be team-shared |
-| Capture mechanism | Active — Claude decides what to write | Passive — every turn auto-classified, Claude doesn't decide |
+| Capture mechanism | Active — Claude decides what to write | Systematic passive — every turn auto-classified, Claude doesn't decide |
 | Cross-tool | Claude Code only | Any MCP-capable client (Claude Code, Cursor, etc.) |
 | Recall | Loads `MEMORY.md` index at session start | Always-on summary + semantic search via embeddings |
 | Audit trail | Files only | Full session turn history in DB |
