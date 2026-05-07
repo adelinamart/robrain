@@ -63,17 +63,23 @@ class EmbeddingProviderError extends Error {
   }
 }
 
+/** Actionable copy for API consumers (CLI + Sensing MCP). */
+const PROJECT_REGISTER_HINT =
+  'Run `npx robrain init-project` from your project root to register this project.'
+
+function projectNotRegisteredJson(projectId: string) {
+  return {
+    error:   'project_not_registered' as const,
+    message: `project_id ${projectId} not registered — did you run robrain init-project?`,
+    hint:    PROJECT_REGISTER_HINT,
+  }
+}
+
 /** Projects are registered only via POST /projects (e.g. robrain init-project). Reject typos / stale ids loudly. */
 async function jsonIfProjectUnknown(projectId: string, c: Context): Promise<Response | undefined> {
   const r = await pool.query(`SELECT 1 FROM ${S}.projects WHERE id = $1 LIMIT 1`, [projectId])
   if (!r.rowCount) {
-    return c.json(
-      {
-        error:   'project_not_registered',
-        message: `project_id ${projectId} not registered — did you run robrain init-project?`,
-      },
-      404,
-    )
+    return c.json(projectNotRegisteredJson(projectId), 404)
   }
   return undefined
 }
@@ -218,6 +224,7 @@ app.get('/decisions', async (c) => {
   const projectId  = c.req.query('project_id')
   const sessionId  = c.req.query('session_id')
   const all        = c.req.query('all') === 'true'
+  const recent     = c.req.query('recent') === 'true'
   const history    = c.req.query('history') === 'true'
   const query_text = c.req.query('query')   // for robrain inject semantic search
   const limitRaw   = c.req.query('limit') ?? '20'
@@ -264,8 +271,8 @@ app.get('/decisions', async (c) => {
         ORDER BY d.created_at DESC LIMIT $2
       `, [sessionId, limit])
       rows = result.rows
-    } else if (all && !history) {
-      // --all without --history: active decisions across the whole project
+    } else if ((all || recent) && !history) {
+      // `all` (review --all) or `recent` (default review + inject): active project-wide, newest first
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
@@ -291,20 +298,15 @@ app.get('/decisions', async (c) => {
       `, [projectId, limit])
       rows = result.rows
     } else {
-      // Default: last 3 sessions, active only
+      // Bare query (no mode flags): same as recent — newest active decisions project-wide
       const result = await pool.query(`
-        WITH recent AS (
-          SELECT id FROM ${S}.sessions
-          WHERE project_id = $1
-          ORDER BY started_at DESC LIMIT 3
-        )
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
                d.supersedes_id, d.invalidated_at
         FROM ${S}.decisions d
-        WHERE d.session_id IN (SELECT id FROM recent)
-          AND d.invalidated_at IS NULL
+        JOIN ${S}.sessions s ON s.id = d.session_id
+        WHERE s.project_id = $1 AND d.invalidated_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -428,6 +430,78 @@ app.post('/projects', async (c) => {
   return c.json({ accepted: true })
 })
 
+// ── GET /projects — list projects + counts (CLI: robrain projects list) ──
+app.get('/projects', async (c) => {
+  try {
+    const { rows } = await pool.query<{
+      id: string
+      name: string
+      updated_at: Date
+      session_count: string
+      decision_count: string
+    }>(`
+      SELECT p.id, p.name, p.updated_at,
+        (SELECT COUNT(*)::text FROM ${S}.sessions s WHERE s.project_id = p.id) AS session_count,
+        (SELECT COUNT(*)::text FROM ${S}.decisions d WHERE d.project_id = p.id AND d.invalidated_at IS NULL) AS decision_count
+      FROM ${S}.projects p
+      ORDER BY p.updated_at DESC NULLS LAST
+    `)
+    return c.json({
+      projects: rows.map(r => ({
+        id:             r.id,
+        name:           r.name,
+        updated_at:     r.updated_at,
+        session_count:  Number.parseInt(r.session_count, 10) || 0,
+        decision_count: Number.parseInt(r.decision_count, 10) || 0,
+      })),
+    })
+  } catch (err) {
+    console.error('[Perception OSS] GET /projects error:', err)
+    return c.json({ error: 'Internal error', detail: String(err) }, 500)
+  }
+})
+
+// ── POST /projects/merge — move sessions + decisions from phantom project ──
+app.post('/projects/merge', async (c) => {
+  let body: { from: string; to: string }
+  try {
+    body = await c.req.json<{ from: string; to: string }>()
+  } catch {
+    return c.json({ error: 'Invalid body' }, 400)
+  }
+  const { from, to } = body
+  if (!from || !to || from === to) {
+    return c.json({ error: 'from and to project ids required and must differ' }, 400)
+  }
+
+  const fromExists = await pool.query(`SELECT 1 FROM ${S}.projects WHERE id = $1`, [from])
+  const toExists = await pool.query(`SELECT 1 FROM ${S}.projects WHERE id = $1`, [to])
+  if (!fromExists.rowCount) {
+    return c.json({ ...projectNotRegisteredJson(from), role: 'from' }, 404)
+  }
+  if (!toExists.rowCount) {
+    return c.json({ ...projectNotRegisteredJson(to), role: 'to' }, 404)
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(`UPDATE ${S}.sessions SET project_id = $1 WHERE project_id = $2`, [to, from])
+    await client.query(`UPDATE ${S}.decisions SET project_id = $1 WHERE project_id = $2`, [to, from])
+    await client.query(`UPDATE ${S}.mem0_facts SET project_id = $1 WHERE project_id = $2`, [to, from])
+    await client.query(`UPDATE ${S}.planning_blocks SET project_id = $1 WHERE project_id = $2`, [to, from])
+    await client.query(`DELETE FROM ${S}.projects WHERE id = $1`, [from])
+    await client.query('COMMIT')
+    return c.json({ merged: true, from, to })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('[Perception OSS] POST /projects/merge error:', err)
+    return c.json({ error: 'merge_failed', detail: String(err) }, 500)
+  } finally {
+    client.release()
+  }
+})
+
 // ── GET /projects/:id/summary ──────────────────────────────────
 app.get('/projects/:id/summary', async (c) => {
   const id = c.req.param('id')
@@ -435,13 +509,7 @@ app.get('/projects/:id/summary', async (c) => {
     SELECT always_on_summary, mission FROM ${S}.projects WHERE id = $1
   `, [id])
   if (!rows[0]) {
-    return c.json(
-      {
-        error:   'project_not_registered',
-        message: `project_id ${id} not registered — did you run robrain init-project?`,
-      },
-      404,
-    )
+    return c.json(projectNotRegisteredJson(id), 404)
   }
   return c.json(rows[0])
 })

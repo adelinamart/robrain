@@ -22,6 +22,7 @@ import {
   sensingBundleReady,
   McpBundleError,
 } from '../lib/mcp-bundle.js'
+import { initProjectCommand }                                   from './init-project.js'
 import { join }                                                  from 'path'
 import { homedir }                                               from 'os'
 
@@ -34,6 +35,26 @@ interface InstallOptions {
   perceptionUrl?: string
   /** Path to the robrain monorepo root — used to link/copy built sensing-mcp into ~/.robrain/mcp */
   repoRoot?:      string
+  /** Do not run `init-project` in cwd after a successful install */
+  skipInitProject?: boolean
+}
+
+async function chainInitAfterInstall(opts: InstallOptions): Promise<void> {
+  if (opts.skipInitProject) {
+    console.log(chalk.yellow('\n  ⚠ Skipped automatic init-project (--skip-init-project).'))
+    console.log(chalk.dim('  Run ') + chalk.cyan('npx robrain init-project') + chalk.dim(' in each repo where you want RoBrain memory.\n'))
+    return
+  }
+  console.log()
+  console.log(chalk.bold('  Registering this directory with Perception'))
+  console.log(chalk.dim(`  Working directory: ${process.cwd()}`))
+  console.log()
+  try {
+    await initProjectCommand({ nonInteractive: true })
+  } catch {
+    console.log(chalk.yellow('  ⚠ Automatic init-project failed or was interrupted.'))
+    console.log(chalk.dim('  From your project root, run: ') + chalk.cyan('npx robrain init-project') + chalk.dim('\n'))
+  }
 }
 
 function resolveRepoRoot(opts: InstallOptions): string | undefined {
@@ -244,9 +265,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   console.log(chalk.green('  ✓ RoBrain installed successfully\n'))
   console.log(chalk.dim('  Configured for: ') + editorsToConfig.map(e => e.label).join(', '))
   console.log()
-  console.log(chalk.bold('  Next step:') + chalk.dim(' initialize your project memory'))
-  console.log(chalk.dim('  Run in your project root: ') + chalk.cyan('robrain init-project'))
-  console.log()
+
+  await chainInitAfterInstall(opts)
 
   // Check if ANTHROPIC_API_KEY is set — needed by Sensing
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -349,8 +369,9 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   console.log()
   console.log(chalk.dim('  Context retrieval: use ') + chalk.cyan('robrain inject') + chalk.dim(' to get context for manual paste'))
   console.log()
-  console.log(chalk.bold('  Next: ') + chalk.dim('run ') + chalk.cyan('robrain init-project') + chalk.dim(' in your repo root'))
-  console.log()
+
+  await chainInitAfterInstall(opts)
+
   console.log(chalk.dim('  Want automatic injection without pasting?'))
   console.log(chalk.dim('  → ') + chalk.cyan('roryplans.ai') + chalk.dim(' — Control MCP handles it automatically'))
   console.log()

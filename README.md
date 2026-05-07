@@ -262,8 +262,10 @@ Paste the output into Claude Code before your next task.
 
 | Command | What it does |
 |---------|-------------|
-| `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor |
+| `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor; then runs **`init-project` in the current directory** (use `--skip-init-project` to opt out) |
 | `npx robrain init-project` | Warm-start memory from package.json, README, git log |
+| `npx robrain projects list` | List Perception projects with session/decision counts (recover phantom ids) |
+| `npx robrain projects merge <from-id> <to-id>` | Merge one project id into another in the database |
 | `npx robrain review` | Inspect, edit, or delete captured decisions |
 | `npx robrain review --history` | Show full decision lifecycle including superseded decisions |
 | `npx robrain inject` | Get formatted context to paste into Claude Code |
@@ -543,9 +545,9 @@ Everything else — capture, extraction, storage, embedding — happens without 
 
 Tracked improvements not yet implemented in this repo:
 
-- **Sensing MCP — loud failures when the project is unknown.** After Perception returns **404** for an unregistered `project_id`, `fetchAlwaysOnSummary` should log a clear **`console.error`** (status + hint to run `robrain init-project` / verify `project_id`) instead of only showing a generic placeholder.
-
 - **Stable project identity.** Replace cwd-hash `project_id` with a content-based id where possible: hash of `git config --get remote.origin.url` (normalized), with a `.robrain/project.json` UUID fallback for non-git or no-remote repos — plus a migration story for existing DB rows. Survives `mv`, `cp -r`, and nested clones without orphaning decisions.
+
+**Shipped recently:** Perception **404** responses include an actionable **`hint`** (copy tells users to run **`npx robrain init-project`** from the project root). Sensing MCP surfaces **`perception_error`** / **`perception_write_error`** in tool JSON; **`install`** chains **`init-project`** by default (`--skip-init-project` to opt out); **`robrain projects list`** / **`merge`** help repair fragmented installs.
 
 You can open matching GitHub issues locally with `./scripts/create-follow-up-issues.sh` (requires [`gh`](https://cli.github.com/) and `gh auth login`).
 

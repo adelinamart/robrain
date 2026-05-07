@@ -84,6 +84,12 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     const data = await res.json() as { decisions: StoredDecision[] }
     decisions  = data.decisions ?? []
+    // Newest decisions first (matches Perception ORDER BY created_at DESC; belt-and-suspenders).
+    if (!opts.history) {
+      decisions.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
+    }
   } catch {
     spinner.fail('Could not reach Perception API')
     process.exit(1)

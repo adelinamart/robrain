@@ -72,7 +72,7 @@ server.tool(
 
     // TODO: fetch always_on_summary from projects table via Perception API
     // For now, return placeholder until Perception is wired
-    const alwaysOnSummary = await fetchAlwaysOnSummary(project_id)
+    const summaryResult = await fetchAlwaysOnSummary(project_id)
 
     console.error(`[Sensing] Session started: ${session_id} (${project_id}) @ ${working_dir}`)
 
@@ -80,10 +80,13 @@ server.tool(
       content: [{
         type: 'text',
         text: JSON.stringify({
-          status:            'ready',
+          status: summaryResult.registrationError ? 'project_not_registered' : 'ready',
           session_id,
           project_id,
-          always_on_summary: alwaysOnSummary,
+          always_on_summary: summaryResult.text,
+          ...(summaryResult.registrationError
+            ? { perception_error: summaryResult.registrationError }
+            : {}),
         }),
       }],
     }
@@ -147,49 +150,45 @@ server.tool(
       console.error('[Sensing] Topic shift classifier error:', err)
     }
 
-    // ── Layer B: async classification (non-blocking) ───────
-    setImmediate(async () => {
-      const projectId = session.project_id
-
-      try {
-        // Decision classifier
-        const decisionSignal = await classifyDecision(turn, projectId)
-        if (decisionSignal) {
-          const shipped = await routeDecisionSignal(decisionSignal, projectId)
-          if (shipped) {
-            lastDecisionShipFailure = null
-            streamBuffer.markClassified(session_id, sequence)
-          }
-          else {
-            lastDecisionShipFailure =
-              `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
-          }
+    // ── Layer B: decision classifier + Perception write (awaited so MCP JSON can surface errors) ──
+    const projectId = session.project_id
+    let perceptionWriteError: string | undefined
+    try {
+      const decisionSignal = await classifyDecision(turn, projectId)
+      if (decisionSignal) {
+        const outcome = await routeDecisionSignal(decisionSignal, projectId)
+        if (outcome.persisted) {
+          lastDecisionShipFailure = null
+          streamBuffer.markClassified(session_id, sequence)
         }
-      } catch (err) {
-        console.error('[Sensing] Decision classifier error:', err)
+        else {
+          const detail =
+            outcome.userFacing ??
+            `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
+          lastDecisionShipFailure = detail
+          perceptionWriteError = detail
+        }
       }
+    } catch (err) {
+      console.error('[Sensing] Decision classifier error:', err)
+    }
 
-      // Reply scorer (if memories were injected last turn)
-      // Bug 2 fix: pass injected_memory_ids as-is — scoring is done
-      // server-side by Perception which has the full decision text.
-      // The client-side scoreReply is only used for term-match v1;
-      // pass the turn IDs and let Perception look up content itself.
-      if (injected_memory_ids.length > 0) {
+    // Reply scorer — non-blocking (does not need to appear in this tool response)
+    if (injected_memory_ids.length > 0) {
+      setImmediate(async () => {
         try {
-          // Route scores directly — Perception will look up decision
-          // text from the decisions table using the IDs
           await routeReplyScore({
             session_id:          turn.session_id,
             sequence:            turn.sequence,
             injected_memory_ids: injected_memory_ids,
-            term_match_score:    0,   // Perception computes actual score server-side
-            final_score:         0,   // Perception updates historical_relevance
+            term_match_score:    0,
+            final_score:         0,
           })
         } catch (err) {
           console.error('[Sensing] Reply scorer error:', err)
         }
-      }
-    })
+      })
+    }
 
     return {
       content: [{
@@ -199,6 +198,7 @@ server.tool(
           topic_shift:      topicShift,
           task_description: taskDescription,
           sequence,
+          ...(perceptionWriteError ? { perception_write_error: perceptionWriteError } : {}),
         }),
       }],
     }
@@ -234,11 +234,30 @@ server.tool(
     const flushed = unclassified.length
 
     const projectId = session.project_id
-    const flushPromise = routeFlushTurns(unclassified, projectId)  // Bug 3 fix
-    await Promise.race([
-      flushPromise,
-      new Promise(resolve => setTimeout(resolve, config.flushGraceWindowMs)),
+    const flushPromise = routeFlushTurns(unclassified, projectId)
+    const graceMs = config.flushGraceWindowMs
+
+    const raced = await Promise.race([
+      flushPromise.then(errors => ({ kind: 'flush' as const, errors })),
+      new Promise<{ kind: 'timeout' }>(resolve => setTimeout(() => resolve({ kind: 'timeout' }), graceMs)),
     ])
+
+    let flushErrors: string[] = []
+    let flushTimedOut = false
+
+    if (raced.kind === 'flush') {
+      flushErrors = raced.errors
+    } else {
+      flushTimedOut = true
+      // Do not await — return after grace window. Log if flush finishes late or fails.
+      void flushPromise
+        .then(errors => {
+          if (errors.length) {
+            console.error('[Sensing] Flush completed after grace window (errors):', errors.join('; '))
+          }
+        })
+        .catch(err => console.error('[Sensing] Flush failed after grace window:', err))
+    }
 
     // Clean up session state
     activeSessions.delete(session_id)
@@ -252,8 +271,11 @@ server.tool(
         text: JSON.stringify({
           session_id,
           flushed,
-          pending:  0, // all shipped within grace window
-          summary:  summary ?? null,
+          /** Turns possibly still reaching Perception when we returned early after flush_timed_out. */
+          pending: flushTimedOut ? flushed : 0,
+          summary: summary ?? null,
+          ...(flushTimedOut ? { flush_timed_out: true } : {}),
+          ...(flushErrors.length ? { flush_errors: flushErrors } : {}),
         }),
       }],
     }
@@ -300,22 +322,38 @@ server.tool(
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-async function fetchAlwaysOnSummary(projectId: string): Promise<string> {
-  // TODO: fetch from Perception API / projects table
-  // Returns placeholder until Perception is wired
+async function fetchAlwaysOnSummary(projectId: string): Promise<{
+  text: string
+  registrationError?: string
+}> {
   if (!config.perceptionApiUrl) {
-    return `Project: ${projectId}. No summary yet — will be populated after first session completes.`
+    return {
+      text: `Project: ${projectId}. No summary yet — will be populated after first session completes.`,
+    }
   }
   try {
     const res = await fetch(
       `${config.perceptionApiUrl}/projects/${projectId}/summary`,
       { headers: { 'Authorization': `Bearer ${config.perceptionApiKey}` } }
     )
-    if (!res.ok) return `Project: ${projectId}`
-    const data = await res.json() as { always_on_summary?: string }
-    return data.always_on_summary ?? `Project: ${projectId}`
-  } catch {
-    return `Project: ${projectId}`
+    const raw = await res.text()
+    if (!res.ok) {
+      let msg = `Could not load summary for project_id ${projectId} (HTTP ${res.status}).`
+      try {
+        const j = JSON.parse(raw) as { message?: string; hint?: string }
+        if (j.message || j.hint) msg = [j.message, j.hint].filter(Boolean).join(' ')
+      } catch { /* use generic */ }
+      console.error('[Sensing] always-on summary fetch failed:', res.status, raw.slice(0, 500))
+      return {
+        text:              `Project: ${projectId}`,
+        registrationError: msg,
+      }
+    }
+    const data = JSON.parse(raw) as { always_on_summary?: string }
+    return { text: data.always_on_summary ?? `Project: ${projectId}` }
+  } catch (err) {
+    console.error('[Sensing] always-on summary fetch error:', err)
+    return { text: `Project: ${projectId}` }
   }
 }
 

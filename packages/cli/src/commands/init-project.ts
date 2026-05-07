@@ -21,7 +21,9 @@ import { detectEditors, writeClaudeMd, writeCursorRoBrainRule } from '../lib/edi
 import type { RoBrainInstructionMode } from '../lib/editor.js'
 
 interface InitProjectOptions {
-  projectId?: string
+  projectId?:        string
+  /** When true, skip the confirm prompt (e.g. chained from `robrain install`). */
+  nonInteractive?: boolean
 }
 
 export async function initProjectCommand(opts: InitProjectOptions): Promise<void> {
@@ -70,16 +72,18 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   console.log()
 
   // ── Confirm ────────────────────────────────────────────────
-  const { confirm } = await prompts({
-    type:    'confirm',
-    name:    'confirm',
-    message: `Initialize memory for ${chalk.bold(info.name)}?`,
-    initial: true,
-  })
+  if (!opts.nonInteractive) {
+    const { confirm } = await prompts({
+      type:    'confirm',
+      name:    'confirm',
+      message: `Initialize memory for ${chalk.bold(info.name)}?`,
+      initial: true,
+    })
 
-  if (!confirm) {
-    console.log(chalk.dim('\n  Cancelled.'))
-    process.exit(0)
+    if (!confirm) {
+      console.log(chalk.dim('\n  Cancelled.'))
+      process.exit(0)
+    }
   }
 
   // ── Write CLAUDE.md (+ Cursor rule if Cursor is installed) ─

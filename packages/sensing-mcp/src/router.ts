@@ -7,10 +7,30 @@
 import type { DecisionSignal, IngestSignalResponse, ReplyScore } from '@robrain/shared'
 import { config } from './config.js'
 
+export interface RouteDecisionOutcome {
+  persisted: boolean
+  /** Show in MCP tool JSON so the editor surfaces Perception failures (e.g. unregistered project). */
+  userFacing?: string
+}
+
+function parsePerceptionUserMessage(status: number, rawText: string): string {
+  try {
+    const j = JSON.parse(rawText) as { message?: string; hint?: string; error?: string }
+    const parts = [j.message, j.hint].filter(Boolean)
+    if (parts.length) return parts.join(' ')
+  } catch {
+    /* ignore */
+  }
+  return `[Perception HTTP ${status}] ${rawText.slice(0, 500)}`
+}
+
 // ── Route decision signal → Perception API ─────────────────
 
-/** Returns true only when Perception persisted the decision ({ accepted:true, action:'written' }). */
-export async function routeDecisionSignal(signal: DecisionSignal, projectId: string): Promise<boolean> {
+/** Returns persisted=true only when Perception persisted the decision ({ accepted:true, action:'written' }). */
+export async function routeDecisionSignal(
+  signal: DecisionSignal,
+  projectId: string,
+): Promise<RouteDecisionOutcome> {
   if (!config.perceptionApiUrl) {
     console.error('[Sensing] Decision signal (PERCEPTION_API_URL unset):', {
       decision_type: signal.decision_type,
@@ -18,7 +38,11 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
       files:         signal.files_affected,
       scope:         signal.scope,
     })
-    return false
+    return {
+      persisted: false,
+      userFacing:
+        'PERCEPTION_API_URL is not set — decisions cannot be saved. Configure Perception and restart Sensing.',
+    }
   }
 
   try {
@@ -27,15 +51,16 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
       headers: {
         'Content-Type':  'application/json',
         'Authorization': `Bearer ${config.perceptionApiKey}`,
-        'X-Project-Id':  projectId,   // Bug 3 fix: always include project ID
+        'X-Project-Id':  projectId,
       },
       body: JSON.stringify({ signal }),
     })
 
     const raw = await res.text()
     if (!res.ok) {
+      const msg = parsePerceptionUserMessage(res.status, raw)
       console.error('[Sensing] Perception API error:', res.status, raw)
-      return false
+      return { persisted: false, userFacing: msg }
     }
 
     let payload: IngestSignalResponse
@@ -43,22 +68,28 @@ export async function routeDecisionSignal(signal: DecisionSignal, projectId: str
       payload = JSON.parse(raw) as IngestSignalResponse
     } catch {
       console.error('[Sensing] Perception /signals returned non-JSON:', raw.slice(0, 500))
-      return false
+      return { persisted: false, userFacing: 'Perception returned invalid JSON for /signals.' }
     }
 
-    // Perception often returns HTTP 200 for discarded signals — body must drive success.
     if (!payload.accepted || payload.action !== 'written') {
+      const soft = [payload.message].filter(Boolean).join(' ')
       console.error(
         '[Sensing] Perception did not persist signal:',
         payload.action,
         payload.message ?? '',
       )
-      return false
+      return {
+        persisted: false,
+        userFacing: soft || 'Perception did not persist this signal (discarded or below threshold).',
+      }
     }
-    return true
+    return { persisted: true }
   } catch (err) {
     console.error('[Sensing] Failed to reach Perception API:', err)
-    return false
+    return {
+      persisted: false,
+      userFacing: `Could not reach Perception: ${String(err)}`,
+    }
   }
 }
 
@@ -72,9 +103,9 @@ export async function routeReplyScore(score: ReplyScore): Promise<void> {
 
   try {
     await fetch(`${config.perceptionApiUrl}/scores`, {
-      method:  'POST',
+      method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
+        'Content-Type':     'application/json',
         'Authorization': `Bearer ${config.perceptionApiKey}`,
       },
       body: JSON.stringify({ scores: [score] }),
@@ -89,12 +120,14 @@ export async function routeReplyScore(score: ReplyScore): Promise<void> {
 export async function routeFlushTurns(
   turns: Array<import('@robrain/shared').SessionTurn>,
   projectId: string,
-): Promise<void> {
-  if (turns.length === 0) return
+): Promise<string[]> {
+  const errors: string[] = []
+  if (turns.length === 0) return errors
 
   if (!config.perceptionApiUrl) {
     console.error(`[Sensing] Flush: ${turns.length} unclassified turns (PERCEPTION_API_URL unset)`)
-    return
+    errors.push('PERCEPTION_API_URL is not set — flush could not reach Perception.')
+    return errors
   }
 
   const signals = turns.map(turn => ({
@@ -103,22 +136,31 @@ export async function routeFlushTurns(
       decision_type: 'unknown',
       confidence:    0.5,
       files_affected: turn.files_touched,
-      scope:         'team' as const,
+      scope:          'team' as const,
       needs_classification: true,
-    }
+    },
   }))
 
   await Promise.allSettled(
-    signals.map(s =>
-      fetch(`${config.perceptionApiUrl}/signals`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${config.perceptionApiKey}`,
-          'X-Project-Id':  projectId,   // Bug 3 fix
-        },
-        body: JSON.stringify(s),
-      }).catch(err => console.error('[Sensing] Flush route failed:', err))
-    )
+    signals.map(async s => {
+      try {
+        const res = await fetch(`${config.perceptionApiUrl}/signals`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${config.perceptionApiKey}`,
+            'X-Project-Id':  projectId,
+          },
+          body: JSON.stringify(s),
+        })
+        const raw = await res.text()
+        if (!res.ok) {
+          errors.push(parsePerceptionUserMessage(res.status, raw))
+        }
+      } catch (err) {
+        errors.push(`Flush route failed: ${String(err)}`)
+      }
+    }),
   )
+  return errors
 }

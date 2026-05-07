@@ -20,6 +20,7 @@ import { statusCommand, ruleCommand, logoutCommand } from './commands/status.js'
 import { reviewCommand }       from './commands/review.js'
 import { injectCommand }       from './commands/inject.js'
 import { explainCommand }      from './commands/explain.js'
+import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 
 const VERSION = '0.1.0'
 
@@ -84,19 +85,22 @@ program
     '--repo-root <path>',
     'Path to your robrain git clone (links built sensing-mcp into ~/.robrain/mcp). Or set ROBRAIN_REPO.',
   )
+  .option('--skip-init-project', 'Do not run init-project in the current directory after install')
   .action(async (opts: {
     token?: string
     editor?: string
     selfHosted?: boolean
     perceptionUrl?: string
     repoRoot?: string
+    skipInitProject?: boolean
   }) => {
     await installCommand({
-      token:         opts.token ?? process.env.RORY_TOKEN,
-      editor:        opts.editor,
-      selfHosted:    opts.selfHosted,
-      perceptionUrl: opts.perceptionUrl,
-      repoRoot:      opts.repoRoot,
+      token:            opts.token ?? process.env.RORY_TOKEN,
+      editor:           opts.editor,
+      selfHosted:       opts.selfHosted,
+      perceptionUrl:    opts.perceptionUrl,
+      repoRoot:         opts.repoRoot,
+      skipInitProject:  opts.skipInitProject,
     })
   })
 
@@ -109,6 +113,26 @@ program
   .option('--project-id <id>', 'Override the auto-derived project ID')
   .action(async (opts: { projectId?: string }) => {
     await initProjectCommand({ projectId: opts.projectId })
+  })
+
+// ── projects — list / merge Perception project ids ────────────
+
+const projectsCmd = program
+  .command('projects')
+  .description('List or merge projects in Perception (recover from duplicate / phantom project ids)')
+
+projectsCmd
+  .command('list')
+  .description('List all projects with session and decision counts')
+  .action(async () => {
+    await projectsListCommand()
+  })
+
+projectsCmd
+  .command('merge <from-id> <to-id>')
+  .description('Merge sessions and decisions from one project id into another, then delete the source project row')
+  .action(async (fromId: string, toId: string) => {
+    await projectsMergeCommand(fromId, toId)
   })
 
 // ── status ────────────────────────────────────────────────────
