@@ -151,7 +151,7 @@ This improves reliability when Cursor does not consistently follow general instr
 
 ### Architecture
 
-Five components. Two run locally alongside Claude Code. Three run on your infrastructure (self-hosted) or Rory Plans (cloud).
+Six components. Two run locally alongside Claude Code. In self-hosted mode, two run on your infrastructure (Postgres + Perception). Planning API and Control MCP are cloud-only.
 
 ```
 Developer machine:
@@ -212,11 +212,11 @@ curl http://localhost:3001/health
 
 #### 3. Install CLI and register with Claude Code
 
-#  Install the local package globally — then use robrain normally:
-pnpm install -g /absolute/path/to/robrain/robrain/packages/cli
-
 ```bash
 pnpm install && pnpm build
+
+# Install the local package globally — then use robrain normally:
+pnpm install -g /absolute/path/to/robrain/robrain/packages/cli
 
 # Register Sensing MCP (pass repo root so ~/.robrain/mcp/sensing is populated)
 npx robrain install --self-hosted --repo-root "$(pwd)" --perception-url http://localhost:3001
@@ -230,12 +230,12 @@ npx robrain init-project
 
 Open Claude Code normally. Sensing watches in the background.
 
--hosted`robrain init-project` writes mode-aware instructions:
+`robrain init-project` writes mode-aware instructions:
 
 - **OSS self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
 - **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
 
-### 5. Review what was captured
+#### 5. Review what was captured
 
 ```bash
 npx robrain review
@@ -268,6 +268,7 @@ Paste the output into Claude Code before your next task.
 | `npx robrain projects merge <from-id> <to-id>` | Merge one project id into another in the database |
 | `npx robrain review` | Inspect, edit, or delete captured decisions |
 | `npx robrain review --history` | Show full decision lifecycle including superseded decisions |
+| `npx robrain export-memory` | Export approved decisions into Claude Code auto-memory files |
 | `npx robrain inject` | Get formatted context to paste into Claude Code |
 | `npx robrain inject --query "..."` | Semantic search for relevant decisions |
 | `npx robrain inject --files "..."` | Get decisions about specific files |
@@ -477,23 +478,7 @@ The two are complementary. RoBrain's `npx robrain init-project` reads your exist
 
 For how RoBrain compares to Claude’s built-in **Auto memory** (same problem space, different tradeoffs), see [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory).
 
-| Feature | OSS self-hosted | Rory Plans cloud |
-|---------|----------------|-----------------|
-| Passive session capture | ✓ | ✓ |
-| `rejected[]` field | ✓ | ✓ |
-| Decision lifecycle tracking | ✓ | ✓ |
-| `npx robrain review` | ✓ | ✓ |
-| `npx robrain inject` (manual paste) | ✓ | ✓ |
-| Self-host on your infrastructure | ✓ | — |
-| Your data stays local | ✓ | processed remotely |
-| Haiku extraction (functional) | ✓ | ✓ |
-| Calibrated extraction (fewer false positives) | — | ✓ |
-| Generated instructions include `control_*` calls | — | ✓ |
-| **Automatic injection at task boundaries** | — | ✓ |
-| **Relevance scoring — surfaces what matters now** | — | ✓ |
-| Web dashboard | — | ✓ |
-| Team memory + shared scope | — | ✓ |
-| Conflict auto-resolution | — | ✓ |
+### RoBrain vs Zep
 
 RoBrain and Zep answer different questions and work well together.
 
