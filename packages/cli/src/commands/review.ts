@@ -21,6 +21,7 @@ interface ReviewOptions {
   session?: string    // 'last' | session_id
   all?:     boolean   // show all decisions, not just last session
   history?: boolean   // include invalidated decisions to show full lifecycle
+  approveAll?: boolean // bulk-approve all reviewable decisions in current result set
   limit?:   number    // max decisions to show (default 20)
 }
 
@@ -106,6 +107,30 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
       console.log(chalk.green(`  ✓ All caught up — no decisions need review for ${chalk.bold(info.name)}.`))
       console.log(chalk.dim('  Run a Claude Code session to capture more, or use --history to see all decisions.\n'))
     }
+    return
+  }
+
+  if (opts.approveAll) {
+    const reviewable = decisions.filter(d => !d.invalidated_at && !d.reviewed_at)
+    if (reviewable.length === 0) {
+      console.log(chalk.green(`  ✓ No reviewable decisions to approve for ${chalk.bold(info.name)}.\n`))
+      return
+    }
+
+    const { confirmApproveAll } = await prompts({
+      type: 'confirm',
+      name: 'confirmApproveAll',
+      message: `Approve ${reviewable.length} decision${reviewable.length === 1 ? '' : 's'} in bulk?`,
+      initial: false,
+    })
+
+    if (!confirmApproveAll) {
+      console.log(chalk.dim('  Cancelled.\n'))
+      return
+    }
+
+    await approveManyDecisionsInline(reviewable, percUrl, percKey)
+    console.log(chalk.green('  ✓ Bulk approval complete\n'))
     return
   }
 
@@ -346,6 +371,51 @@ async function approveDecisionInline(
   } catch {
     spinner.fail(chalk.yellow('Could not reach Perception API — approval not recorded; decision will reappear.'))
   }
+}
+
+async function approveManyDecisionsInline(
+  decisions: StoredDecision[],
+  percUrl: string,
+  percKey: string,
+): Promise<void> {
+  const spinner = ora(`Recording approvals for ${decisions.length} decision${decisions.length === 1 ? '' : 's'}...`).start()
+  let approvedCount = 0
+
+  for (const d of decisions) {
+    try {
+      const res = await fetch(`${percUrl}/corrections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(percKey ? { 'Authorization': `Bearer ${percKey}` } : {}),
+        },
+        body: JSON.stringify({
+          decision_id: d.id,
+          approve:     true,
+          source:      'user_correction',
+        }),
+      })
+      if (res.ok) approvedCount++
+    } catch {
+      // Continue best-effort and report final count.
+    }
+  }
+
+  if (approvedCount === decisions.length) {
+    spinner.succeed(chalk.green(`✔ Approved ${approvedCount} decision${approvedCount === 1 ? '' : 's'}`))
+    return
+  }
+
+  if (approvedCount === 0) {
+    spinner.fail(chalk.yellow('Could not record approvals — no decisions were approved'))
+    return
+  }
+
+  spinner.warn(
+    chalk.yellow(
+      `Partially approved ${approvedCount}/${decisions.length}. Re-run review to approve remaining decisions.`,
+    ),
+  )
 }
 
 // ── Inline: reject (invalidate) a single decision ─────────────

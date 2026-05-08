@@ -38,13 +38,15 @@ program
   .option('-s, --session <id>', 'Review a specific session ID (default: last session)')
   .option('-a, --all',          'Show all active decisions, not just the last session')
   .option('--history',          'Show full lifecycle including superseded decisions')
+  .option('--approve-all',      'Bulk-approve every reviewable decision in the current result set')
   .option('-l, --limit <n>',    'Max decisions to show (default: 20)', parseInt)
-  .action(async (opts: { session?: string; all?: boolean; history?: boolean; limit?: number }) => {
+  .action(async (opts: { session?: string; all?: boolean; history?: boolean; approveAll?: boolean; limit?: number }) => {
     await reviewCommand({
-      session: opts.session ?? 'last',
-      all:     opts.all,
-      history: opts.history,
-      limit:   opts.limit,
+      session:    opts.session ?? 'last',
+      all:        opts.all,
+      history:    opts.history,
+      approveAll: opts.approveAll,
+      limit:      opts.limit,
     })
   })
 
