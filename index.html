@@ -414,26 +414,68 @@
         color: var(--violet-800);
       }
 
+      .table-wrap--matrix {
+        margin-top: 1rem;
+      }
+
+      table.compare-matrix {
+        width: 100%;
+        min-width: 46rem;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+        line-height: 1.45;
+      }
+
+      table.compare-matrix caption {
+        caption-side: top;
+        text-align: left;
+        font-weight: 600;
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 0.95rem;
+        color: var(--violet-950);
+        padding: 0 0 0.85rem;
+      }
+
+      table.compare-matrix th,
+      table.compare-matrix td {
+        padding: 0.55rem 0.65rem;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--violet-200);
+      }
+
+      table.compare-matrix thead th {
+        background: linear-gradient(180deg, var(--violet-100), var(--violet-50));
+        font-weight: 600;
+        color: var(--violet-950);
+      }
+
+      table.compare-matrix thead th:first-child {
+        width: 14rem;
+        min-width: 11rem;
+      }
+
+      table.compare-matrix tbody th[scope="row"] {
+        font-weight: 600;
+        color: var(--violet-950);
+        background: rgba(255, 255, 255, 0.6);
+        border-right: 1px solid var(--violet-200);
+      }
+
+      table.compare-matrix tbody tr:last-child th,
+      table.compare-matrix tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      table.compare-matrix .muted {
+        color: var(--violet-700);
+        font-weight: 500;
+      }
+
       .table-note {
         margin-top: 0.75rem;
         font-size: 0.88rem;
         color: var(--violet-700);
-      }
-
-      .comparison-figure {
-        margin: 1rem 0 0;
-        padding: 0;
-        border-radius: var(--radius-sm);
-        overflow: hidden;
-        border: 1px solid var(--violet-200);
-        background: var(--white);
-        box-shadow: var(--shadow);
-      }
-
-      .comparison-figure img {
-        display: block;
-        width: 100%;
-        height: auto;
       }
 
       .figure-caption {
@@ -454,6 +496,42 @@
       footer a {
         margin: 0 0.5rem;
       }
+
+      .hero-cta {
+        justify-content: center;
+        margin-top: 1.75rem;
+      }
+
+      .lead-callout {
+        font-size: 1.06rem;
+        font-weight: 600;
+        line-height: 1.55;
+        color: var(--violet-950);
+        margin: 0 0 1rem;
+        padding: 1rem 1.15rem;
+        background: linear-gradient(105deg, var(--violet-100) 0%, rgba(232, 223, 249, 0.35) 55%, transparent 100%);
+        border-left: 4px solid var(--violet-600);
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      }
+
+      .link-subtle {
+        font-size: 0.92rem;
+        color: var(--violet-700);
+        margin: 0 0 1rem;
+      }
+
+      .final-cta-intro {
+        font-size: 1.02rem;
+        font-weight: 500;
+        color: var(--violet-800);
+        margin: 0 0 1rem;
+      }
+
+      .final-cta-help {
+        margin-top: 1.25rem;
+        font-size: 0.95rem;
+        color: var(--violet-800);
+      }
     </style>
   </head>
   <body>
@@ -471,6 +549,10 @@
           <span class="pill">Claude Code</span>
           <span class="pill">Cursor</span>
           <span class="pill">Copilot</span>
+        </div>
+        <div class="cta-row hero-cta">
+          <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
+          <a class="btn btn-ghost" href="./README.md#how-it-works">How it works (README)</a>
         </div>
       </header>
 
@@ -562,60 +644,135 @@
 
       <section class="card">
         <h2><span class="icon">✦</span> What ships today</h2>
+        <p style="margin: 0 0 1rem; color: var(--violet-800)">
+          Runnable OSS surface — how you capture, scan, and pull context into a session. For team-wide
+          <code>rejected[]</code>, lifecycle, and Postgres vs per-user tools, see the
+          <a href="#product-comparison">How we compare</a> matrix below.
+        </p>
         <ul>
           <li>
-            <strong>Passive capture</strong> — every session turn auto-recorded; no manual notes, no commands to
-            remember.
+            <strong>Passive capture</strong> — every session turn auto-recorded via Sensing MCP; no manual notes, no
+            commands to remember.
           </li>
           <li>
-            <strong><code>rejected[]</code> as structured data</strong> — vetoes are queryable rows in Postgres, not
-            prose in markdown.
-          </li>
-          <li>
-            <strong>Cross-session contradiction detection</strong> — Synthesis scans the whole project on a schedule
-            and flags reversals across sessions, even by different developers.
-          </li>
-          <li>
-            <strong>Decision lifecycle</strong> — when you change your mind, the old decision stays queryable. Ask
-            “what did we decide in March?” three months later and get a real answer.
-          </li>
-          <li>
-            <strong>Team-shared store</strong> — one Postgres source of truth across machines and editors.
+            <strong>Cross-session contradiction detection</strong> — run <code>npx robrain synth</code> (or cron) so
+            Synthesis scans the whole corpus and flags reversals across sessions and developers.
           </li>
           <li>
             <strong><code>npx robrain explain &lt;file&gt;</code></strong> — file-scoped “why does this code exist?”
             from stored decisions.
           </li>
+          <li>
+            <strong><code>npx robrain inject</code></strong> — semantic or file-scoped context to paste into your
+            agent before the next prompt (same loop as the walkthrough).
+          </li>
         </ul>
       </section>
 
       <section class="card">
-        <h2><span class="icon">⊞</span> How we compare</h2>
-        <p style="margin-bottom: 0.5rem">
-          RoBrain next to <strong>Mem0</strong>, <strong>Cloudflare Agent Memory</strong>, and
-          <strong>Claude Code Auto-Memory</strong>.
-        </p>
-        <figure class="comparison-figure">
-          <img
-            src="assets/ph-comparison-table.png"
-            width="1024"
-            height="867"
-            alt="Feature comparison table. Rows: Tracks what your team ruled out — RoBrain yes with structured rejected array, others no. Catches when a new decision contradicts an old one — RoBrain yes with scheduled whole-project scan; Mem0 no scheduled scan; Cloudflare internal only; Claude yes but silently deletes the loser. Past decisions stay queryable after you change your mind — RoBrain yes; Mem0, Cloudflare, Claude no. Shared memory across your team — RoBrain yes one Postgres; Mem0 partial via scoping; Cloudflare yes managed profiles; Claude no per-user per-machine. Works across Claude Code Cursor and Copilot — RoBrain Mem0 and Cloudflare yes; Claude Claude Code only. Open source self-hosted — RoBrain Apache 2 your Postgres; Mem0 partial paywalled graph; Cloudflare managed only; Claude N/A markdown files. Warns the agent before suggesting something you ruled out — RoBrain roadmap; others no."
-            decoding="async"
-            loading="lazy"
-          />
-        </figure>
-        <p class="figure-caption">
-          Prefer HTML over pixels? See the <a href="./README.md#how-it-works">How it works</a> walkthrough and the
-          Claude-only table below, or the full write-ups under
-          <a href="./README.md#comparisons">Comparisons</a>.
+        <h2><span class="icon">⟲</span> Decisions evolve. RoBrain knows that.</h2>
+        <p>
+          Decisions in RoBrain aren’t permanent vetoes — they’re <strong>durable context</strong>. When a
+          previously rejected idea makes sense again, you supersede the old row: the history stays queryable, the new
+          decision becomes active. <strong>Synthesis</strong> flags contradictions for human review in
+          <code>robrain review</code> — it doesn’t block the agent from re-suggesting forever. The goal is
+          <strong>informed reconsideration</strong>, not fossilization.
         </p>
       </section>
 
       <section class="card">
-        <h2><span class="icon">▣</span> RoBrain vs Claude Code Auto memory</h2>
+        <h2 id="product-comparison"><span class="icon">⊞</span> How we compare</h2>
         <p style="margin-bottom: 0.5rem">
-          Same problem space — different shape of data and who can see it.
+          RoBrain next to <strong>Mem0</strong>, <strong>Cloudflare Agent Memory</strong>, and
+          <strong>Claude Code Auto-Memory</strong> — same matrix as Product Hunt; all values in HTML for search and
+          screen readers.
+        </p>
+        <div class="table-wrap table-wrap--matrix" role="region" aria-labelledby="product-comparison">
+          <table class="compare-matrix">
+            <caption>
+              Feature comparison: RoBrain vs Mem0 vs Cloudflare Agent Memory vs Claude Code Auto-Memory
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col">RoBrain</th>
+                <th scope="col">Mem0</th>
+                <th scope="col">Cloudflare Agent Memory</th>
+                <th scope="col">Claude Code Auto-Memory</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Tracks what your team ruled out</th>
+                <td>Yes — structured <code>rejected[]</code> field per decision</td>
+                <td class="muted">No</td>
+                <td class="muted">No</td>
+                <td class="muted">No</td>
+              </tr>
+              <tr>
+                <th scope="row">Catches when a new decision contradicts an old one</th>
+                <td>Yes — scheduled scan across the whole project (Synthesis)</td>
+                <td class="muted">No — only at the moment of insertion, no scheduled corpus scan</td>
+                <td class="muted">Partial — internal use only</td>
+                <td>Yes — but silently deletes the loser</td>
+              </tr>
+              <tr>
+                <th scope="row">Past decisions stay queryable after you change your mind</th>
+                <td>Yes — old and new both kept</td>
+                <td class="muted">No — new replaces old</td>
+                <td class="muted">No</td>
+                <td class="muted">No</td>
+              </tr>
+              <tr>
+                <th scope="row">Shared memory across your team</th>
+                <td>Yes — one Postgres for the whole team</td>
+                <td class="muted">Partial — via scoping workaround</td>
+                <td>Yes — managed profiles</td>
+                <td class="muted">No — per-user, per-machine</td>
+              </tr>
+              <tr>
+                <th scope="row">Works across Claude Code, Cursor, and Copilot</th>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td class="muted">No — Claude Code only</td>
+              </tr>
+              <tr>
+                <th scope="row">Open source, self-hosted</th>
+                <td>Yes — Apache 2.0, your Postgres</td>
+                <td class="muted">Partial — graph features paywalled</td>
+                <td class="muted">No — managed only</td>
+                <td>N/A — markdown files locally</td>
+              </tr>
+              <tr>
+                <th scope="row">Warns the agent before it suggests something you ruled out</th>
+                <td>Roadmap</td>
+                <td class="muted">No</td>
+                <td class="muted">No</td>
+                <td class="muted">No</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="figure-caption">
+          Narrative walkthrough: <a href="./README.md#how-it-works">How it works</a> · Six-row Claude vs RoBrain table:
+          <a href="#vs-claude-deep">below</a> · Full write-ups:
+          <a href="./README.md#comparisons">Comparisons</a>
+        </p>
+      </section>
+
+      <section class="card">
+        <h2 id="vs-claude-deep"><span class="icon">▣</span> RoBrain vs Claude Code Auto memory</h2>
+        <p class="lead-callout">
+          Mem0 and Zep focus on facts or entities — <strong>neither exposes rejected alternatives as a first-class field
+          you can query</strong> the way RoBrain does. That veto line is what keeps “why not X?” from disappearing into
+          prose.
+        </p>
+        <p class="link-subtle">
+          More vendors and tradeoffs: <a href="./README.md#comparisons">README — Comparisons</a>.
+        </p>
+        <p style="margin-bottom: 0.5rem">
+          Same problem space as Claude’s built-in memory — different shape of data and who can see it.
         </p>
         <div class="table-wrap">
           <table class="compare">
@@ -660,10 +817,6 @@
             </tbody>
           </table>
         </div>
-        <p class="table-note">
-          Mem0 and Zep focus on facts or entities — neither exposes rejected alternatives as a first-class field you
-          can query the way RoBrain does. See the <a href="./README.md#comparisons">README comparisons</a> for depth.
-        </p>
       </section>
 
       <section class="card">
@@ -723,27 +876,37 @@
           <code>ANTHROPIC_API_KEY</code>) and embeddings call OpenAI, Voyage, or Cohere. Those are the only outbound
           calls. You can swap providers or run a local model if you want full air-gapping.
         </p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
-          <a class="btn btn-ghost" href="./README.md">Full README</a>
-        </div>
       </section>
 
       <section class="card">
-        <h2><span class="icon">⚡</span> Quick start</h2>
-        <p class="code-label">One-time setup (in the RoBrain repo)</p>
+        <h2><span class="icon">⚡</span> Try RoBrain now — about two minutes</h2>
+        <p class="final-cta-intro">
+          From a fresh clone: install, bring up Postgres + Perception, wire your editor, init your app repo, then run a
+          corpus scan when you’re ready.
+        </p>
+        <p class="code-label">One-time — RoBrain repo</p>
         <pre><code>pnpm install && pnpm build
 pnpm docker:up
 npx robrain install --self-hosted --repo-root "$(pwd)"</code></pre>
-        <p class="code-label">Per project</p>
+        <p class="code-label">Per application project</p>
         <pre><code>cd /path/to/your/project
 npx robrain init-project</code></pre>
-        <p class="code-label">Run contradiction detection (manually or schedule via cron)</p>
+        <p class="code-label">Contradiction scan (manual once, or add to cron)</p>
         <pre><code>npx robrain synth</code></pre>
         <p style="margin-top: 1rem; font-size: 0.95rem">
           After <code>init-project</code>, Claude Code gets <code>CLAUDE.md</code> hooks for session start / turn /
-          end — capture is automatic from there. See the README for Cursor rules and troubleshooting.
+          end — capture is automatic. See the README for Cursor rules and editor-specific notes.
         </p>
+        <p class="final-cta-help">
+          Need help?
+          <a href="https://github.com/adelinamart/robrain/issues">Open an issue</a>
+          ·
+          <a href="./README.md#troubleshooting">Troubleshooting</a> (README)
+        </p>
+        <div class="cta-row" style="margin-top: 1rem">
+          <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
+          <a class="btn btn-ghost" href="./README.md">Full README</a>
+        </div>
       </section>
 
       <footer>
