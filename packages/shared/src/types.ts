@@ -269,7 +269,9 @@ export const THRESHOLDS = {
   DECISION_CONFIDENCE_HIGH:  0.90,   // above = write immediately
   TOPIC_SHIFT_EMBEDDING:     0.35,   // cosine distance to trigger shift
   SIMILARITY_LINK:           0.82,   // above = check for contradiction
-  /** Cosine similarity (1 - distance) ≥ this → skip INSERT as near-duplicate (Perception POST /signals). */
+  /** Cosine similarity (1 - distance) ≥ this → skip INSERT as near-duplicate vs another session (Perception POST /signals). */
   DECISION_DEDUP_SIMILARITY: 0.85,
+  /** Same-scope dedup vs a row in the same session — lower floor so wording drift across turns still merges. */
+  DECISION_DEDUP_SIMILARITY_SAME_SESSION: 0.78,
   RECENCY_HALF_LIFE_DAYS:    30,     // recency score halves every 30 days
 } as const

@@ -46,8 +46,16 @@ const S         = config.schema
 
 /** Static system prompts — identical across runs; ephemeral cache cuts input-token cost on repeat cron / multi-project. */
 const SYSTEM_PASS1_CLUSTER = `You cluster software architecture decisions into topic areas.
-Output ONLY valid JSON: an array of clusters.
-Each cluster: {"topic": string, "decision_indices": number[], "has_drift": boolean, "drift_signal": string|null}
+
+Output format (strict):
+- Your entire message must be one JSON value only: a top-level array [...] of cluster objects.
+- Do not add markdown code fences, headings, or any prose before or after the JSON.
+- The first non-whitespace character must be "[" and the last must be "]".
+- Use double quotes for all keys and string values. Use true/false/null (not the strings "true"/"false"/"null").
+- decision_indices: integers only, 1-based positions in the numbered list you were given.
+
+Each cluster object:
+{"topic": string, "decision_indices": number[], "has_drift": boolean, "drift_signal": string|null}
 - topic: short kebab-case name for the architectural area (e.g. "state-management", "auth", "database")
 - decision_indices: 1-based indices of decisions in this cluster within the provided list
 - has_drift: true if RECENT decisions (later dates) disagree with EARLIER ones
@@ -86,8 +94,195 @@ function warn(msg: string) { console.warn(`[Synthesis] ⚠ ${msg}`) }
 
 function stripMarkdownJsonFence(raw: string): string {
   const t = raw.trim()
-  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  const m = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
   return m?.[1]?.trim() ?? t
+}
+
+/** Best-effort fix for trailing commas before } or ] (common in LLM JSON). */
+function stripTrailingCommasLoose(s: string): string {
+  let prev = ''
+  let out = s
+  for (let i = 0; i < 8 && out !== prev; i++) {
+    prev = out
+    out = out.replace(/,(\s*[\]}])/g, '$1')
+  }
+  return out
+}
+
+/** All ``` / ```json fenced bodies in order (for forgiving parse). */
+function extractMarkdownFenceBodies(raw: string): string[] {
+  const out: string[] = []
+  const re = /```(?:json)?\s*([\s\S]*?)\s*```/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) {
+    const body = m[1]?.trim()
+    if (body) out.push(body)
+  }
+  return out
+}
+
+/** First balanced JSON array starting at the first "[", respecting quoted strings. */
+function extractFirstJsonArray(s: string): string | null {
+  const start = s.indexOf('[')
+  if (start < 0) return null
+  return sliceBalancedJson(s, start, '[', ']')
+}
+
+/** First balanced JSON object starting at the first "{", respecting quoted strings. */
+function extractFirstJsonObject(s: string): string | null {
+  const start = s.indexOf('{')
+  if (start < 0) return null
+  return sliceBalancedJson(s, start, '{', '}')
+}
+
+function sliceBalancedJson(s: string, start: number, open: string, close: string): string | null {
+  if (s[start] !== open) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]
+    if (esc) {
+      esc = false
+      continue
+    }
+    if (c === '\\' && inStr) {
+      esc = true
+      continue
+    }
+    if (c === '"') {
+      inStr = !inStr
+      continue
+    }
+    if (!inStr) {
+      if (c === open) depth++
+      else if (c === close) {
+        depth--
+        if (depth === 0) return s.slice(start, i + 1)
+      }
+    }
+  }
+  return null
+}
+
+type Pass1Cluster = {
+  topic: string
+  decision_indices: number[]
+  has_drift: boolean
+  drift_signal: string | null
+}
+
+function clustersFromParsedValue(v: unknown): Pass1Cluster[] | null {
+  if (Array.isArray(v)) {
+    const r = validateAndCoerceClusters(v)
+    return r.length ? r : null
+  }
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    for (const key of ['clusters', 'topic_clusters', 'topics', 'results', 'data']) {
+      const inner = o[key]
+      if (Array.isArray(inner)) {
+        const r = validateAndCoerceClusters(inner)
+        if (r.length) return r
+      }
+    }
+  }
+  return null
+}
+
+function validateAndCoerceClusters(arr: unknown[]): Pass1Cluster[] {
+  const out: Pass1Cluster[] = []
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const topic = o.topic
+    const di = o.decision_indices
+    if (typeof topic !== 'string' || !topic.trim() || !Array.isArray(di)) continue
+    const indices: number[] = []
+    for (const x of di) {
+      if (typeof x === 'number' && Number.isFinite(x) && Number.isInteger(x)) {
+        indices.push(x)
+        continue
+      }
+      if (typeof x === 'string' && /^\d+$/.test(x.trim())) {
+        indices.push(parseInt(x.trim(), 10))
+      }
+    }
+    if (!indices.length) continue
+    let driftSignal: string | null = null
+    if (o.drift_signal != null && o.drift_signal !== '') {
+      driftSignal = typeof o.drift_signal === 'string' ? o.drift_signal : String(o.drift_signal)
+    }
+    out.push({
+      topic:              topic.trim(),
+      decision_indices:   indices,
+      has_drift:          Boolean(o.has_drift),
+      drift_signal:       driftSignal,
+    })
+  }
+  return out
+}
+
+/** Try direct parse, trailing-comma repair, and nested array extraction from model output. */
+function tryParseClusterJsonSlice(candidate: string): Pass1Cluster[] | null {
+  const attempts = [candidate.trim(), stripTrailingCommasLoose(candidate.trim())]
+  for (const a of attempts) {
+    try {
+      const parsed = clustersFromParsedValue(JSON.parse(a))
+      if (parsed) return parsed
+    } catch { /* try next */ }
+    const innerArr = extractFirstJsonArray(a)
+    if (innerArr && innerArr !== a) {
+      for (const b of [innerArr, stripTrailingCommasLoose(innerArr)]) {
+        try {
+          const parsed = clustersFromParsedValue(JSON.parse(b))
+          if (parsed) return parsed
+        } catch { /* */ }
+      }
+    }
+    const innerObj = extractFirstJsonObject(a)
+    if (innerObj && innerObj !== a) {
+      for (const b of [innerObj, stripTrailingCommasLoose(innerObj)]) {
+        try {
+          const parsed = clustersFromParsedValue(JSON.parse(b))
+          if (parsed) return parsed
+        } catch { /* */ }
+      }
+    }
+  }
+  return null
+}
+
+/** Collect candidate substrings that might contain the cluster array, then parse. */
+function parsePass1ClusterResponse(raw: string): Pass1Cluster[] | null {
+  const t = raw.trim()
+  if (!t) return null
+  const seen = new Set<string>()
+  const candidates: string[] = []
+  const push = (s: string) => {
+    const x = s.trim()
+    if (x && !seen.has(x)) {
+      seen.add(x)
+      candidates.push(x)
+    }
+  }
+  push(t)
+  push(stripMarkdownJsonFence(t))
+  for (const body of extractMarkdownFenceBodies(t)) push(body)
+  const arr = extractFirstJsonArray(t)
+  if (arr) push(arr)
+  const obj = extractFirstJsonObject(t)
+  if (obj) push(obj)
+  const lb = t.indexOf('[')
+  if (lb > 0) {
+    const arr2 = extractFirstJsonArray(t.slice(lb))
+    if (arr2) push(arr2)
+  }
+  for (const c of candidates) {
+    const parsed = tryParseClusterJsonSlice(c)
+    if (parsed?.length) return parsed
+  }
+  return null
 }
 
 /** F2 — refresh Claude auto-memory after new compiled_truth rows (needs `working_directory` on projects). */
@@ -179,31 +374,26 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
     const resp = await withRetry(() =>
       anthropic.messages.create({
         model:      config.anthropicModel,
-        max_tokens: 800,
+        max_tokens: 4096,
         system:     cachedEphemeral(SYSTEM_PASS1_CLUSTER),
         messages: [{ role: 'user', content: `Cluster these decisions:\n\n${list}` }],
       }),
     )
 
-    let clusters: Array<{
-      topic: string
-      decision_indices: number[]
-      has_drift: boolean
-      drift_signal: string | null
-    }> = []
-    try {
-      const block = resp.content[0]
-      const text  = block?.type === 'text' ? stripMarkdownJsonFence(block.text) : '[]'
-      clusters = JSON.parse(text) as typeof clusters
-    } catch {
-      warn('  Could not parse cluster response for chunk')
+    const block = resp.content[0]
+    const rawText = block?.type === 'text' ? block.text : ''
+    const clusters = parsePass1ClusterResponse(rawText)
+    if (!clusters?.length) {
+      warn(`  Could not parse cluster response for chunk (${chunk.length} decisions)`)
+      if (process.env.SYNTHESIS_DEBUG_PARSE === 'true' && rawText) {
+        const preview = rawText.length > 400 ? `${rawText.slice(0, 400)}…` : rawText
+        log(`    parse debug preview: ${JSON.stringify(preview)}`)
+      }
       continue
     }
 
-    if (!Array.isArray(clusters)) continue
-
     for (const c of clusters) {
-      if (!c?.topic || !Array.isArray(c.decision_indices)) continue
+      if (!c.topic || !c.decision_indices?.length) continue
       const existing = allClusters.get(c.topic) ?? { decisions: [], has_drift: false, drift_signal: null }
       for (const idx of c.decision_indices) {
         const d = chunk[idx - 1]

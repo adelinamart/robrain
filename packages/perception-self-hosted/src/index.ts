@@ -103,6 +103,14 @@ function projectNotRegisteredJson(projectId: string) {
   }
 }
 
+function decisionNotFoundJson(decisionId: string) {
+  return {
+    error:        'decision_not_found' as const,
+    message:      `No decision row updated for id ${decisionId} — wrong or stale decision_id?`,
+    decision_id:  decisionId,
+  }
+}
+
 /** Projects are registered only via POST /projects (e.g. robrain init-project). Reject typos / stale ids loudly. */
 async function jsonIfProjectUnknown(projectId: string, c: Context): Promise<Response | undefined> {
   const r = await pool.query(`SELECT 1 FROM ${S}.projects WHERE id = $1 LIMIT 1`, [projectId])
@@ -271,15 +279,21 @@ app.post('/signals', writeRateLimit, async (c) => {
     // Embed the decision
     const embedding = await embed(`${extracted.decision}. ${extracted.rationale ?? ''}`)
 
-    // Near-duplicate: skip INSERT if an active same-scope decision is already this close in embedding space
-    const dedupMin = THRESHOLDS.DECISION_DEDUP_SIMILARITY
+    // Near-duplicate: skip INSERT if an active same-scope decision is already this close in embedding space.
+    // Same-session turns (e.g. same user_message, different claude_reply) can phrase the decision slightly
+    // differently — use a lower cosine floor than cross-session so we don't double-insert.
+    const dedupCross = THRESHOLDS.DECISION_DEDUP_SIMILARITY
+    const dedupSameSession = THRESHOLDS.DECISION_DEDUP_SIMILARITY_SAME_SESSION
+    const currentSessionId = signal.turn.session_id
+
     const { rows: nearest } = await pool.query<{
       id: string
+      session_id: string
       decision: string
       reviewed_at: Date | null
       similarity: number
     }>(`
-      SELECT d.id, d.decision, d.reviewed_at,
+      SELECT d.id, d.session_id, d.decision, d.reviewed_at,
              1 - (d.embedding <=> $1::vector) AS similarity
       FROM ${S}.decisions d
       WHERE d.project_id = $2
@@ -288,17 +302,29 @@ app.post('/signals', writeRateLimit, async (c) => {
         AND d.invalidated_at IS NULL
         AND d.embedding IS NOT NULL
       ORDER BY d.embedding <=> $1::vector
-      LIMIT 1
+      LIMIT 5
     `, [JSON.stringify(embedding), projectId, signal.scope])
 
-    const match = nearest[0]
-    if (match && Number(match.similarity) >= dedupMin) {
+    let match: (typeof nearest)[0] | undefined
+    for (const row of nearest) {
+      const sim = Number(row.similarity)
+      const sameSession = row.session_id === currentSessionId
+      const min = sameSession ? dedupSameSession : dedupCross
+      if (sim >= min) {
+        match = row
+        break
+      }
+    }
+
+    if (match) {
       const simRounded = Number(Number(match.similarity).toFixed(3))
       const matchedSnippet = match.decision.length > 80
         ? `${match.decision.slice(0, 80)}…`
         : match.decision
       console.log(
-        `[Perception OSS] POST /signals deduped vs ${match.id} (similarity=${simRounded}, reviewed=${match.reviewed_at != null}) :: "${matchedSnippet}"`,
+        `[Perception OSS] POST /signals deduped vs ${match.id} (similarity=${simRounded}, same_session=${
+          match.session_id === currentSessionId
+        }, reviewed=${match.reviewed_at != null}) :: "${matchedSnippet}"`,
       )
       return c.json({
         accepted: true,
@@ -579,24 +605,30 @@ app.post('/corrections', async (c) => {
   // Approval is exclusive of invalidation/edit; once a user explicitly
   // approves a decision it disappears from the default review feed.
   if (body.approve) {
-    await pool.query(`
+    const result = await pool.query(`
       UPDATE ${S}.decisions
       SET reviewed_at = now(),
           conflict_flag = false,
           updated_at = now()
       WHERE id = $1
     `, [body.decision_id])
+    if (!result.rowCount) {
+      return c.json(decisionNotFoundJson(body.decision_id), 404)
+    }
     return c.json({ accepted: true, action: 'approved' })
   }
 
   if (body.resolved_conflict_keep && !body.invalidate) {
-    await pool.query(`
+    const result = await pool.query(`
       UPDATE ${S}.decisions
       SET conflict_flag = false,
           reviewed_at = COALESCE(reviewed_at, now()),
           updated_at = now()
       WHERE id = $1
     `, [body.decision_id])
+    if (!result.rowCount) {
+      return c.json(decisionNotFoundJson(body.decision_id), 404)
+    }
 
     if (body.counterpart_id && body.counterpart_id !== body.decision_id) {
       await pool.query(`
