@@ -654,19 +654,31 @@ app.post('/corrections', async (c) => {
     const unknownProject = await jsonIfProjectUnknown(projectId, c)
     if (unknownProject) return unknownProject
 
-    const sessionId = c.req.header('X-Session-Id') ?? 'correction'
-    const embedding  = await embed(`${body.corrected_decision}. ${body.corrected_rationale ?? ''}`)
+    // FK: session_id must reference an existing sessions row — use the row being corrected
+    // (CLI used to send X-Session-Id = robrain-review-cli with no matching session → 500).
+    const { rows: srcRows } = await pool.query<{ session_id: string; scope: string }>(
+      `SELECT session_id, scope FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
+      [body.decision_id],
+    )
+    const src = srcRows[0]
+    if (!src) {
+      return c.json(decisionNotFoundJson(body.decision_id), 404)
+    }
+
+    const embedding = await embed(`${body.corrected_decision}. ${body.corrected_rationale ?? ''}`)
 
     await pool.query(`
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
         supersedes_id, embedding
-      ) VALUES ($1,$2,$3,$4,'[]'::jsonb,'{}'::text[],1.0,'team',$5,$6,$7::vector)
+      ) VALUES ($1,$2,$3,$4,'[]'::jsonb,'{}'::text[],1.0,$5,$6,$7,$8::vector)
     `, [
-      projectId, sessionId,
+      projectId,
+      src.session_id,
       body.corrected_decision,
       body.corrected_rationale ?? null,
+      src.scope,
       body.source,
       body.invalidate ? body.decision_id : null,
       JSON.stringify(embedding),

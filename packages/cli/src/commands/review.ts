@@ -328,7 +328,7 @@ async function editDecisionInline(
         'Content-Type':  'application/json',
         ...(percKey ? { 'Authorization': `Bearer ${percKey}` } : {}),
         'X-Project-Id':  projectId,
-        'X-Session-Id':  'robrain-review-cli',
+        'X-Session-Id':  d.session_id,
       },
       body: JSON.stringify({
         decision_id:          d.id,
@@ -489,7 +489,7 @@ async function resolveConflictInline(
         'Content-Type':  'application/json',
         ...(percKey ? { 'Authorization': `Bearer ${percKey}` } : {}),
         'X-Project-Id':  projectId,
-        'X-Session-Id':  'robrain-review-cli',
+        'X-Session-Id':  d.session_id,
       },
       body: JSON.stringify({
         decision_id:              d.id,
