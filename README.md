@@ -2,13 +2,13 @@
 
 **Stop watching your AI agent repeat the same mistakes.**
 
-RoBrain is shared institutional memory for teams using AI agents — across users, machines, and tools, with systematic passive capture and no agent-side discipline required.
+Open-source shared memory for teams using AI agents. Captures every decision and the alternatives your team ruled out, and flags when a new decision contradicts an old one — so your team revisits past decisions intentionally, instead of re-litigating from zero.
 
-Works across Claude Code, Cursor, and Copilot sessions.
+Works across Claude Code, Cursor, and Copilot.
 
 ## Contents
 
-- [Overview](#overview)
+- [How it works](#how-it-works)
 - [Install and usage](#install-and-usage)
   - [What ships today](#what-ships-today)
   - [Synthesis](#synthesis)
@@ -21,38 +21,43 @@ Works across Claude Code, Cursor, and Copilot sessions.
 
 ---
 
-## Overview
+## How it works
 
-### What makes this different
+**Session 1 — Tuesday afternoon, Alice's machine:**
 
-Many third-party coding memories still rely on explicit APIs or manual notebooks. **Claude Code Auto memory** is the strongest built-in alternative for Claude-only workflows — see [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) for a straight comparison.
+Alice and her agent are working on the shopping cart. They consider Redux for state management, but settle on Zustand because Redux was causing re-render performance issues in the cart component.
 
-RoBrain focuses on turning session context into **structured, queryable decision records** stored in Postgres: explicit **`rejected[]`**, **`files_affected`**, embeddings for retrieval, decision lifecycle hooks, and a CLI/editor surface that stays useful when notes get long-lived or contradictory. It complements Auto memory rather than denying that it exists.
+RoBrain captures this automatically:
 
-```
-Session 3, turn 12:
-  User: "let's use Zustand instead of Redux — Redux caused re-render issues in the cart"
-  
-  RoBrain captures:
-  {
-    decision: "Use Zustand for state management",
-    rationale: "Redux caused re-render performance issues in cart",
-    rejected: [{ option: "Redux", reason: "re-render performance issues in cart" }],
-    files_affected: ["src/store/cart.ts"],
-    confidence: 0.94
-  }
-
-Session 7, turn 3:
-  npx robrain inject --query "state management" --copy
-  
-  → Pastes into Claude Code:
-  "• Chose Zustand over Redux (re-render performance) — Mar 15, high confidence"
+```json
+{
+  "decision": "Use Zustand for state management",
+  "rationale": "Redux caused re-render issues in cart",
+  "rejected": [{ "option": "Redux", "reason": "re-render perf issues in cart" }],
+  "files_affected": ["src/store/cart.ts"]
+}
 ```
 
-Six sessions later, Claude Code knows why your codebase looks the way it does.
+No notes written. No commands run. The capture is part of the session, not on top of it.
+
+**Session 2 — a week later, Bob's machine:**
+
+Bob is working on a new cart feature. His agent, in a fresh session with no memory of Alice's work, is about to suggest Redux.
+
+Bob runs `npx robrain inject --query "state management" --copy` before his next prompt. RoBrain returns:
+
+> Chose Zustand over Redux (re-render perf issues in cart) — Mar 15, high confidence
+
+Bob pastes that one line into his agent. The agent now knows the team's prior reasoning, surfaces it in the conversation, and Bob's session continues from informed context — instead of re-litigating Alice's decision from scratch.
+
+**That's the loop.** Decisions and their vetoes flow from one developer's session into every other developer's sessions. Captured automatically, retrieved manually today (or auto-injected with the cloud version).
+
+### Why this matters
+
+Six months into a project, every architectural decision your team has made — and every alternative they ruled out — is queryable as structured data. New developers join and inherit the full decision history. Old decisions stay queryable after you change your mind (*"what did we decide in March?"* returns a real answer). Contradictions across sessions get flagged for review instead of silently overwriting each other.
 
 **Captured:**
-- Architectural decisions made during Claude Code sessions
+- Architectural decisions made during AI coding sessions
 - The rationale and rejected alternatives for each decision
 - Which files were in scope when the decision was made
 - Session metadata (timestamp, confidence score)
@@ -63,17 +68,28 @@ Six sessions later, Claude Code knows why your codebase looks the way it does.
 - Personal information
 - Anything outside of conversation turns with your AI agent
 
-**Does code leave your machine?**
+### Does code leave your machine?
 
 In self-hosted mode: no. Conversation turns are processed by your local Perception API running in Docker and stored in your local Postgres instance. Nothing is sent to Rory Plans or any external service.
 
 When using Rory Plans cloud: conversation turns are sent to Rory Plans' hosted Perception API for extraction. The extracted decision object is stored on Rory Plans infrastructure. Raw conversation text is not retained after extraction.
 
-**Why are there two API keys in self-hosted mode?**
+### Why are there two API keys in self-hosted mode?
 
 RoBrain uses Anthropic (Haiku) for decision extraction/classification and a separate embeddings provider (`openai`, `voyage`, or `cohere`) for semantic vector search. That is why you may see both `ANTHROPIC_API_KEY` and an embedding key in setup.
 
 **Cheapest recommended combo:** `ANTHROPIC_API_KEY` (Haiku) + `EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` (`text-embedding-3-small`).
+
+### How RoBrain compares
+
+After you've seen the loop, you may want to know how RoBrain fits the broader landscape of AI memory tools. The short version:
+
+- **Claude Code Auto-Memory** captures per-user, per-machine. Bob's machine has no idea what Alice's machine learned.
+- **Mem0** stores facts and resolves contradictions at the moment of insertion. It doesn't periodically scan the whole corpus for contradictions that emerge later.
+- **Cloudflare Agent Memory** offers shared team memory profiles but runs as a managed service on Cloudflare's infrastructure.
+- **RoBrain** captures decisions + rejected alternatives as structured data in your Postgres, runs a scheduled scan over the whole corpus to catch contradictions, and keeps both sides queryable when decisions change.
+
+See [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) and [Comparisons](#comparisons) for the detailed breakdown.
 
 ---
 
@@ -328,11 +344,12 @@ cd robrain
 cp .env.example .env
 ```
 
-Edit `.env` at the repo root (same keys power Perception in Docker and the CLI install prompts):
+Edit `.env` at the repo root (same keys power Perception in Docker and the CLI install prompts). Paste real keys from [Anthropic](https://console.anthropic.com) and your embedding provider — do not commit that file.
+
 ```
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=
 EMBEDDING_PROVIDER=openai
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=
 ```
 
 Keep `EMBEDDING_PROVIDER` identical between this file and what you select when running install (or set `EMBEDDING_PROVIDER` in `.env` and install will pick it up without prompting).

@@ -6,7 +6,7 @@
     <title>RoBrain — open-source shared memory for AI-assisted teams</title>
     <meta
       name="description"
-      content="Open-source shared memory for teams using AI agents. Captures decisions, rejected alternatives, and cross-session contradictions — self-hosted OSS."
+      content="Open-source shared memory for teams using AI agents. Captures decisions and ruled-out alternatives; flags contradictions — same story as the README How it works walkthrough."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -268,10 +268,30 @@
         margin-bottom: 0.35rem;
       }
 
-      .follow-json {
-        margin-top: 0.75rem;
-        font-size: 1rem;
-        color: var(--violet-800);
+      h3.card-sub {
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 1.08rem;
+        font-weight: 600;
+        color: var(--violet-950);
+        margin: 1.25rem 0 0.5rem;
+      }
+
+      h3.card-sub:first-child {
+        margin-top: 0;
+      }
+
+      blockquote {
+        margin: 0.85rem 0;
+        padding: 0.7rem 1.1rem;
+        border-left: 4px solid var(--violet-400);
+        background: var(--violet-50);
+        color: var(--violet-900);
+        font-size: 0.98rem;
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      }
+
+      blockquote p {
+        margin: 0;
       }
 
       a {
@@ -455,42 +475,40 @@
       </header>
 
       <section class="card">
-        <h2><span class="icon">◆</span> Why now</h2>
+        <h2><span class="icon">◇</span> How it works</h2>
         <p>
-          Agent memory is suddenly crowded: hosted fact stores, vendor auto-memory, and markdown in the repo each
-          solve part of the problem. Most still treat memory as <strong>what was decided</strong> — often per user,
-          often prose — and lose <strong>what you ruled out and why</strong>, plus any signal when today’s session
-          contradicts March’s call.
+          <strong>Session 1 — Tuesday afternoon, Alice’s machine:</strong> Alice and her agent work on the shopping
+          cart. They consider Redux, but settle on Zustand because Redux was causing re-render issues in the cart
+          component. RoBrain captures it automatically — no notes, no extra commands.
         </p>
-        <p>
-          <strong>RoBrain</strong> is Postgres-backed, team-addressable, and built around structured vetoes and a
-          full decision lifecycle. <strong>Synthesis</strong> periodically scans the whole corpus so reversals and
-          drift surface even when no single session saw both sides. Use it alongside Auto memory if you like — RoBrain
-          is where canonical, queryable decisions live.
-        </p>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">◇</span> What makes this different</h2>
-        <p>
-          Most AI memory tools store what was decided. RoBrain also stores <strong>what was rejected and why</strong>
-          — as structured, queryable data, not prose. Six months into a project, every architectural decision carries
-          the full history of what your team has tried and ruled out, automatically.
-        </p>
-        <p>
-          Auto-memory features in modern coding agents help, but they capture <strong>per user</strong> — your
-          teammates’ agents have no idea what you decided.
-        </p>
-        <p class="code-label">What one captured row looks like</p>
         <pre class="json-block"><code>{
   "decision": "Use Zustand for state management",
   "rationale": "Redux caused re-render issues in cart",
   "rejected": [{ "option": "Redux", "reason": "re-render perf issues in cart" }],
   "files_affected": ["src/store/cart.ts"]
 }</code></pre>
-        <p class="follow-json">
-          Six months later, when your teammate’s agent suggests Redux, RoBrain surfaces the prior rejection — so the
-          conversation starts from the full history, not from zero.
+        <p>No notes written. No commands run. The capture is part of the session, not on top of it.</p>
+        <p>
+          <strong>Session 2 — a week later, Bob’s machine:</strong> Bob’s agent is about to suggest Redux. He runs
+          <code>npx robrain inject --query "state management" --copy</code> before his next prompt. RoBrain returns:
+        </p>
+        <blockquote>
+          <p>Chose Zustand over Redux (re-render perf issues in cart) — Mar 15, high confidence</p>
+        </blockquote>
+        <p>
+          Bob pastes that line into his agent — the session continues from informed context instead of re-litigating
+          Alice’s decision from scratch.
+        </p>
+        <p>
+          <strong>That’s the loop.</strong> Decisions and vetoes flow from one developer’s session into everyone else’s.
+          Captured automatically; retrieved manually in OSS (or auto-injected with the cloud version).
+        </p>
+        <h3 class="card-sub">Why this matters</h3>
+        <p>
+          Six months in, every architectural decision — and every alternative you ruled out — is queryable as structured
+          data. New developers inherit the full history. Old decisions stay queryable after you change your mind
+          (<em>“what did we decide in March?”</em> returns a real answer). Contradictions across sessions get flagged
+          for review instead of silently overwriting each other.
         </p>
       </section>
 
@@ -498,7 +516,7 @@
         <div class="mini-card">
           <h3>Captured</h3>
           <ul>
-            <li>Architectural decisions from agent sessions</li>
+            <li>Architectural decisions made during AI coding sessions</li>
             <li>Rationale and <strong>rejected alternatives</strong></li>
             <li>Files in scope, timestamps, confidence</li>
           </ul>
@@ -514,6 +532,35 @@
       </div>
 
       <section class="card" style="margin-top: 1.75rem">
+        <h2><span class="icon">◆</span> How RoBrain compares</h2>
+        <p style="margin-bottom: 0.75rem">
+          After the loop, here’s how RoBrain sits next to other AI memory tools (same framing as the
+          <a href="./README.md#how-it-works">README</a>):
+        </p>
+        <ul>
+          <li>
+            <strong>Claude Code Auto-Memory</strong> — per-user, per-machine. Bob’s machine has no idea what Alice’s
+            machine learned.
+          </li>
+          <li>
+            <strong>Mem0</strong> — facts and contradiction handling at insert time; no scheduled scan over the whole
+            corpus for contradictions that emerge later.
+          </li>
+          <li>
+            <strong>Cloudflare Agent Memory</strong> — shared team profiles on Cloudflare’s managed infrastructure.
+          </li>
+          <li>
+            <strong>RoBrain</strong> — decisions plus <code>rejected[]</code> in your Postgres, scheduled Synthesis over
+            the full corpus, both sides stay queryable when decisions change.
+          </li>
+        </ul>
+        <p style="margin-top: 0.85rem; font-size: 0.95rem">
+          Deep dives: <a href="./README.md#robrain-vs-claude-code-auto-memory">vs Claude Auto memory</a> ·
+          <a href="./README.md#comparisons">Comparisons</a>
+        </p>
+      </section>
+
+      <section class="card">
         <h2><span class="icon">✦</span> What ships today</h2>
         <ul>
           <li>
@@ -546,7 +593,7 @@
         <h2><span class="icon">⊞</span> How we compare</h2>
         <p style="margin-bottom: 0.5rem">
           RoBrain next to <strong>Mem0</strong>, <strong>Cloudflare Agent Memory</strong>, and
-          <strong>Claude Code Auto-Memory</strong> — the same matrix we ship on Product Hunt.
+          <strong>Claude Code Auto-Memory</strong>.
         </p>
         <figure class="comparison-figure">
           <img
@@ -559,8 +606,9 @@
           />
         </figure>
         <p class="figure-caption">
-          Prefer HTML over pixels? See also the Claude-only breakdown below, or the full write-ups in the
-          <a href="./README.md#comparisons">README comparisons</a> section.
+          Prefer HTML over pixels? See the <a href="./README.md#how-it-works">How it works</a> walkthrough and the
+          Claude-only table below, or the full write-ups under
+          <a href="./README.md#comparisons">Comparisons</a>.
         </p>
       </section>
 
@@ -699,6 +747,8 @@ npx robrain init-project</code></pre>
       </section>
 
       <footer>
+        <a href="./README.md#how-it-works">How it works (README)</a>
+        ·
         <a href="./README.md">README.md</a>
         ·
         <a href="https://github.com/adelinamart/robrain">github.com/adelinamart/robrain</a>
