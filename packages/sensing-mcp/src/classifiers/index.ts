@@ -147,10 +147,12 @@ NOT a decision:
 - pure questions with no commitment
 - vague brainstorming with no resolution
 - execution-only steps with no stable choice (e.g. "run the tests" with no policy change)
+- one-time troubleshooting or runbook steps with no durable policy (e.g. "restart the app to pick up env changes", "delete the lock file and reinstall", "fully quit and reopen"). Test: would this guide a future choice, or is its value spent once executed? If spent, skip.
+- diagnoses or explanations of why something broke, unless paired with a rule about how to handle it going forward
 - a proposal made by the ASSISTANT that the user did not explicitly affirm. Look for user-side affirmation ("yes", "agreed", "let's do it", "go with that", "sounds good") or the user proceeding to execute the proposed action. If the assistant suggested something and the user moved on without affirming, do NOT extract.
 
 Fields:
-- "decision": one short imperative sentence stating WHAT was chosen or agreed (max ~20 words). If nothing was committed, null.
+- "decision": one short imperative sentence stating WHAT was chosen or agreed as a durable rule/preference (max ~20 words). Procedural steps and one-time fixes are NOT decisions. If nothing durable was committed, null.
 - "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
 - "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
 - "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
