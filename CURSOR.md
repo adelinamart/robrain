@@ -103,21 +103,25 @@ See the repo-root `.env.example` (canonical for Docker + `robrain install`), and
 cp .env.example .env   # fill in keys once
 pnpm docker:up
 
-# Install dependencies and build
-pnpm install && pnpm build
+# Install dependencies, build, and wire Sensing MCP (run from this repo root)
+pnpm install && pnpm install:self-hosted
 
-# Wire into Claude Code / Cursor
-pnpm cli install --self-hosted
+# Manual / without root scripts:
+#   Source build:  pnpm -r build && node packages/cli/bin/robrain.js install --self-hosted [--repo-root "$(pwd)"]
+#   Published CLI: robrain install --self-hosted --repo-root /path/to/robrain/clone
+# `npm i -g robrain` uses the published binary — it is not this source tree. Pass `--repo-root`
+# to your clone (or run install with cwd = that clone) so the CLI can read the same `.env` as
+# `pnpm docker:up` and copy the built sensing bundle from `packages/sensing-mcp/dist`.
 
-# Initialize a project (run in your repo)
-pnpm cli init-project
+# Initialize a project (run in the repo where you want memory; cwd sets project id)
+pnpm robrain init-project
 
 # After sessions
-pnpm cli review
-pnpm cli inject --query "auth decisions" --copy
+pnpm robrain review
+pnpm robrain inject --query "auth decisions" --copy
 ```
 
-`pnpm cli init-project` writes mode-aware instructions:
+`pnpm robrain init-project` (or `node packages/cli/bin/robrain.js init-project`) writes mode-aware instructions:
 
 - If installed with `--self-hosted`, generated `CLAUDE.md` and `.cursor/rules/robrain.mdc` are Sensing-only (`sensing_*` tools).
 - If installed in cloud mode with Control available, generated instructions include `control_*` calls as well.

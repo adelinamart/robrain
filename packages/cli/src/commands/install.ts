@@ -23,6 +23,12 @@ import {
   McpBundleError,
 } from '../lib/mcp-bundle.js'
 import { initProjectCommand }                                   from './init-project.js'
+import {
+  inferLocalRobrainMonorepoRoot,
+  inferRobrainMonorepoRootFromCwd,
+  loadCliEnv,
+  readDotenvKey,
+} from '../lib/load-env.js'
 import { join }                                                  from 'path'
 import { homedir }                                               from 'os'
 
@@ -255,7 +261,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     planningKey:       provisioned.planningKey,
     embeddingProvider: embeddingProvider ?? 'openai',
     installedAt:       new Date().toISOString(),
-    version:           '0.3.0',
+    version:           '0.4.0',
   })
 
   spinner.succeed('MCP servers configured')
@@ -281,6 +287,15 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 // Perception instance started with pnpm docker:up.
 
 async function installSelfHosted(opts: InstallOptions): Promise<void> {
+  // Re-merge `.env` after resolving clone root: `preAction` only had `--repo-root` /
+  // ROBRAIN_REPO; infer the monorepo when running `node …/packages/cli/bin/robrain.js`
+  // from a checkout so PERCEPTION_API_KEY matches docker-compose (repo `.env`).
+  const cloneRootForEnv =
+    resolveRepoRoot(opts) ??
+    inferLocalRobrainMonorepoRoot() ??
+    inferRobrainMonorepoRootFromCwd()
+  loadCliEnv(cloneRootForEnv)
+
   const perceptionUrl = opts.perceptionUrl ?? 'http://localhost:3001'
 
   console.log(chalk.bold('  Self-hosted mode\n'))
@@ -339,9 +354,15 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   // install must not write PERCEPTION_API_KEY: "" into editor MCP configs — that
   // breaks Sensing against OSS Perception while other commands still work.
   const cfg = readConfig()
+  // Repo `.env` wins (same file as `pnpm docker:up`): stale ~/.robrain/config.json or
+  // shell must not override the key Perception already uses in Docker.
+  const perceptionKeyFromRepo = cloneRootForEnv
+    ? readDotenvKey(cloneRootForEnv, 'PERCEPTION_API_KEY')
+    : undefined
   const perceptionKey =
+    (perceptionKeyFromRepo?.trim() ? perceptionKeyFromRepo.trim() : '') ||
     (cfg.perceptionKey?.trim() ? cfg.perceptionKey : '') ||
-    process.env.PERCEPTION_API_KEY ||
+    (process.env.PERCEPTION_API_KEY?.trim() ?? '') ||
     ''
 
   const mcpOpts = {
@@ -364,7 +385,10 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   if (!perceptionKey) {
     console.log(chalk.yellow(
       '  ⚠ PERCEPTION_API_KEY is empty — Sensing MCP cannot talk to Perception (401).\n' +
-      '    Set perceptionKey in ~/.robrain/config.json, export PERCEPTION_API_KEY, or match repo-root `.env`, then re-run install.',
+      '    Put PERCEPTION_API_KEY in the clone `.env` (same file as `pnpm docker:up`).\n' +
+      '    Global CLI (`npm i -g robrain`): run install from the clone directory, or pass ' +
+      chalk.cyan('--repo-root /path/to/robrain') + chalk.yellow(' so that `.env` can be read.\n') +
+      '    Or set perceptionKey in ~/.robrain/config.json / export PERCEPTION_API_KEY, then re-run install.',
     ))
     console.log()
   }
@@ -374,7 +398,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
-    version:           '0.3.0',
+    version:           '0.4.0',
     selfHosted:        true,
   })
 

@@ -3,7 +3,8 @@
 
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** `dotenv.parse` via CJS resolver — avoids NodeNext interop typing issues. */
 const dotenvParse = createRequire(import.meta.url)('dotenv') as {
@@ -42,5 +43,48 @@ export function loadCliEnv(repoRoot?: string): void {
   for (const path of candidateEnvPaths(repoRoot)) {
     if (existsSync(path)) mergeEnvFromFile(path)
   }
+}
+
+/**
+ * When running the CLI from a git checkout (e.g. `node packages/cli/bin/robrain.js`),
+ * find that checkout's root so repo `.env` matches `pnpm docker:up` / docker-compose.
+ * Returns undefined for global npm installs (no workspace markers on the walk).
+ */
+export function inferLocalRobrainMonorepoRoot(): string | undefined {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  while (true) {
+    const parent = dirname(dir)
+    if (parent === dir) break
+    if (
+      existsSync(join(dir, 'pnpm-workspace.yaml')) &&
+      existsSync(join(dir, 'docker', 'docker-compose.yml'))
+    ) {
+      return dir
+    }
+    dir = parent
+  }
+  return undefined
+}
+
+/** When `npm i -g robrain`, cwd may still be the git clone (e.g. after `pnpm docker:up`). */
+export function inferRobrainMonorepoRootFromCwd(): string | undefined {
+  const cwd = process.cwd()
+  if (
+    existsSync(join(cwd, 'pnpm-workspace.yaml')) &&
+    existsSync(join(cwd, 'docker', 'docker-compose.yml'))
+  ) {
+    return cwd
+  }
+  return undefined
+}
+
+/** Read one key from `<repoRoot>/.env` without mutating `process.env` (dotenv.parse). */
+export function readDotenvKey(repoRoot: string, key: string): string | undefined {
+  const path = join(repoRoot, '.env')
+  if (!existsSync(path)) return undefined
+  const parsed = dotenvParse.parse(readFileSync(path))
+  const v = parsed[key]
+  if (v === undefined || String(v).trim() === '') return undefined
+  return String(v).trim()
 }
 
