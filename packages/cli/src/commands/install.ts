@@ -335,12 +335,21 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   const spinner = ora('Writing MCP configuration...').start()
 
+  // Same Perception key the CLI uses (init-project, review, inject). Self-hosted
+  // install must not write PERCEPTION_API_KEY: "" into editor MCP configs — that
+  // breaks Sensing against OSS Perception while other commands still work.
+  const cfg = readConfig()
+  const perceptionKey =
+    (cfg.perceptionKey?.trim() ? cfg.perceptionKey : '') ||
+    process.env.PERCEPTION_API_KEY ||
+    ''
+
   const mcpOpts = {
     sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
     controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
     anthropicKey,
     perceptionUrl,
-    perceptionKey:     '',
+    perceptionKey,
     planningUrl:       '',    // no Planning in self-hosted OSS
     planningKey:       '',
     embeddingProvider: provider,
@@ -352,8 +361,17 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     writeMcpConfig(editor.configPath, mcpOpts)
   }
 
+  if (!perceptionKey) {
+    console.log(chalk.yellow(
+      '  ⚠ PERCEPTION_API_KEY is empty — Sensing MCP cannot talk to Perception (401).\n' +
+      '    Set perceptionKey in ~/.robrain/config.json, export PERCEPTION_API_KEY, or match repo-root `.env`, then re-run install.',
+    ))
+    console.log()
+  }
+
   mergeConfig({
     perceptionUrl,
+    ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
     version:           '0.3.0',
