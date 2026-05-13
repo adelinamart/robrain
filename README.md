@@ -6,14 +6,18 @@ Open-source shared memory for teams using AI agents. Captures every decision and
 
 Works across Claude Code, Cursor, and Copilot.
 
+RoBrain is built by [Rory Plans](https://roryplans.ai), an agent orchestration platform; it is the memory layer that keeps multi-agent, multi-developer work coherent over time.
+
 ## Contents
 
 - [How it works](#how-it-works)
+- [What ships today](#what-ships-today)
 - [Install and usage](#install-and-usage)
-  - [What ships today](#what-ships-today)
-  - [Synthesis](#synthesis)
+  - [Quick start - self-hosted](#quick-start--self-hosted)
+  - [Install details](#install-details)
+- [Synthesis](#synthesis)
 - [CLI commands](#cli-commands)
-- [OSS vs Rory Plans cloud](#oss-vs-rory-plans-cloud)
+- [Free / self-hosted vs Rory Plans cloud](#free--self-hosted-vs-rory-plans-cloud)
 - [Comparisons](#comparisons)
 - [Troubleshooting](#troubleshooting)
 - [Follow-ups (TODO)](#follow-ups-todo)
@@ -23,7 +27,7 @@ Works across Claude Code, Cursor, and Copilot.
 
 ## How it works
 
-**Session 1 — Tuesday afternoon, Alice's machine:**
+**Session 1 — Tuesday afternoon, Alice in Cursor:**
 
 Alice and her agent are working on the shopping cart. They consider Redux for state management, but settle on Zustand because Redux was causing re-render performance issues in the cart component.
 
@@ -40,21 +44,23 @@ RoBrain captures this automatically:
 
 No notes written. No commands run. The capture is part of the session, not on top of it.
 
-**Session 2 — a week later, Bob's machine:**
+**Session 2 — Wednesday morning, Bob opens Claude Code:**
 
-Bob is working on a new cart feature. His agent, in a fresh session with no memory of Alice's work, is about to suggest Redux.
+Bob is working on a new cart feature in Claude Code. His agent, in a fresh session with no memory of Alice's work, is about to suggest Redux.
 
 Bob runs `npx robrain inject --query "state management" --copy` before his next prompt. RoBrain returns:
 
 > Chose Zustand over Redux (re-render perf issues in cart) — Mar 15, high confidence
 
-Bob pastes that one line into his agent. The agent now knows the team's prior reasoning, surfaces it in the conversation, and Bob's session continues from informed context — instead of re-litigating Alice's decision from scratch.
+Bob pastes that one line into his agent. The agent now knows the team's prior reasoning, surfaces it in the conversation, and Bob's Claude Code session continues from informed context — instead of re-litigating Alice's Cursor decision from scratch.
 
-**That's the loop.** Decisions and their vetoes flow from one developer's session into every other developer's sessions. Captured automatically, retrieved manually today (or auto-injected with the cloud version).
+**That's the loop.** Alice can make a decision in Cursor on Tuesday and Bob can pick it up in Claude Code on Wednesday. Decisions and their vetoes flow from one developer's session into every other developer's sessions. Captured automatically; surfaced automatically via the always-on summary, with `inject` for focused pull in Free / self-hosted mode (or task-boundary auto-injection in the cloud).
 
 ### Why this matters
 
 Six months into a project, every architectural decision your team has made — and every alternative they ruled out — is queryable as structured data. New developers join and inherit the full decision history. Old decisions stay queryable after you change your mind (*"what did we decide in March?"* returns a real answer). Contradictions across sessions get flagged for review instead of silently overwriting each other.
+
+- Because `rejected[]` is structured, RoBrain can surface "don't do that again" context before an unsafe, performance-breaking, or architecturally incompatible choice turns into shipped code or a post-merge cleanup.
 
 **Captured:**
 - Architectural decisions made during AI coding sessions
@@ -91,42 +97,105 @@ After you've seen the loop, you may want to know how RoBrain fits the broader la
 
 See [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) and [Comparisons](#comparisons) for the detailed breakdown.
 
+### How memory gets back into your next session
+
+There are two retrieval paths, and the automatic one is the default:
+
+- **Automatic, cross-tool via the always-on summary.** At session start, Sensing fetches the project's always-on summary from Perception, so the next session begins with approved decisions already in context. That is how Alice can make a decision in Cursor and Bob can open Claude Code later with the same decision already loaded. For Claude Code specifically, **`npx robrain export-memory`** can also project approved decisions into Claude auto-memory files, and Synthesis can refresh that export after **`compiled_truth`** updates.
+- **On-demand semantic pull via `npx robrain inject`.** Use this when you want context for a specific topic, file, or stale decision that does not belong in the always-loaded summary. This is the manual paste path in Free / self-hosted mode; Rory Plans cloud automates that targeted retrieval step at task boundaries via Control.
+
+Why isn't retrieval just another MCP tool? You usually don't need to run anything. The always-on summary loads automatically at session start. `inject` is for the cases where you want something narrower than that default block. In Rory Plans cloud, Control automates that second path at task boundaries.
+
+<details>
+<summary>Reference: export-memory vs always-on summary vs Synthesis</summary>
+
+| Path | `npx robrain export-memory` | Always-on summary | Synthesis (`compiled_truth`) |
+|---|---|---|---|
+| How it runs | **Manual** — `npx robrain export-memory`, or chained from Synthesis when `SYNTHESIS_EXPORT_MEMORY=true` | **Automatic** — Sensing fetches it every `sensing_start_session` | **Batch** — `npx robrain synth` / `pnpm synthesis:run` on demand, or nightly cron |
+| What it is | The archive — vetted decisions written to disk so Claude can read them on its own | The "good morning" briefing — a short ranked digest handed to the agent at session start | The **dreaming** step — cross-corpus consolidation that runs while no one is looking, looking for drift, contradictions, and recurring entities |
+| What it pulls from decisions | All approved active rows (no cap); `--include-unreviewed` widens | <=20 active rows: <=15 **high-signal** (approved OR has `rejected[]` OR scope=`global`) + <=5 **recency fill** | All active rows are clustered by topic; the `compiled_truth` sentence is built from **approved rows only** in each cluster |
+| Where the output lives | Markdown files in `~/.claude/projects/<slug>/memory/` (+ managed block in `MEMORY.md`) | `projects.always_on_summary` text column in Postgres | `planning_blocks` rows in Postgres — one pre-compressed sentence per topic |
+| How it reaches Claude | Claude Code's own auto-memory loader reads the files on every session | Returned as the `sensing_start_session` tool result — the agent sees it as a tool response | Stays in Postgres — needs **`export-memory`** (or cloud Control) to surface to Claude. **Synthesis without export = a dream nobody remembers.** |
+| Why it matters | Survives Perception outages; gives Claude the full vetted corpus, file-clustered | Zero-effort context at the start of every session, even before the agent does anything | Catches the contradictions, drift, and recurring entities the reactive write path can't see in isolation |
+
+</details>
+
+---
+
+## What ships today
+
+The launch story is what you can run **now** (Free / self-hosted and CLI), not roadmap vapor:
+
+- **Systematic passive capture** — Sensing records turns; Perception extracts decisions without the agent deciding what to remember.
+- **`rejected[]` as structured, queryable data** — vetoes are first-class fields in Postgres, not prose buried in markdown.
+- **Decision lifecycle** — active vs superseded rows, linked history, and review flows so memory can stay honest over time.
+- **Team-shared store** — Postgres as the source of truth across machines and editors (with MCP on Claude Code, Cursor, Copilot-capable setups).
+- **Automatic session-start recall** — Sensing fetches the always-on summary so approved decisions can follow the next session automatically, including cross-tool handoffs like Cursor on Tuesday → Claude Code on Wednesday.
+- **`npx robrain inject` for focused retrieval** — semantic or file-scoped context when the always-on summary is not enough for the task in front of you.
+- **`npx robrain explain <file>`** — file-scoped “why does this exist?” from stored decisions.
+- **Conflict visibility** — decisions can be flagged for contradiction; `robrain review` resolves them in Free / self-hosted mode. Rory Plans cloud adds proactive warnings at task boundaries (see [Free / self-hosted vs Rory Plans cloud](#free--self-hosted-vs-rory-plans-cloud)).
+
+That combination already goes beyond most “agent memory” products that stop at capture or grep.
+
 ---
 
 ## Install and usage
 
-### Setup checklist, then automatic capture
+You install one thing — the Sensing MCP — and run one Docker command. That's the whole setup.
 
-From the **robrain clone**, install dependencies and **build** once (so `sensing-mcp` is compiled before `install` copies it into `~/.robrain/mcp`). Then start Docker, wire editors, and init each app repo.
+### Quick start — self-hosted
 
-**One-time (robrain repo):**
+From a fresh clone, copy `.env.example` to `.env`, add your `ANTHROPIC_API_KEY` plus one embedding-provider key, then run:
 
 ```bash
 pnpm install && pnpm build
-
-# 1. Start the Docker stack (Postgres + Perception)
 pnpm docker:up
-
-# 2. Install CLI and wire Sensing into Claude Code (pass --repo-root so MCP bundle exists)
 npx robrain install --self-hosted --repo-root "$(pwd)"
+cd /path/to/your/project && npx robrain init-project
 ```
 
-**One-time (each application repo):**
+The first three commands run once from the `robrain` clone. The last command runs once per application repo.
+
+### Install details
+
+`pnpm docker:up` brings up Postgres + Perception in the background; the user-facing surfaces are Sensing and the `robrain` CLI. `npx robrain init-project` writes the project instructions that tell Claude Code to call the Sensing tools at session start and end.
+
+Self-hosted setup usually needs two keys: **`ANTHROPIC_API_KEY`** for extraction and one embedding-provider key for semantic retrieval. If that surprises you, see [Why are there two API keys in self-hosted mode?](#why-are-there-two-api-keys-in-self-hosted-mode).
+
+#### Prerequisites
+- Docker + Docker Compose
+- Node.js **18.18+** (older 18.x + npm 9.6 can break `npx` bin permissions; upgrade Node or use `pnpm dlx robrain`), pnpm
+- Anthropic API key (for Haiku extraction)
+- OpenAI, Voyage, or Cohere API key (for embeddings)
+
+#### Repo setup and `.env`
+
+From the repository root:
 
 ```bash
-cd /path/to/your/project
-npx robrain init-project
+git clone https://github.com/adelinamart/robrain
+cd robrain
+cp .env.example .env
 ```
 
-**Per-project (do once per repo):**
+Edit `.env` at the repo root (the same keys power Perception in Docker and the CLI install prompts). Paste real keys from [Anthropic](https://console.anthropic.com) and your embedding provider — do not commit that file.
 
-Step 3 above — `init-project` — writes the `CLAUDE.md` instructions that tell Claude Code to call the Sensing MCP tools at session start and end. This only needs to happen once per project.
+```
+ANTHROPIC_API_KEY=
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=
+```
 
-That's it. After that — nothing.
+Keep `EMBEDDING_PROVIDER` identical between this file and what you select when running install (or set `EMBEDDING_PROVIDER` in `.env` and install will pick it up without prompting).
 
-`npx robrain` is the canonical CLI path used throughout this README. Anywhere you see that, you can use plain `robrain` instead if the CLI is installed globally (see below).
+#### What `init-project` writes
 
-### CLI on your `PATH` (optional)
+`robrain init-project` writes mode-aware instructions:
+
+- **Free / self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
+- **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
+
+#### CLI on your `PATH` (optional)
 
 If you prefer not to use `npx` every time, install the package globally, then use the `robrain` command directly:
 
@@ -143,9 +212,9 @@ robrain install --self-hosted
 
 If you get `command not found: robrain`, either use `npx robrain …` or ensure your global npm `bin` directory is on your `PATH` (see `npm prefix -g`).
 
-### Cursor-specific setup (most reliable path)
+#### Cursor-specific setup (most reliable path)
 
-For Cursor users specifically, the most reliable OSS path is Cursor Background Agent or Cursor Rules plus self-hosted install:
+For Cursor users specifically, the most reliable self-hosted path is Cursor Background Agent or Cursor Rules plus self-hosted install:
 
 ```bash
 npx robrain install --self-hosted
@@ -170,37 +239,7 @@ At session end, call sensing_end_session.
 
 This improves reliability when Cursor does not consistently follow general instructions by default.
 
-### Architecture
-
-Seven components. Two run locally alongside Claude Code (**Sensing**, **CLI**). On your infrastructure or Rory Plans: **Postgres**, **Perception**, **Synthesis** (batch job over the same DB — not on the hot session path), **Planning API** (cloud only), **Control MCP** (cloud only). In self-hosted OSS, Postgres and Perception run continuously; Synthesis you run on demand or on a schedule against `DATABASE_URL`.
-
-```
-Developer machine:
-  sensing-mcp     ← watches Claude Code sessions passively (open source)
-  robrain CLI     ← review, inject, manage (open source)
-
-Your infrastructure / Rory Plans:
-  Postgres        ← decisions table with rejected[] + pgvector (schema open source)
-  Perception API  ← extracts + stores decisions (self-hosted: basic | cloud: calibrated)
-  Synthesis       ← batch read of decisions → planning_blocks / flags (OSS: `pnpm synthesis:run` or `npx robrain synth`)
-  Planning API    ← ranks relevant memories per task (cloud only)
-  Control MCP     ← auto-injects context at task boundaries (cloud only)
-```
-
-### What ships today
-
-The launch story is what you can run **now** (OSS self-hosted and CLI), not roadmap vapor:
-
-- **Systematic passive capture** — Sensing records turns; Perception extracts decisions without the agent deciding what to remember.
-- **`rejected[]` as structured, queryable data** — vetoes are first-class fields in Postgres, not prose buried in markdown.
-- **Decision lifecycle** — active vs superseded rows, linked history, and review flows so memory can stay honest over time.
-- **Team-shared store** — Postgres as the source of truth across machines and editors (with MCP on Claude Code, Cursor, Copilot-capable setups).
-- **`npx robrain explain <file>`** — file-scoped “why does this exist?” from stored decisions.
-- **Conflict visibility** — decisions can be flagged for contradiction; **`robrain review`** resolves them in OSS. Rory Plans cloud adds proactive warnings at task boundaries (see [OSS vs Rory Plans cloud](#oss-vs-rory-plans-cloud)).
-
-That combination already goes beyond most “agent memory” products that stop at capture or grep.
-
-### Synthesis
+## Synthesis
 
 **Synthesis does not create or capture anything new.** It only reads what is already in the **`decisions`** table (plus sessions for `project_id`) and writes derived artefacts — mainly **`planning_blocks`**, **`conflict_flag` / `decision_relations`**, and logs. The reactive pipeline (Sensing → Perception) still owns every new decision row.
 
@@ -260,6 +299,9 @@ Synthesis **promotes** those entities into **`planning_blocks`**: a one-line syn
 #### Why this matters for `robrain explain`
 
 Without synthesis, **`npx robrain explain src/api/webhooks.ts`** is largely “the most relevant decision rows touching this file.” With synthesis-fed **`planning_blocks`** and relation flags in place, the same command can lean on **pre-summarised topic truth** and **conflicts the reactive path never wired** — e.g. the idempotency vs fire-and-forget tension that only appears when something reads the whole corpus.
+
+<details>
+<summary>OSS runner, env vars, cron, and implementation details</summary>
 
 #### OSS runner
 
@@ -326,100 +368,50 @@ Cron’s default **`PATH`** is minimal — if **`pnpm`** is not found, use an ab
 
 **Contributors welcome:** tighter `explain` / inject consumption of `planning_blocks`, eval sets, and scheduling examples — open issues or PRs.
 
-### Quick start — self-hosted
+</details>
 
-#### Prerequisites
-- Docker + Docker Compose
-- Node.js **18.18+** (older 18.x + npm 9.6 can break `npx` bin permissions; upgrade Node or use `pnpm dlx robrain`), pnpm
-- Anthropic API key (for Haiku extraction)
-- OpenAI, Voyage, or Cohere API key (for embeddings)
+<details>
+<summary>Architecture details (optional reading)</summary>
 
-#### 1. Clone and configure
+What you interact with is **Sensing** and the **`robrain` CLI**. `pnpm docker:up` brings up Postgres + Perception in the background, and Synthesis runs later on demand or on a schedule.
 
-From the repository root, create a single `.env` used by both `pnpm docker:up` and `robrain install --self-hosted --repo-root`:
+```text
+Developer machine:
+  sensing-mcp     ← watches Claude Code sessions passively; fetches the
+                    always-on summary at session start (open source)
+  robrain CLI     ← review, inject, manage (open source)
 
-```bash
-git clone https://github.com/adelinamart/robrain
-cd robrain
-cp .env.example .env
+Your infrastructure / Rory Plans:
+  Postgres        ← decisions table with rejected[] + pgvector (schema open source)
+  Perception API  ← extracts + stores decisions (self-hosted: basic | cloud: calibrated)
+  Synthesis       ← batch read of decisions → planning_blocks / flags (OSS: `pnpm synthesis:run` or `npx robrain synth`)
+  Planning API    ← ranks relevant memories per task (cloud only)
+  Control MCP     ← auto-injects context at task boundaries (cloud only)
 ```
 
-Edit `.env` at the repo root (same keys power Perception in Docker and the CLI install prompts). Paste real keys from [Anthropic](https://console.anthropic.com) and your embedding provider — do not commit that file.
-
-```
-ANTHROPIC_API_KEY=
-EMBEDDING_PROVIDER=openai
-OPENAI_API_KEY=
-```
-
-Keep `EMBEDDING_PROVIDER` identical between this file and what you select when running install (or set `EMBEDDING_PROVIDER` in `.env` and install will pick it up without prompting).
-
-#### 2. Start Postgres + Perception
-
-```bash
-pnpm docker:up
-```
-
-Verify:
-```bash
-curl http://localhost:3001/health
-# {"status":"ok","db":"connected","mode":"oss-self-hosted"}
-```
-
-#### 3. Install CLI and register with Claude Code
-
-```bash
-pnpm install && pnpm build
-
-# Install the local package globally — then use robrain normally:
-pnpm install -g /absolute/path/to/robrain/packages/cli
-
-# Register Sensing MCP (pass repo root so ~/.robrain/mcp/sensing is populated)
-npx robrain install --self-hosted --repo-root "$(pwd)" --perception-url http://localhost:3001
-
-# Initialize your project (run in your repo root)
-cd /path/to/your/project
-npx robrain init-project
-```
-
-#### 4. Start a Claude Code session
-
-Open Claude Code normally. Sensing watches in the background.
-
-`robrain init-project` writes mode-aware instructions:
-
-- **OSS self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
-- **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
-
-#### 5. Review what was captured
-
-```bash
-npx robrain review
-```
-
-#### 6. Inject context into Claude Code
-
-```bash
-# Search for relevant decisions
-npx robrain inject --query "payment flow decisions" --copy
-
-# Get context for specific files
-npx robrain inject --files "src/api/payments.ts,src/store/cart.ts" --copy
-
-# Up to 100 unreviewed decisions (Perception cap) for a big paste block
-npx robrain inject --all --copy
-```
-
-Paste the output into Claude Code before your next task.
-
----
+</details>
 
 ## CLI commands
 
+All commands accept `--help` for full flag details. Repo-level `pnpm` scripts live in `package.json`; CLI commands live in `packages/cli`.
+
 | Command | What it does |
 |---------|-------------|
+| `pnpm install:self-hosted` | Build everything + run `robrain install --self-hosted --repo-root .` in one shot |
+| `pnpm docker:up` | Start Postgres + Perception (uses `.env`) |
+| `pnpm docker:up:build` | Same, but force a rebuild of Perception |
+| `pnpm docker:build` | Rebuild Perception image without starting |
+| `pnpm docker:down` | Stop the stack |
+| `pnpm synthesis:build` | Compile `@robrain/synthesis` before running it |
+| `pnpm synthesis:dry-run` | Run Synthesis with `SYNTHESIS_DRY_RUN=true` (no DB writes) |
 | `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor; then runs **`init-project` in the current directory** (use `--skip-init-project` to opt out) |
+| `npx robrain install --token <token>` | Authenticate against Rory Plans cloud (or set `RORY_TOKEN`) |
+| `npx robrain install --editor <claude-code\|cursor\|copilot>` | Target a specific editor instead of all detected |
+| `npx robrain install --perception-url <url>` | Override Perception URL for self-hosted (default `http://localhost:3001`) |
+| `npx robrain install --repo-root <path>` | Path to the robrain clone — needed so MCP bundle gets linked (or set `ROBRAIN_REPO`) |
 | `npx robrain init-project` | Warm-start memory from package.json, README, git log |
+| `npx robrain init-project --project-id <id>` | Override the auto-derived project ID (useful after `projects merge`) |
+| `npx robrain init` | Alias for `init-project` |
 | `npx robrain projects list` | List Perception projects with session/decision counts (recover phantom ids) |
 | `npx robrain projects merge <from-id> <to-id>` | Merge one project id into another in the database |
 | `npx robrain review` | Inspect, edit, or delete captured decisions; conflict **“keep”** can persist a **`related_to`** edge when Perception returns a counterpart id so Synthesis stops re-flagging the pair |
@@ -429,6 +421,9 @@ Paste the output into Claude Code before your next task.
 | `npx robrain review --history` | Show full decision lifecycle including superseded decisions |
 | `npx robrain review --approve-all` | Bulk-approve every reviewable decision in the current fetch (no prompts per row) |
 | `npx robrain export-memory` | Export approved decisions into Claude Code auto-memory files; optional **`--cwd`** / **`--project-id`** for non-interactive paths (Synthesis F2) |
+| `npx robrain export-memory --dry-run` | Preview the file plan without touching disk |
+| `npx robrain export-memory --include-unreviewed` | Also export decisions not yet approved (not recommended) |
+| `npx robrain export-memory --to <dir>` | Write to a custom memory dir instead of `~/.claude/projects/<slug>/memory` |
 | `npx robrain inject` | Get formatted context to paste into Claude Code |
 | `npx robrain inject --query "..."` | Semantic search for relevant decisions |
 | `npx robrain inject --files "..."` | Get decisions about specific files |
@@ -486,11 +481,11 @@ Works on files, directories, or any path RoBrain has seen in a session. Pipe it 
 
 ---
 
-## OSS vs Rory Plans cloud
+## Free / self-hosted vs Rory Plans cloud
 
 ### What the cloud version adds — automatic intelligence
 
-The OSS version gives you capture, storage, and manual retrieval. The Rory Plans cloud version adds two layers that make the system feel genuinely smart rather than just useful.
+The self-hosted version gives you capture, storage, the always-on summary, and manual focused retrieval. The Rory Plans cloud version adds two layers that make the system feel genuinely smart rather than just useful.
 
 #### Conflict detection
 
@@ -515,7 +510,7 @@ Claude must acknowledge this before proceeding. The contradiction doesn't silent
 
 #### Pre-task rejection warnings
 
-The OSS flow is: run `npx robrain inject`, paste context, then work. The cloud version removes the paste step entirely — and adds something the OSS version can't do.
+In Free / self-hosted mode, the default retrieval path is the always-on summary Sensing loads at session start. When you need something narrower than that always-loaded block, you run `npx robrain inject`, paste the result, then work. The cloud version removes that manual query-and-paste step entirely — and adds something the self-hosted version can't do.
 
 When Control injects context at a task boundary, it scans the current task description against all stored `rejected[]` arrays. If the task mentions something previously ruled out, a warning fires *before* the agent answers:
 
@@ -526,14 +521,14 @@ When Control injects context at a task boundary, it scans the current task descr
 
 This happens at the right moment — before the agent has suggested anything — not after. It's the difference between a system that reminds you of the past and one that steers you away from known mistakes before they happen.
 
-Both features are built on top of the `rejected[]` field that the OSS version captures. The data is collected in OSS — the intelligence that acts on it is in the cloud.
+Both features are built on top of the `rejected[]` field that the Free / self-hosted version captures. The data is collected locally — the intelligence that acts on it is in the cloud.
 
 **Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
-The self-hosted version captures decisions and lets you retrieve them manually. The cloud version adds the layer that makes retrieval automatic — context arrives in your sessions without you doing anything.
+The self-hosted version already brings decisions back automatically through the always-on summary, and lets you pull extra context manually with `npx robrain inject` when you need something task-specific. The cloud version adds the layer that makes that focused retrieval automatic too — context arrives at task boundaries without you doing anything.
 
-| Feature | OSS self-hosted | Rory Plans cloud |
-|---------|----------------|-----------------|
+| Feature | Free / self-hosted | Rory Plans cloud |
+|---------|--------------------|-----------------|
 | Passive session capture | ✓ | ✓ |
 | `rejected[]` field | ✓ | ✓ |
 | Decision lifecycle tracking | ✓ | ✓ |
@@ -549,9 +544,9 @@ The self-hosted version captures decisions and lets you retrieve them manually. 
 | Team memory + shared scope | — | ✓ |
 | Conflict auto-resolution | — | ✓ |
 
-The honest difference: OSS gives you the capture and storage layer — decisions go in, you pull them out manually with `npx robrain inject`. The cloud adds the intelligence layer — Planning scores what's relevant to your current task and Control injects it automatically at every task boundary. You stop pasting. Context just arrives.
+The honest difference: self-hosted already gives you capture, storage, and the always-on summary. When you need focused retrieval beyond that default block, you still pull it manually with `npx robrain inject`. The cloud adds the intelligence layer — Planning scores what's relevant to your current task and Control injects it automatically at every task boundary. You stop pasting for task-specific recall. Context just arrives.
 
-The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. But the bigger gap is automatic injection vs manual paste. That's a workflow change, not just an accuracy improvement.
+The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. But the bigger gap is task-boundary targeting and proactive injection vs manual focused paste. That's a workflow change, not just an accuracy improvement.
 
 **Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
@@ -621,7 +616,7 @@ This lifecycle tracking happens automatically. When Sensing detects a new decisi
 
 ### Why CLAUDE.md isn't enough — and when it is
 
-CLAUDE.md is a good tool. If your project is small, your team is one person, and your sessions are short, it may be all you need. RoBrain is not trying to replace it — Sensing writes to your CLAUDE.md automatically as part of setup.
+CLAUDE.md is a good tool. If your project is small, your team is one person, and your sessions are short, it may be all you need. RoBrain is not trying to replace it — `robrain init-project` writes the RoBrain instructions into your `CLAUDE.md` as part of setup.
 
 The limits show up as a project grows:
 
@@ -643,7 +638,7 @@ The limits show up as a project grows:
 
 **Use RoBrain for:** architectural decisions, library choices, rejected alternatives, anything that was decided during a session rather than before the project started. These are the things nobody writes down because they happen in the middle of work.
 
-The two are complementary. RoBrain's `npx robrain init-project` reads your existing CLAUDE.md as part of the warm-start, and injects session summaries back into it at session end. You keep writing CLAUDE.md for setup context. RoBrain handles the decision history automatically.
+The two are complementary. RoBrain's `npx robrain init-project` reads your existing `CLAUDE.md` as part of the warm-start and writes the RoBrain instructions there; approved decision recall comes from the always-on summary and, for Claude Code, optional `export-memory` files. You keep writing `CLAUDE.md` for setup context. RoBrain handles the decision history automatically.
 
 For how RoBrain compares to Claude’s built-in **Auto memory** (same problem space, different tradeoffs), see [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory).
 
@@ -692,6 +687,90 @@ The developer needs two habits:
 - `npx robrain inject --copy` before starting a new task that builds on prior work
 
 Everything else — capture, extraction, storage, embedding — happens without you doing anything.
+
+### Decisions captured in the editor but `robrain review` shows nothing (silent 401)
+
+The most common silent failure: the editor's MCP panel shows Sensing as connected, you made decisions in chats, but `robrain review --history` or a direct DB query returns nothing. Perception is rejecting every signal with **401 Unauthorized** and Sensing has no way to surface that back to the editor.
+
+**1. Check the API key wired into the MCP env:**
+
+```bash
+grep PERCEPTION_API_KEY ~/.cursor/mcp.json          # Cursor
+grep PERCEPTION_API_KEY ~/.claude.json | head       # Claude Code
+```
+
+If you see `"PERCEPTION_API_KEY": ""`, that's the bug. Versions of `robrain` **< 0.4.0** wrote it as empty even when `.env` had a key. Upgrade and reinstall:
+
+```bash
+npm install -g robrain@latest          # global install
+# — or from a clone of the repo —
+pnpm install:self-hosted
+```
+
+**2. Inspect Sensing MCP's stderr — the only place 401s surface:**
+
+```bash
+# Cursor — tail the Sensing MCP stderr from the most recent log dir
+LATEST=$(ls -td ~/Library/Application\ Support/Cursor/logs/*/ | head -1)
+find "$LATEST" -name "MCP user-robrain-sensing.log" -exec tail -30 {} \;
+```
+
+Look for `[Sensing] Perception API error: 401` or `always-on summary fetch failed: 401`. If you see them, the key in the editor's MCP env doesn't match Perception's `PERCEPTION_API_KEY`.
+
+**3. Fully restart the editor — closing the chat is not enough.**
+
+Cursor and Claude Code cache the spawned MCP **child process** with its initial env. Closing a chat or window keeps that child alive with the old (empty) env. Use **`Cmd-Q`** on the editor entirely, then reopen.
+
+### Verifying a decision actually landed
+
+```bash
+# Compute your project_id (deterministic 12-char hash of the absolute repo path)
+echo -n "/absolute/path/to/your/repo" | shasum -a 256 | awk '{print substr($1,1,12)}'
+
+# Direct DB query — substitute <project_id>
+docker exec -i robrain-postgres psql -U robrain -d robrain -c \
+  "SELECT created_at, decision, rejected
+   FROM context_system.decisions
+   WHERE project_id='<project_id>' AND created_at > NOW() - INTERVAL '15 minutes'
+   ORDER BY created_at DESC;"
+
+# Or via Perception API (Authorization required)
+curl -s -H "Authorization: Bearer <PERCEPTION_API_KEY>" \
+  "http://localhost:3001/decisions?project_id=<project_id>&history=true&limit=20"
+```
+
+### Decision is in the DB but the next session doesn't surface it
+
+The always-on summary is **cached on the project row**. Fresh decisions normally trigger regeneration, but a missed regen leaves the cache stale. Force one:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer <PERCEPTION_API_KEY>" \
+  "http://localhost:3001/projects/<project_id>/regenerate-summary"
+```
+
+Then start a **new** Claude Code / Cursor session so `sensing_start_session` pulls the regenerated summary.
+
+### Perception container unhealthy or refusing to start
+
+```bash
+docker ps | grep robrain-perception
+docker inspect robrain-perception --format='{{.State.Health.Status}}'
+docker logs --tail=80 robrain-perception
+```
+
+If Perception logs `Refusing to start: PERCEPTION_API_KEY is empty`, put a key in `<repo-root>/.env`:
+
+```bash
+PERCEPTION_API_KEY=<any-long-random-string>
+```
+
+Then rebuild:
+
+```bash
+pnpm docker:up:build
+```
+
+The CLI installer (0.4.0+) reads the **same** `.env`, so client and server stay in sync automatically. Run `pnpm install:self-hosted` (or `robrain install --self-hosted --repo-root /path/to/clone`) to propagate the key into editor MCP configs, then fully restart Cursor / Claude Code.
 
 ### Stale Perception Docker image (migrations / schema out of sync)
 

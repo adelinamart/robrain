@@ -527,11 +527,6 @@
         margin: 0 0 1rem;
       }
 
-      .final-cta-help {
-        margin-top: 1.25rem;
-        font-size: 0.95rem;
-        color: var(--violet-800);
-      }
     </style>
   </head>
   <body>
@@ -544,6 +539,10 @@
           <strong>Open-source shared memory</strong> for teams using AI agents. Captures every decision and the
           alternatives your team ruled out, and flags when a new decision contradicts an old one — so your team
           revisits past decisions <em>intentionally</em>, instead of re-litigating from zero.
+        </p>
+        <p style="margin: 0.9rem 0 0; color: var(--violet-800)">
+          Built by <a href="https://roryplans.ai">Rory Plans</a>, an agent orchestration platform. RoBrain is the
+          memory layer that keeps multi-agent, multi-developer work coherent over time.
         </p>
         <div class="pill-row">
           <span class="pill">Claude Code</span>
@@ -559,7 +558,7 @@
       <section class="card">
         <h2><span class="icon">◇</span> How it works</h2>
         <p>
-          <strong>Session 1 — Tuesday afternoon, Alice’s machine:</strong> Alice and her agent work on the shopping
+          <strong>Session 1 — Tuesday afternoon, Alice in Cursor:</strong> Alice and her agent work on the shopping
           cart. They consider Redux, but settle on Zustand because Redux was causing re-render issues in the cart
           component. RoBrain captures it automatically — no notes, no extra commands.
         </p>
@@ -571,26 +570,36 @@
 }</code></pre>
         <p>No notes written. No commands run. The capture is part of the session, not on top of it.</p>
         <p>
-          <strong>Session 2 — a week later, Bob’s machine:</strong> Bob’s agent is about to suggest Redux. He runs
-          <code>npx robrain inject --query "state management" --copy</code> before his next prompt. RoBrain returns:
+          <strong>Session 2 — Wednesday morning, Bob opens Claude Code:</strong> Bob’s agent is about to suggest Redux.
+          He runs <code>npx robrain inject --query "state management" --copy</code> before his next prompt. RoBrain
+          returns:
         </p>
         <blockquote>
           <p>Chose Zustand over Redux (re-render perf issues in cart) — Mar 15, high confidence</p>
         </blockquote>
         <p>
-          Bob pastes that line into his agent — the session continues from informed context instead of re-litigating
-          Alice’s decision from scratch.
+          Bob pastes that line into his agent — the Claude Code session continues from informed context instead of
+          re-litigating Alice’s Cursor decision from scratch.
         </p>
         <p>
-          <strong>That’s the loop.</strong> Decisions and vetoes flow from one developer’s session into everyone else’s.
-          Captured automatically; retrieved manually in OSS (or auto-injected with the cloud version).
+          <strong>That’s the loop.</strong> Alice can make a decision in Cursor on Tuesday and Bob can pick it up in
+          Claude Code on Wednesday. Decisions and vetoes flow from one developer’s session into everyone else’s.
+          Captured automatically; surfaced automatically via the always-on summary, with <code>inject</code> for
+          focused pull in self-hosted mode (or task-boundary auto-injection in the cloud).
+        </p>
+        <p>
+          At session start, Sensing fetches a short ranked digest of approved decisions and hands it to the agent — no
+          command, no paste. Bob runs <code>inject</code> here only because he wants a narrower state-management pull
+          than that default block.
         </p>
         <h3 class="card-sub">Why this matters</h3>
         <p>
           Six months in, every architectural decision — and every alternative you ruled out — is queryable as structured
           data. New developers inherit the full history. Old decisions stay queryable after you change your mind
           (<em>“what did we decide in March?”</em> returns a real answer). Contradictions across sessions get flagged
-          for review instead of silently overwriting each other.
+          for review instead of silently overwriting each other. The cost of forgetting a rejection is not just
+          inefficiency — it is the auth bypass you already patched, the migration you already rolled back, or the
+          dependency you already removed for a CVE.
         </p>
       </section>
 
@@ -613,79 +622,11 @@
         </div>
       </div>
 
-      <section class="card" style="margin-top: 1.75rem">
-        <h2><span class="icon">◆</span> How RoBrain compares</h2>
-        <p style="margin-bottom: 0.75rem">
-          After the loop, here’s how RoBrain sits next to other AI memory tools (same framing as the
-          <a href="./README.md#how-it-works">README</a>):
-        </p>
-        <ul>
-          <li>
-            <strong>Claude Code Auto-Memory</strong> — per-user, per-machine. Bob’s machine has no idea what Alice’s
-            machine learned.
-          </li>
-          <li>
-            <strong>Mem0</strong> — facts and contradiction handling at insert time; no scheduled scan over the whole
-            corpus for contradictions that emerge later.
-          </li>
-          <li>
-            <strong>Cloudflare Agent Memory</strong> — shared team profiles on Cloudflare’s managed infrastructure.
-          </li>
-          <li>
-            <strong>RoBrain</strong> — decisions plus <code>rejected[]</code> in your Postgres, scheduled Synthesis over
-            the full corpus, both sides stay queryable when decisions change.
-          </li>
-        </ul>
-        <p style="margin-top: 0.85rem; font-size: 0.95rem">
-          Deep dives: <a href="./README.md#robrain-vs-claude-code-auto-memory">vs Claude Auto memory</a> ·
-          <a href="./README.md#comparisons">Comparisons</a>
-        </p>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">✦</span> What ships today</h2>
-        <p style="margin: 0 0 1rem; color: var(--violet-800)">
-          Runnable OSS surface — how you capture, scan, and pull context into a session. For team-wide
-          <code>rejected[]</code>, lifecycle, and Postgres vs per-user tools, see the
-          <a href="#product-comparison">How we compare</a> matrix below.
-        </p>
-        <ul>
-          <li>
-            <strong>Passive capture</strong> — every session turn auto-recorded via Sensing MCP; no manual notes, no
-            commands to remember.
-          </li>
-          <li>
-            <strong>Cross-session contradiction detection</strong> — run <code>npx robrain synth</code> (or cron) so
-            Synthesis scans the whole corpus and flags reversals across sessions and developers.
-          </li>
-          <li>
-            <strong><code>npx robrain explain &lt;file&gt;</code></strong> — file-scoped “why does this code exist?”
-            from stored decisions.
-          </li>
-          <li>
-            <strong><code>npx robrain inject</code></strong> — semantic or file-scoped context to paste into your
-            agent before the next prompt (same loop as the walkthrough).
-          </li>
-        </ul>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">⟲</span> Decisions evolve. RoBrain knows that.</h2>
-        <p>
-          Decisions in RoBrain aren’t permanent vetoes — they’re <strong>durable context</strong>. When a
-          previously rejected idea makes sense again, you supersede the old row: the history stays queryable, the new
-          decision becomes active. <strong>Synthesis</strong> flags contradictions for human review in
-          <code>robrain review</code> — it doesn’t block the agent from re-suggesting forever. The goal is
-          <strong>informed reconsideration</strong>, not fossilization.
-        </p>
-      </section>
-
       <section class="card">
         <h2 id="product-comparison"><span class="icon">⊞</span> How we compare</h2>
         <p style="margin-bottom: 0.5rem">
           RoBrain next to <strong>Mem0</strong>, <strong>Cloudflare Agent Memory</strong>, and
-          <strong>Claude Code Auto-Memory</strong> — same matrix as Product Hunt; all values in HTML for search and
-          screen readers.
+          <strong>Claude Code Auto-Memory</strong>.
         </p>
         <div class="table-wrap table-wrap--matrix" role="region" aria-labelledby="product-comparison">
           <table class="compare-matrix">
@@ -746,7 +687,7 @@
               </tr>
               <tr>
                 <th scope="row">Warns the agent before it suggests something you ruled out</th>
-                <td>Yes on <strong>Rory Plans</strong> cloud · OSS self-hosted: roadmap (inject + paste today)</td>
+                <td>Yes on <strong>Rory Plans</strong> cloud · self-hosted: roadmap (inject + paste today)</td>
                 <td class="muted">No</td>
                 <td class="muted">No</td>
                 <td class="muted">No</td>
@@ -755,113 +696,42 @@
           </table>
         </div>
         <p class="figure-caption">
-          Narrative walkthrough: <a href="./README.md#how-it-works">How it works</a> · Six-row Claude vs RoBrain table:
-          <a href="#vs-claude-deep">below</a> · Full write-ups:
-          <a href="./README.md#comparisons">Comparisons</a>
+          More detail and tradeoffs: <a href="./README.md#comparisons">README — Comparisons</a>.
         </p>
-      </section>
-
-      <section class="card">
-        <h2 id="vs-claude-deep"><span class="icon">▣</span> RoBrain vs Claude Code Auto memory</h2>
-        <p class="lead-callout">
-          Mem0 and Zep focus on facts or entities — <strong>neither exposes rejected alternatives as a first-class field
-          you can query</strong> the way RoBrain does. That veto line is what keeps “why not X?” from disappearing into
-          prose.
-        </p>
-        <p class="link-subtle">
-          More vendors and tradeoffs: <a href="./README.md#comparisons">README — Comparisons</a>.
-        </p>
-        <p style="margin-bottom: 0.5rem">
-          Same problem space as Claude’s built-in memory — different shape of data and who can see it.
-        </p>
-        <div class="table-wrap">
-          <table class="compare">
-            <thead>
-              <tr>
-                <th>Capability</th>
-                <th>Claude auto-memory</th>
-                <th>RoBrain</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Storage</td>
-                <td>Local markdown files, per-user, per-machine</td>
-                <td>Postgres, can be team-shared</td>
-              </tr>
-              <tr>
-                <td>Capture mechanism</td>
-                <td>Active — Claude decides what to write</td>
-                <td>Systematic passive — every turn auto-classified, Claude doesn’t decide</td>
-              </tr>
-              <tr>
-                <td>Cross-tool</td>
-                <td>Claude Code only</td>
-                <td>Any MCP-capable client (Claude Code, Cursor, etc.)</td>
-              </tr>
-              <tr>
-                <td>Recall</td>
-                <td>Loads <code>MEMORY.md</code> index at session start</td>
-                <td>Always-on summary + semantic search via embeddings</td>
-              </tr>
-              <tr>
-                <td>Audit trail</td>
-                <td>Files only</td>
-                <td>Full session turn history in DB</td>
-              </tr>
-              <tr>
-                <td>New developer joining the project</td>
-                <td>Sees nothing</td>
-                <td>Inherits the team’s accumulated memory immediately</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
 
       <section class="card">
         <h2><span class="icon">◎</span> Architecture (OSS)</h2>
         <div class="arch-block">
-          <h3>On your machine</h3>
+          <h3>What you interact with</h3>
           <p>
-            <strong>Sensing MCP</strong> watches sessions in the background. The <strong>robrain</strong> CLI gives
-            you review, inject, explain, and project management.
+            <strong>Sensing MCP</strong> runs quietly inside your editor and fetches the always-on summary at session
+            start. The <strong>robrain</strong> CLI is the manual surface for review, explain, synth, and focused
+            <code>inject</code> queries.
           </p>
         </div>
         <div class="arch-block">
-          <h3>On your infrastructure</h3>
+          <h3>What starts with one Docker command</h3>
           <p>
-            <strong>Postgres</strong> (decisions + pgvector for retrieval), the <strong>Perception API</strong>
-            (extracts and stores decisions from session turns), and <strong>Synthesis</strong> — a batch job that
-            periodically scans the whole corpus for contradictions, drift, and recurring entities. Runs via
-            <code>npx robrain synth</code>, on a <strong>cron schedule</strong>, or both — so you’re not relying on
-            remembering to click “scan.”
+            Run <code>pnpm docker:up</code> and RoBrain brings up <strong>Postgres</strong> (decisions + pgvector for
+            retrieval) and the <strong>Perception API</strong> (extracts and stores decisions from session turns) in
+            the background.
           </p>
         </div>
         <div class="arch-block">
-          <h3>What lives in the cloud</h3>
+          <h3>What runs on a schedule</h3>
           <p>
-            <strong>Planning API</strong> (relevance scoring across the whole corpus) and <strong>Control MCP</strong>
-            (proactive injection at task boundaries). <strong>Rory Plans cloud only</strong> — the OSS version runs
-            Postgres + Perception continuously and Synthesis on whatever cadence you configure.
+            <strong>Synthesis</strong> is the batch job: run <code>npx robrain synth</code> on demand or on a cron
+            schedule so the whole corpus gets scanned for contradictions, drift, and recurring entities.
           </p>
         </div>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">≋</span> How Synthesis catches what other tools miss</h2>
-        <p>
-          Synthesis is the job that reads the <strong>whole decision corpus</strong>. The headline pass is the
-          <strong>contradiction scan</strong> — e.g. “Use Bun” in February vs “Migrate back to Node” in May can surface
-          as a direct reversal across separate sessions and vocabulary, with a <code>conflicts_with</code> edge and
-          both rows flagged for review.
-        </p>
-        <p>
-          <strong>Drift detection</strong> clusters by topic and surfaces stance shifts without an explicit reversal
-          (think REST → GraphQL across several decisions).
-          <strong>Entity promotion</strong> notices when a name like “Stripe” appears across many decisions and
-          surfaces the full relationship history when any of them comes up later.
-        </p>
+        <div class="arch-block">
+          <h3>Cloud-only extras</h3>
+          <p>
+            <strong>Planning API</strong> and <strong>Control MCP</strong> add task-boundary relevance scoring and
+            automatic injection on <strong>Rory Plans cloud</strong>.
+          </p>
+        </div>
       </section>
 
       <section class="card">
@@ -879,10 +749,25 @@
       </section>
 
       <section class="card">
-        <h2><span class="icon">⚡</span> Try RoBrain now — about two minutes</h2>
+        <h2><span class="icon">⟲</span> Decisions evolve. RoBrain knows that.</h2>
+        <p>
+          Decisions in RoBrain aren’t permanent vetoes — they’re <strong>durable context</strong>. When a
+          previously rejected idea makes sense again, you supersede the old row: the history stays queryable, the new
+          decision becomes active. <strong>Synthesis</strong> flags contradictions for human review in
+          <code>robrain review</code> — it doesn’t block the agent from re-suggesting forever. The goal is
+          <strong>informed reconsideration</strong>, not fossilization.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2><span class="icon">⚡</span> Quick start</h2>
         <p class="final-cta-intro">
-          From a fresh clone: install, bring up Postgres + Perception, wire your editor, init your app repo, then run a
-          corpus scan when you’re ready.
+          From a fresh clone: install, bring up the background services, wire your editor, init your app repo, then run
+          a corpus scan when you’re ready.
+        </p>
+        <p style="margin: 0.6rem 0 1rem; color: var(--violet-800)">
+          Self-hosted usually needs two keys: <code>ANTHROPIC_API_KEY</code> for extraction and one embedding-provider
+          key for semantic retrieval.
         </p>
         <p class="code-label">One-time — RoBrain repo</p>
         <pre><code>pnpm install && pnpm build
@@ -897,12 +782,6 @@ npx robrain init-project</code></pre>
           After <code>init-project</code>, Claude Code gets <code>CLAUDE.md</code> hooks for session start / turn /
           end — capture is automatic. See the README for Cursor rules and editor-specific notes.
         </p>
-        <p class="final-cta-help">
-          Need help?
-          <a href="https://github.com/adelinamart/robrain/issues">Open an issue</a>
-          ·
-          <a href="./README.md#troubleshooting">Troubleshooting</a> (README)
-        </p>
         <div class="cta-row" style="margin-top: 1rem">
           <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
           <a class="btn btn-ghost" href="./README.md">Full README</a>
@@ -910,8 +789,6 @@ npx robrain init-project</code></pre>
       </section>
 
       <footer>
-        <a href="./README.md#how-it-works">How it works (README)</a>
-        ·
         <a href="./README.md">README.md</a>
         ·
         <a href="https://github.com/adelinamart/robrain">github.com/adelinamart/robrain</a>
