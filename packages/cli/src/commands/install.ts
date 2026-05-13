@@ -261,7 +261,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     planningKey:       provisioned.planningKey,
     embeddingProvider: embeddingProvider ?? 'openai',
     installedAt:       new Date().toISOString(),
-    version:           '0.4.0',
+    version:           '0.4.1',
   })
 
   spinner.succeed('MCP servers configured')
@@ -398,7 +398,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
-    version:           '0.4.0',
+    version:           '0.4.1',
     selfHosted:        true,
   })
 

@@ -128,7 +128,13 @@ app.use('*', bodyLimit({
 }))
 
 // ── Auth ──────────────────────────────────────────────────────
+// GET /health is unauthenticated so Docker healthchecks, load balancers, and
+// `robrain status` can probe liveness without PERCEPTION_API_KEY.
 app.use('*', async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path === '/health') {
+    await next()
+    return
+  }
   if (config.apiKey) {
     const auth = c.req.header('Authorization')
     if (!auth || auth !== `Bearer ${config.apiKey}`) {

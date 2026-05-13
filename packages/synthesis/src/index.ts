@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
+import { jsonrepair } from 'jsonrepair'
 import pg from 'pg'
 import { THRESHOLDS } from '@robrain/shared'
 
@@ -51,7 +52,8 @@ Output format (strict):
 - Your entire message must be one JSON value only: a top-level array [...] of cluster objects.
 - Do not add markdown code fences, headings, or any prose before or after the JSON.
 - The first non-whitespace character must be "[" and the last must be "]".
-- Use double quotes for all keys and string values. Use true/false/null (not the strings "true"/"false"/"null").
+- Use double quotes for all keys and every string value — including drift_signal. Use true/false/null (not the strings "true"/"false"/"null").
+- Lexical JSON only: after ":" a string must start with ". Never emit bare words (invalid: "drift_signal": Earlier cap… — valid: "drift_signal": "Earlier cap…").
 - decision_indices: integers only, 1-based positions in the numbered list you were given.
 
 Each cluster object:
@@ -59,7 +61,8 @@ Each cluster object:
 - topic: short kebab-case name for the architectural area (e.g. "state-management", "auth", "database")
 - decision_indices: 1-based indices of decisions in this cluster within the provided list
 - has_drift: true if RECENT decisions (later dates) disagree with EARLIER ones
-- drift_signal: one sentence describing the drift, or null
+- drift_signal: null, or one or more sentences inside a single JSON string (still quoted), describing the drift
+Example shape (structure only): [{"topic":"ranking","decision_indices":[1,2],"has_drift":true,"drift_signal":"Initial cap was ~20; later rows raised the limit with two-tier ranking."}]
 Only flag drift with clear evidence of direction change. Use dates to judge recency.
 
 Planning signal — approval: each line is tagged [approved] (user reviewed in robrain review) or [pending review].
@@ -96,6 +99,11 @@ function stripMarkdownJsonFence(raw: string): string {
   const t = raw.trim()
   const m = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
   return m?.[1]?.trim() ?? t
+}
+
+/** Strip BOM / stray whitespace models sometimes emit before JSON. */
+function normalizeLlmJsonText(raw: string): string {
+  return raw.replace(/^\uFEFF/, '').trim()
 }
 
 /** Best-effort fix for trailing commas before } or ] (common in LLM JSON). */
@@ -173,13 +181,24 @@ type Pass1Cluster = {
 }
 
 function clustersFromParsedValue(v: unknown): Pass1Cluster[] | null {
+  if (v == null) return null
   if (Array.isArray(v)) {
     const r = validateAndCoerceClusters(v)
     return r.length ? r : null
   }
-  if (v && typeof v === 'object') {
+  if (typeof v === 'object') {
     const o = v as Record<string, unknown>
-    for (const key of ['clusters', 'topic_clusters', 'topics', 'results', 'data']) {
+    for (const key of [
+      'clusters',
+      'topic_clusters',
+      'topics',
+      'groups',
+      'items',
+      'results',
+      'data',
+      'output',
+      'result',
+    ]) {
       const inner = o[key]
       if (Array.isArray(inner)) {
         const r = validateAndCoerceClusters(inner)
@@ -195,68 +214,92 @@ function validateAndCoerceClusters(arr: unknown[]): Pass1Cluster[] {
   for (const item of arr) {
     if (!item || typeof item !== 'object') continue
     const o = item as Record<string, unknown>
-    const topic = o.topic
-    const di = o.decision_indices
-    if (typeof topic !== 'string' || !topic.trim() || !Array.isArray(di)) continue
+    const topicRaw = o.topic ?? o.title ?? o.name ?? o.label
+    const topic = typeof topicRaw === 'string' ? topicRaw.trim() : topicRaw != null ? String(topicRaw).trim() : ''
+    let di: unknown = o.decision_indices ?? o.indices ?? o.indexes ?? o.decision_numbers
+    if (di == null && o.decision_index != null) di = [o.decision_index]
+    if (!topic || !Array.isArray(di)) continue
     const indices: number[] = []
     for (const x of di) {
-      if (typeof x === 'number' && Number.isFinite(x) && Number.isInteger(x)) {
-        indices.push(x)
+      if (typeof x === 'number' && Number.isFinite(x)) {
+        const n = Math.trunc(x)
+        if (n >= 1) indices.push(n)
         continue
       }
-      if (typeof x === 'string' && /^\d+$/.test(x.trim())) {
-        indices.push(parseInt(x.trim(), 10))
+      if (typeof x === 'string') {
+        const ts = x.trim()
+        if (/^\d+$/.test(ts)) {
+          indices.push(parseInt(ts, 10))
+          continue
+        }
+        const f = parseFloat(ts)
+        if (Number.isFinite(f) && f >= 1) indices.push(Math.trunc(f))
       }
     }
     if (!indices.length) continue
     let driftSignal: string | null = null
-    if (o.drift_signal != null && o.drift_signal !== '') {
-      driftSignal = typeof o.drift_signal === 'string' ? o.drift_signal : String(o.drift_signal)
+    const driftRaw = o.drift_signal ?? o.driftSignal
+    if (driftRaw != null && driftRaw !== '') {
+      driftSignal = typeof driftRaw === 'string' ? driftRaw : String(driftRaw)
     }
     out.push({
-      topic:              topic.trim(),
-      decision_indices:   indices,
-      has_drift:          Boolean(o.has_drift),
-      drift_signal:       driftSignal,
+      topic,
+      decision_indices: indices,
+      has_drift:        Boolean(o.has_drift ?? o.hasDrift),
+      drift_signal:     driftSignal,
     })
   }
   return out
 }
 
-/** Try direct parse, trailing-comma repair, and nested array extraction from model output. */
-function tryParseClusterJsonSlice(candidate: string): Pass1Cluster[] | null {
+/** Strict parse, then jsonrepair (unquoted strings, minor lexical glitches) before giving up. */
+function tryAcceptParsedJson<T>(raw: string, accept: (v: unknown) => T | null): T | null {
+  try {
+    const hit = accept(JSON.parse(raw))
+    if (hit) return hit
+  } catch { /* */ }
+  try {
+    const hit = accept(JSON.parse(jsonrepair(raw)))
+    if (hit) return hit
+  } catch { /* */ }
+  return null
+}
+
+/**
+ * Try JSON.parse on the slice, then (if `accept` returns null) recover a balanced {...} or [...]
+ * substring. Same pattern for Pass 1 clusters and Pass 3 entity lists.
+ */
+function tryParseModelJsonSlice<T>(candidate: string, accept: (v: unknown) => T | null): T | null {
   const attempts = [candidate.trim(), stripTrailingCommasLoose(candidate.trim())]
   for (const a of attempts) {
-    try {
-      const parsed = clustersFromParsedValue(JSON.parse(a))
-      if (parsed) return parsed
-    } catch { /* try next */ }
+    const direct = tryAcceptParsedJson(a, accept)
+    if (direct) return direct
     const innerArr = extractFirstJsonArray(a)
     if (innerArr && innerArr !== a) {
       for (const b of [innerArr, stripTrailingCommasLoose(innerArr)]) {
-        try {
-          const parsed = clustersFromParsedValue(JSON.parse(b))
-          if (parsed) return parsed
-        } catch { /* */ }
+        const hit = tryAcceptParsedJson(b, accept)
+        if (hit) return hit
       }
     }
     const innerObj = extractFirstJsonObject(a)
     if (innerObj && innerObj !== a) {
       for (const b of [innerObj, stripTrailingCommasLoose(innerObj)]) {
-        try {
-          const parsed = clustersFromParsedValue(JSON.parse(b))
-          if (parsed) return parsed
-        } catch { /* */ }
+        const hit = tryAcceptParsedJson(b, accept)
+        if (hit) return hit
       }
     }
   }
   return null
 }
 
-/** Collect candidate substrings that might contain the cluster array, then parse. */
-function parsePass1ClusterResponse(raw: string): Pass1Cluster[] | null {
-  const t = raw.trim()
-  if (!t) return null
+function tryParseClusterJsonSlice(candidate: string): Pass1Cluster[] | null {
+  return tryParseModelJsonSlice(candidate, clustersFromParsedValue)
+}
+
+/** Candidate strings that might contain JSON (fences, preamble, trailing prose). */
+function gatherJsonTextCandidates(raw: string): string[] {
+  const t = normalizeLlmJsonText(raw)
+  if (!t) return []
   const seen = new Set<string>()
   const candidates: string[] = []
   const push = (s: string) => {
@@ -278,11 +321,71 @@ function parsePass1ClusterResponse(raw: string): Pass1Cluster[] | null {
     const arr2 = extractFirstJsonArray(t.slice(lb))
     if (arr2) push(arr2)
   }
-  for (const c of candidates) {
+  return candidates
+}
+
+/** Collect candidate substrings that might contain the cluster array, then parse. */
+function parsePass1ClusterResponse(raw: string): Pass1Cluster[] | null {
+  for (const c of gatherJsonTextCandidates(raw)) {
     const parsed = tryParseClusterJsonSlice(c)
     if (parsed?.length) return parsed
   }
   return null
+}
+
+const ENTITY_ARRAY_WRAP_KEYS = [
+  'entities',
+  'items',
+  'results',
+  'data',
+  'output',
+  'result',
+  'values',
+  'extracted_entities',
+  'libraries',
+  'list',
+  'rows',
+] as const
+
+function unwrapEntityArray(v: unknown): unknown[] | null {
+  if (Array.isArray(v)) return v
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  for (const key of ENTITY_ARRAY_WRAP_KEYS) {
+    const inner = o[key]
+    if (Array.isArray(inner)) return inner
+  }
+  return null
+}
+
+function tryParseEntityJsonSlice(candidate: string): unknown[] | null {
+  return tryParseModelJsonSlice(candidate, unwrapEntityArray)
+}
+
+function parseEntityArrayFromModelText(raw: string): unknown[] | null {
+  for (const c of gatherJsonTextCandidates(raw)) {
+    const parsed = tryParseEntityJsonSlice(c)
+    if (parsed != null) return parsed
+  }
+  return null
+}
+
+const ENTITY_TYPES = new Set(['library', 'service', 'module', 'pattern'])
+
+function coerceEntityCandidates(rows: unknown[]): Array<{ name: string; type: string }> {
+  const out: Array<{ name: string; type: string }> = []
+  for (const item of rows) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const nameRaw = o.name ?? o.entity ?? o.title ?? o.label
+    const name = typeof nameRaw === 'string' ? nameRaw.trim() : nameRaw != null ? String(nameRaw).trim() : ''
+    if (!name) continue
+    const typeRaw = o.type ?? o.kind ?? o.category
+    let type = typeof typeRaw === 'string' ? typeRaw.trim().toLowerCase() : 'library'
+    if (!ENTITY_TYPES.has(type)) type = 'library'
+    out.push({ name, type })
+  }
+  return out
 }
 
 /** F2 — refresh Claude auto-memory after new compiled_truth rows (needs `working_directory` on projects). */
@@ -633,17 +736,19 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
     }),
   )
 
-  let candidates: Array<{ name: string; type: string }> = []
-  try {
-    const block = resp.content[0]
-    const text  = block?.type === 'text' ? stripMarkdownJsonFence(block.text) : '[]'
-    candidates = JSON.parse(text) as typeof candidates
-  } catch {
+  const block = resp.content[0]
+  const raw   = block?.type === 'text' ? block.text : ''
+  const parsedRows = parseEntityArrayFromModelText(raw)
+  if (parsedRows == null) {
     warn('  could not parse entities')
+    if (process.env.SYNTHESIS_DEBUG_PARSE === 'true' && raw) {
+      const preview = raw.length > 400 ? `${raw.slice(0, 400)}…` : raw
+      log(`    parse debug preview: ${JSON.stringify(preview)}`)
+    }
     return
   }
 
-  if (!Array.isArray(candidates)) return
+  const candidates = coerceEntityCandidates(parsedRows)
 
   const corpus = decisions
     .map(d =>

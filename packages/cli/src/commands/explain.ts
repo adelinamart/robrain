@@ -186,7 +186,9 @@ export async function explainCommand(
       console.log(chalk.yellow('  Could not copy automatically — copy the text above.\n'))
     }
   } else {
-    console.log(chalk.dim('  Tip: add --why for full rationale and rejected alternatives'))
+    if (!opts.why) {
+      console.log(chalk.dim('  Tip: add --why for full rationale and rejected alternatives'))
+    }
     console.log(chalk.dim('  Tip: add --copy to copy this to clipboard\n'))
   }
 }

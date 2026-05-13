@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "RoBrain CLI for installation, setup, and memory workflows",
   "license": "Apache-2.0",
