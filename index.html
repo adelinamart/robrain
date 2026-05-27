@@ -706,8 +706,20 @@
           <h3>What you interact with</h3>
           <p>
             <strong>Sensing MCP</strong> runs quietly inside your editor and fetches the always-on summary at session
-            start. The <strong>robrain</strong> CLI is the manual surface for review, explain, synth, and focused
-            <code>inject</code> queries.
+            start. The <strong>robrain</strong> CLI is the manual surface for review, explain, synth, focused
+            <code>inject</code> queries, and <code>export-memory</code> (Claude auto-memory and an optional git
+            ledger).
+          </p>
+        </div>
+        <div class="arch-block">
+          <h3>Team-visible decisions in git (opt-in)</h3>
+          <p>
+            <code>npx robrain export-memory --ledger</code> writes a single regenerated
+            <code>decisions.md</code> in your project (default: repo root). The RoBrain DB stays the source of truth;
+            the file is for PR review and diffs — approved decisions in effect, superseded history, and optionally
+            pending rows with <code>--include-unreviewed</code>. This is separate from per-user Claude auto-memory
+            under <code>~/.claude/projects/&lt;slug&gt;/memory/</code>, which <code>export-memory</code> still
+            updates without <code>--ledger</code>.
           </p>
         </div>
         <div class="arch-block">
@@ -778,6 +790,9 @@ npx robrain install --self-hosted --repo-root "$(pwd)"</code></pre>
 npx robrain init-project</code></pre>
         <p class="code-label">Contradiction scan (manual once, or add to cron)</p>
         <pre><code>npx robrain synth</code></pre>
+        <p class="code-label">Git-committed decision ledger (opt-in, after review)</p>
+        <pre><code>npx robrain export-memory --ledger
+# custom path: npx robrain export-memory --ledger docs/decisions.md</code></pre>
         <p style="margin-top: 1rem; font-size: 0.95rem">
           After <code>init-project</code>, Claude Code gets <code>CLAUDE.md</code> hooks and Cursor gets
           <code>.cursor/rules/robrain.mdc</code> with <code>alwaysApply: true</code> — capture setup is automatic.

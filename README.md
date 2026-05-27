@@ -101,7 +101,7 @@ See [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) an
 
 There are two retrieval paths, and the automatic one is the default:
 
-- **Automatic, cross-tool via the always-on summary.** At session start, Sensing fetches the project's always-on summary from Perception, so the next session begins with approved decisions already in context. That is how Alice can make a decision in Cursor and Bob can open Claude Code later with the same decision already loaded. For Claude Code specifically, **`npx robrain export-memory`** can also project approved decisions into Claude auto-memory files, and Synthesis can refresh that export after **`compiled_truth`** updates.
+- **Automatic, cross-tool via the always-on summary.** At session start, Sensing fetches the project's always-on summary from Perception, so the next session begins with approved decisions already in context. That is how Alice can make a decision in Cursor and Bob can open Claude Code later with the same decision already loaded. For Claude Code specifically, **`npx robrain export-memory`** can also project approved decisions into Claude auto-memory files, and Synthesis can refresh that export after **`compiled_truth`** updates. Opt in to a **team-visible ledger** with **`npx robrain export-memory --ledger`**, which writes a single regenerated **`decisions.md`** in the repo (default: project root) for git diff and PR review — separate from per-user auto-memory under `~/.claude/`.
 - **On-demand semantic pull via `npx robrain inject`.** Use this when you want context for a specific topic, file, or stale decision that does not belong in the always-loaded summary. This is the manual paste path in Free / self-hosted mode; Rory Plans cloud automates that targeted retrieval step at task boundaries via Control.
 
 Why isn't retrieval just another MCP tool? You usually don't need to run anything. The always-on summary loads automatically at session start. `inject` is for the cases where you want something narrower than that default block. In Rory Plans cloud, Control automates that second path at task boundaries.
@@ -114,8 +114,8 @@ Why isn't retrieval just another MCP tool? You usually don't need to run anythin
 | How it runs | **Manual** — `npx robrain export-memory`, or chained from Synthesis when `SYNTHESIS_EXPORT_MEMORY=true` | **Automatic** — Sensing fetches it every `sensing_start_session` | **Batch** — `npx robrain synth` / `pnpm synthesis:run` on demand, or nightly cron |
 | What it is | The archive — vetted decisions written to disk so Claude can read them on its own | The "good morning" briefing — a short ranked digest handed to the agent at session start | The **dreaming** step — cross-corpus consolidation that runs while no one is looking, looking for drift, contradictions, and recurring entities |
 | What it pulls from decisions | All approved active rows (no cap); `--include-unreviewed` widens | <=20 active rows: <=15 **high-signal** (approved OR has `rejected[]` OR scope=`global`) + <=5 **recency fill** | All active rows are clustered by topic; the `compiled_truth` sentence is built from **approved rows only** in each cluster |
-| Where the output lives | Markdown files in `~/.claude/projects/<slug>/memory/` (+ managed block in `MEMORY.md`) | `projects.always_on_summary` text column in Postgres | `planning_blocks` rows in Postgres — one pre-compressed sentence per topic |
-| How it reaches Claude | Claude Code's own auto-memory loader reads the files on every session | Returned as the `sensing_start_session` tool result — the agent sees it as a tool response | Stays in Postgres — needs **`export-memory`** (or cloud Control) to surface to Claude. **Synthesis without export = a dream nobody remembers.** |
+| Where the output lives | Markdown files in `~/.claude/projects/<slug>/memory/` (+ managed block in `MEMORY.md`); optional **`--ledger`** → `<project>/decisions.md` (git-committed, regenerated) | `projects.always_on_summary` text column in Postgres | `planning_blocks` rows in Postgres — one pre-compressed sentence per topic |
+| How it reaches Claude | Claude Code's own auto-memory loader reads the files on every session; **`decisions.md`** is for humans and git — not loaded by Claude automatically | Returned as the `sensing_start_session` tool result — the agent sees it as a tool response | Stays in Postgres — needs **`export-memory`** (or cloud Control) to surface to Claude. **Synthesis without export = a dream nobody remembers.** |
 | Why it matters | Survives Perception outages; gives Claude the full vetted corpus, file-clustered | Zero-effort context at the start of every session, even before the agent does anything | Catches the contradictions, drift, and recurring entities the reactive write path can't see in isolation |
 
 </details>
@@ -401,17 +401,19 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | Command | What it does |
 |---------|-------------|
 | `pnpm install:self-hosted` | Build everything + run `robrain install --self-hosted --repo-root .` in one shot |
+| `pnpm build` | Compile all workspace packages (`pnpm -r build`) — run after `pnpm install` in the robrain clone |
 | `pnpm docker:up` | Start Postgres + Perception (uses `.env`) |
 | `pnpm docker:up:build` | Same, but force a rebuild of Perception |
 | `pnpm docker:build` | Rebuild Perception image without starting |
 | `pnpm docker:down` | Stop the stack |
 | `pnpm synthesis:build` | Compile `@robrain/synthesis` before running it |
 | `pnpm synthesis:dry-run` | Run Synthesis with `SYNTHESIS_DRY_RUN=true` (no DB writes) |
-| `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor; then runs **`init-project` in the current directory** (use `--skip-init-project` to opt out) |
+| `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor; then runs **`init-project` in the current directory** by default |
 | `npx robrain install --token <token>` | Authenticate against Rory Plans cloud (or set `RORY_TOKEN`) |
 | `npx robrain install --editor <claude-code\|cursor\|copilot>` | Target a specific editor instead of all detected |
 | `npx robrain install --perception-url <url>` | Override Perception URL for self-hosted (default `http://localhost:3001`) |
 | `npx robrain install --repo-root <path>` | Path to the robrain clone — needed so MCP bundle gets linked (or set `ROBRAIN_REPO`) |
+| `npx robrain install --skip-init-project` | Wire editors only — do not run **`init-project`** in the current directory after install |
 | `npx robrain init-project` | Warm-start memory from package.json, README, git log |
 | `npx robrain init-project --project-id <id>` | Override the auto-derived project ID (useful after `projects merge`) |
 | `npx robrain init` | Alias for `init-project` |
@@ -427,6 +429,8 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain export-memory --dry-run` | Preview the file plan without touching disk |
 | `npx robrain export-memory --include-unreviewed` | Also export decisions not yet approved (not recommended) |
 | `npx robrain export-memory --to <dir>` | Write to a custom memory dir instead of `~/.claude/projects/<slug>/memory` |
+| `npx robrain export-memory --ledger` | Also write a single git-committed decisions ledger (default: `<project>/decisions.md`); DB is source of truth — file is regenerated each run |
+| `npx robrain export-memory --ledger <path>` | Same as `--ledger`, but write to a custom path under the project root (e.g. `docs/decisions.md`) |
 | `npx robrain inject` | Get formatted context to paste into Claude Code |
 | `npx robrain inject --query "..."` | Semantic search for relevant decisions |
 | `npx robrain inject --files "..."` | Get decisions about specific files |
@@ -641,7 +645,7 @@ The limits show up as a project grows:
 
 **Use RoBrain for:** architectural decisions, library choices, rejected alternatives, anything that was decided during a session rather than before the project started. These are the things nobody writes down because they happen in the middle of work.
 
-The two are complementary. RoBrain's `npx robrain init-project` reads your existing `CLAUDE.md` as part of the warm-start and writes the RoBrain instructions there; approved decision recall comes from the always-on summary and, for Claude Code, optional `export-memory` files. You keep writing `CLAUDE.md` for setup context. RoBrain handles the decision history automatically.
+The two are complementary. RoBrain's `npx robrain init-project` reads your existing `CLAUDE.md` as part of the warm-start and writes the RoBrain instructions there; approved decision recall comes from the always-on summary and, for Claude Code, optional `export-memory` files. Use **`export-memory --ledger`** when you want one committed **`decisions.md`** in the repo for the whole team to review in PRs (approved, superseded, and optionally pending rows). You keep writing `CLAUDE.md` for setup context. RoBrain handles the decision history automatically.
 
 For how RoBrain compares to Claude’s built-in **Auto memory** (same problem space, different tradeoffs), see [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory).
 

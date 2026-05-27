@@ -59,7 +59,7 @@ class StreamBuffer {
 
   // ── Flush on close ─────────────────────────────────────────
   // Returns all unclassified turns for a session, then clears.
-  // Called by sensing_end_session with a 2s grace window.
+  // Called by sensing_end_session; Perception ingest runs in the background.
 
   flush(session_id: string): SessionTurn[] {
     const unclassified = this.getUnclassified(session_id)

@@ -45,8 +45,10 @@ export const config = {
   // ── Buffer settings ────────────────────────────────────────
   // Max turns to hold in buffer before dropping oldest (recency bias).
   bufferMaxSize:         Number(process.env.BUFFER_MAX_SIZE          ?? 200),
-  // Grace window in ms for flush-on-close hook.
+  // Deprecated: end_session no longer waits on flush. Kept for env compatibility.
   flushGraceWindowMs:    Number(process.env.FLUSH_GRACE_WINDOW_MS    ?? 2000),
+  // Max ms to wait inline for topic-shift embedding before returning buffered:true.
+  topicShiftInlineTimeoutMs: Number(process.env.TOPIC_SHIFT_INLINE_TIMEOUT_MS ?? 1500),
   // How many past messages to compare for topic-shift embedding delta.
   topicShiftWindowSize:  Number(process.env.TOPIC_SHIFT_WINDOW_SIZE  ?? 3),
   // When true, skip embedding API calls — topic_shift is never detected via embeddings.

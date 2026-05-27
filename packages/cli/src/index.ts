@@ -102,9 +102,10 @@ program
   .option('--dry-run',           'Preview what would be written without touching disk')
   .option('--include-unreviewed', 'Also export decisions that haven\'t been approved (not recommended)')
   .option('--to <dir>',          'Write to a custom memory dir (default: ~/.claude/projects/<slug>/memory)')
+  .option('--ledger [path]',     'Also write a single git-committed decisions ledger (default: <project>/decisions.md)')
   .option('--cwd <path>',        'Project root for Claude memory slug + stack detection (default: current directory)')
   .option('--project-id <id>',   'Perception project id when it differs from the path-derived id')
-  .action(async (opts: { dryRun?: boolean; includeUnreviewed?: boolean; to?: string; cwd?: string; projectId?: string }) => {
+  .action(async (opts: { dryRun?: boolean; includeUnreviewed?: boolean; to?: string; ledger?: string | boolean; cwd?: string; projectId?: string }) => {
     await exportMemoryCommand(opts)
   })
 
@@ -224,6 +225,7 @@ program.addHelpText('afterAll', `
     npx robrain review                              Review captured decisions
     npx robrain inject --query "..." --copy         Get context to paste into Claude Code
     npx robrain export-memory                       Project approved decisions into Claude Code auto-memory
+    npx robrain export-memory --ledger              Also write git-committed decisions.md in the project
     npx robrain explain src/store/cart.ts           Why does this file look this way?
     npx robrain synth --dry-run                     Run Synthesis from the robrain clone (needs DATABASE_URL + ANTHROPIC_API_KEY)
 

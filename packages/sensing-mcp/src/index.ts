@@ -150,12 +150,16 @@ server.tool(
     streamBuffer.push(turn)
     session.turn_count++
 
-    // ── Topic shift: embedding delta (fast, inline) ────────
+    // ── Topic shift: embedding delta (inline, capped so MCP does not hang on retries) ──
     let topicShift = false
     let taskDescription: string | null = null
 
     try {
-      const shiftSignal = await classifyTopicShift(turn)
+      const shiftSignal = await withTimeout(
+        classifyTopicShift(turn),
+        config.topicShiftInlineTimeoutMs,
+        null,
+      )
       if (shiftSignal) {
         topicShift      = true
         taskDescription = shiftSignal.task_description
@@ -165,30 +169,28 @@ server.tool(
       console.error('[Sensing] Topic shift classifier error:', err)
     }
 
-    // ── Layer B: decision classifier + Perception write (awaited so MCP JSON can surface errors) ──
+    // ── Layer B: decision classifier + Perception (background — do not block MCP) ──
     const projectId = session.project_id
-    let perceptionWriteError: string | undefined
-    try {
-      const decisionSignal = await classifyDecision(turn, projectId)
-      if (decisionSignal) {
-        const outcome = await routeDecisionSignal(decisionSignal, projectId)
-        if (outcome.persisted) {
-          lastDecisionShipFailure = null
-          streamBuffer.markClassified(session_id, sequence)
+    setImmediate(async () => {
+      try {
+        const decisionSignal = await classifyDecision(turn, projectId)
+        if (decisionSignal) {
+          const outcome = await routeDecisionSignal(decisionSignal, projectId)
+          if (outcome.persisted) {
+            lastDecisionShipFailure = null
+            streamBuffer.markClassified(session_id, sequence)
+          } else {
+            lastDecisionShipFailure =
+              outcome.userFacing ??
+              `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
+          }
         }
-        else {
-          const detail =
-            outcome.userFacing ??
-            `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
-          lastDecisionShipFailure = detail
-          perceptionWriteError = detail
-        }
+      } catch (err) {
+        console.error('[Sensing] Decision classifier error:', err)
       }
-    } catch (err) {
-      console.error('[Sensing] Decision classifier error:', err)
-    }
+    })
 
-    // Reply scorer — non-blocking (does not need to appear in this tool response)
+    // Reply scorer — non-blocking
     if (injected_memory_ids.length > 0) {
       setImmediate(async () => {
         try {
@@ -213,7 +215,6 @@ server.tool(
           topic_shift:      topicShift,
           task_description: taskDescription,
           sequence,
-          ...(perceptionWriteError ? { perception_write_error: perceptionWriteError } : {}),
         }),
       }],
     }
@@ -244,41 +245,23 @@ server.tool(
       }
     }
 
-    // ── Flush-on-close: 2s grace window ───────────────────
+    // ── Flush-on-close: return immediately; ship turns in the background ──
     const unclassified = streamBuffer.flush(session_id)
     const flushed = unclassified.length
-
     const projectId = session.project_id
-    const flushPromise = routeFlushTurns(unclassified, projectId)
-    const graceMs = config.flushGraceWindowMs
 
-    const raced = await Promise.race([
-      flushPromise.then(errors => ({ kind: 'flush' as const, errors })),
-      new Promise<{ kind: 'timeout' }>(resolve => setTimeout(() => resolve({ kind: 'timeout' }), graceMs)),
-    ])
+    void routeFlushTurns(unclassified, projectId)
+      .then(errors => {
+        if (errors.length) {
+          console.error('[Sensing] Flush-on-close errors:', errors.join('; '))
+        }
+      })
+      .catch(err => console.error('[Sensing] Flush-on-close failed:', err))
 
-    let flushErrors: string[] = []
-    let flushTimedOut = false
-
-    if (raced.kind === 'flush') {
-      flushErrors = raced.errors
-    } else {
-      flushTimedOut = true
-      // Do not await — return after grace window. Log if flush finishes late or fails.
-      void flushPromise
-        .then(errors => {
-          if (errors.length) {
-            console.error('[Sensing] Flush completed after grace window (errors):', errors.join('; '))
-          }
-        })
-        .catch(err => console.error('[Sensing] Flush failed after grace window:', err))
-    }
-
-    // Clean up session state
     activeSessions.delete(session_id)
     clearSessionEmbeddings(session_id)
 
-    console.error(`[Sensing] Session ended: ${session_id} — flushed ${flushed} turns`)
+    console.error(`[Sensing] Session ended: ${session_id} — flushing ${flushed} turn(s) in background`)
 
     return {
       content: [{
@@ -286,11 +269,8 @@ server.tool(
         text: JSON.stringify({
           session_id,
           flushed,
-          /** Turns possibly still reaching Perception when we returned early after flush_timed_out. */
-          pending: flushTimedOut ? flushed : 0,
+          pending: flushed,
           summary: summary ?? null,
-          ...(flushTimedOut ? { flush_timed_out: true } : {}),
-          ...(flushErrors.length ? { flush_errors: flushErrors } : {}),
         }),
       }],
     }
@@ -336,6 +316,13 @@ server.tool(
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
 
 async function fetchAlwaysOnSummary(projectId: string): Promise<{
   text: string
