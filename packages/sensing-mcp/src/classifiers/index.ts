@@ -15,7 +15,7 @@ import type {
   ExtractedDecision,
   Scope,
 } from '@robrain/shared'
-import { THRESHOLDS } from '@robrain/shared'
+import { THRESHOLDS, openaiChat } from '@robrain/shared'
 import { config } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
 
@@ -165,32 +165,49 @@ Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"optio
 User: ${turn.user_message}
 Claude: ${turn.claude_reply}`
 
-  const client = getAnthropicClient()
-  if (!client) {
-    console.error('[Sensing] ANTHROPIC_API_KEY is not set — skipping Haiku decision extraction')
-    return { decision: null, rationale: null, rejected: [], confidence: 0 }
-  }
+  const empty = (): ExtractedDecision => ({ decision: null, rationale: null, rejected: [], confidence: 0 })
 
   try {
-    const response = await client.messages.create({
-      model:      config.anthropicModel,
-      max_tokens: 300,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: userPrompt }],
-    })
+    let rawText: string
 
-    const block   = response.content[0]
-    const rawText = block?.type === 'text' ? block.text : '{}'
-    const text = stripMarkdownJsonFence(rawText)
-    const parsed = JSON.parse(text) as ExtractedDecision
+    if (config.llmProvider === 'openai') {
+      if (!config.openaiApiKey) {
+        console.error('[Sensing] OPENAI_API_KEY is not set — skipping OpenAI decision extraction')
+        return empty()
+      }
+      rawText = await openaiChat({
+        apiKey:    config.openaiApiKey,
+        model:     config.openaiLlmModel,
+        system:    systemPrompt,
+        user:      userPrompt,
+        maxTokens: 300,
+        json:      true,
+      })
+    } else {
+      const client = getAnthropicClient()
+      if (!client) {
+        console.error('[Sensing] ANTHROPIC_API_KEY is not set — skipping Haiku decision extraction')
+        return empty()
+      }
+      const response = await client.messages.create({
+        model:      config.anthropicModel,
+        max_tokens: 300,
+        system:     systemPrompt,
+        messages:   [{ role: 'user', content: userPrompt }],
+      })
+      const block = response.content[0]
+      rawText = block?.type === 'text' ? block.text : '{}'
+    }
+
+    const parsed = JSON.parse(stripMarkdownJsonFence(rawText)) as ExtractedDecision
     lastClassifierFailure = null
     return parsed
   } catch (err) {
     lastClassifierFailure =
       `${new Date().toISOString()} ${turn.session_id} seq ${turn.sequence}: ${String(err)}`
-    console.error('[Sensing] Haiku extraction failed:', err)
+    console.error('[Sensing] decision extraction failed:', err)
     // Parse/provider failure = treat as no decision
-    return { decision: null, rationale: null, rejected: [], confidence: 0 }
+    return empty()
   }
 }
 

@@ -4,13 +4,24 @@
 // Copy .env.example → .env and fill in values before running.
 // ─────────────────────────────────────────────────────────────
 
+import { resolveLlmProvider, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+
 export const config = {
+  // ── Reasoning LLM provider for decision classifier Stage 2 ──
+  // Default 'anthropic' (Haiku). Set LLM_PROVIDER=openai to extract decisions
+  // with OpenAI chat-completions instead — for teams avoiding Anthropic.
+  // (Embeddings are chosen separately via EMBEDDING_PROVIDER.)
+  llmProvider:     resolveLlmProvider(),
+  // gpt-4o-mini can hallucinate JSON fields under structured-output prompts —
+  // prefer gpt-4o / gpt-4.1 for extraction fidelity. Reuses OPENAI_API_KEY below.
+  openaiLlmModel:  process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
+
   // ── Anthropic (needed for decision classifier Stage 2 — Haiku) ─
   // Not validated at process start so the MCP server can boot when Cursor
   // does not inject env (set ANTHROPIC_API_KEY in MCP server config or shell).
   // If unset, keyword hits still run but LLM extraction is skipped.
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
-  anthropicModel:  process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+  anthropicModel:  process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_LLM_MODEL,
 
   // ── Embeddings (for topic-shift in sensing_record_turn unless disabled) ─
   // Choose ONE provider by setting EMBEDDING_PROVIDER.

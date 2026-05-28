@@ -24,7 +24,7 @@ import { serve }             from '@hono/node-server'
 import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 
 const { Pool } = pg
@@ -36,8 +36,14 @@ const config = {
   allowUnauth:     process.env.ALLOW_UNAUTHENTICATED === 'true',
   databaseUrl:     requireEnv('DATABASE_URL'),
   schema:          validateSchemaName(process.env.DB_SCHEMA ?? 'context_system'),
-  anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
-  anthropicModel:  process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+  // Reasoning LLM for decision extraction. Default Anthropic (Haiku); set
+  // LLM_PROVIDER=openai to extract with OpenAI instead (Anthropic-free setup).
+  llmProvider:     resolveLlmProvider(),
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  anthropicModel:  process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_LLM_MODEL,
+  // gpt-4o-mini can hallucinate fields under structured-output prompts —
+  // prefer gpt-4o / gpt-4.1 for extraction fidelity. Reuses OPENAI_API_KEY.
+  openaiLlmModel:  process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
   ossMode:         process.env.OSS_MODE === 'true',
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? 'openai',
   openaiApiKey:    process.env.OPENAI_API_KEY,
@@ -60,6 +66,22 @@ if (!config.apiKey && config.allowUnauth) {
   console.warn('[RoBrain Perception OSS] WARNING: running without auth (ALLOW_UNAUTHENTICATED=true).')
 }
 
+// Require the selected reasoning provider's key — extraction can't run without it.
+if (config.llmProvider === 'anthropic' && !config.anthropicApiKey) {
+  console.error(
+    '[RoBrain Perception OSS] Refusing to start: ANTHROPIC_API_KEY is empty.\n' +
+    '  Set ANTHROPIC_API_KEY in .env, or run with LLM_PROVIDER=openai + OPENAI_API_KEY to avoid Anthropic.'
+  )
+  process.exit(1)
+}
+if (config.llmProvider === 'openai' && !config.openaiApiKey) {
+  console.error(
+    '[RoBrain Perception OSS] Refusing to start: LLM_PROVIDER=openai but OPENAI_API_KEY is empty.\n' +
+    '  Set OPENAI_API_KEY in .env (same key also works for EMBEDDING_PROVIDER=openai).'
+  )
+  process.exit(1)
+}
+
 function requireEnv(key: string): string {
   const v = process.env[key]
   if (!v) throw new Error(`Missing env var: ${key}`)
@@ -77,7 +99,11 @@ function validateSchemaName(name: string): string {
 }
 
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 10 })
-const anthropic = new Anthropic({ apiKey: config.anthropicApiKey })
+// Only construct the Anthropic client when it's the selected provider — the SDK
+// throws on an empty key, and LLM_PROVIDER=openai must boot without ANTHROPIC_API_KEY.
+const anthropic = config.llmProvider === 'anthropic'
+  ? new Anthropic({ apiKey: config.anthropicApiKey })
+  : null
 const app       = new Hono()
 const S         = config.schema
 
@@ -873,16 +899,28 @@ Claude: ${claudeReply}`
     ({ decision: null, rationale: null, rejected: [], confidence: 0 })
 
   try {
-    const resp = await anthropic.messages.create({
-      model:        config.anthropicModel,
-      max_tokens:   300,
-      system,
-      messages:     [{ role: 'user', content: user }],
-    })
-    const block = resp.content[0]
-    const text  = block?.type === 'text'
-      ? stripMarkdownJsonFence(block.text)
-      : '{}'
+    let rawText: string
+    if (config.llmProvider === 'openai') {
+      rawText = await openaiChat({
+        apiKey:    config.openaiApiKey ?? '',
+        model:     config.openaiLlmModel,
+        system,
+        user,
+        maxTokens: 300,
+        json:      true,
+      })
+    } else {
+      if (!anthropic) return empty()
+      const resp = await anthropic.messages.create({
+        model:        config.anthropicModel,
+        max_tokens:   300,
+        system,
+        messages:     [{ role: 'user', content: user }],
+      })
+      const block = resp.content[0]
+      rawText = block?.type === 'text' ? block.text : '{}'
+    }
+    const text = stripMarkdownJsonFence(rawText)
     const raw = JSON.parse(text) as {
       decision?: string | null
       rationale?: string | null

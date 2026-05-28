@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 // Handles project initialization — warm-starts the memory store
 // from existing codebase context (package.json, README, git log,
-// CLAUDE.md) so session 1 starts with knowledge rather than blank.
+// CLAUDE.md, AGENTS.md) so session 1 starts with knowledge rather than blank.
 // ─────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'fs'
@@ -62,6 +62,18 @@ export function gatherProjectInfo(cwd: string): ProjectInfo {
   }
   if (!desc && readme) {
     desc = readme.replace(/^#+\s*/gm, '').replace(/\n+/g, ' ').slice(0, 200)
+  }
+
+  // AGENTS.md excerpt (Codex / agent instruction files)
+  if (!desc) {
+    for (const ap of ['AGENTS.md', 'agents.md']) {
+      const agentsPath = join(cwd, ap)
+      if (existsSync(agentsPath)) {
+        const excerpt = readFileSync(agentsPath, 'utf8').slice(0, 500)
+        desc = excerpt.replace(/^#+\s*/gm, '').replace(/\n+/g, ' ').slice(0, 200)
+        break
+      }
+    }
   }
 
   // Git log — last 20 commits

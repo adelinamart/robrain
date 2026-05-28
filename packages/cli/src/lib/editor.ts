@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 // Detects which AI coding editors are installed and writes
 // the appropriate MCP server configuration for each.
-// Supported: Claude Code, Cursor, GitHub Copilot (VS Code)
+// Supported: Claude Code, Cursor, GitHub Copilot (VS Code), Codex CLI
 // ─────────────────────────────────────────────────────────────
 // ******ROBRAIN****
 
@@ -10,12 +10,64 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 
-export type Editor = 'claude-code' | 'cursor' | 'copilot' | 'unknown'
+export type Editor = 'claude-code' | 'cursor' | 'copilot' | 'codex' | 'unknown'
+
+export const INSTALLABLE_EDITORS = ['claude-code', 'cursor', 'copilot', 'codex'] as const
+export type InstallableEditor = (typeof INSTALLABLE_EDITORS)[number]
+
+const EDITOR_LABELS: Record<InstallableEditor, string> = {
+  'claude-code': 'Claude Code',
+  'cursor':      'Cursor',
+  'copilot':     'GitHub Copilot (VS Code)',
+  'codex':       'Codex CLI',
+}
 
 export interface DetectedEditor {
   editor:     Editor
   configPath: string
   label:      string
+}
+
+/** Config file path for `robrain install --editor`, even when the editor was not auto-detected. */
+export function editorConfigPath(editor: InstallableEditor): string | null {
+  const home = homedir()
+  switch (editor) {
+    case 'claude-code': return join(home, '.claude.json')
+    case 'cursor':      return join(home, '.cursor', 'mcp.json')
+    case 'codex':       return join(home, '.codex', 'config.toml')
+    case 'copilot':     return getVSCodeSettingsPath()
+  }
+}
+
+/** Force a single editor entry for install when `--editor` is set but detection missed it. */
+export function forceEditor(editor: string): DetectedEditor | null {
+  if (!(INSTALLABLE_EDITORS as readonly string[]).includes(editor)) return null
+  const id = editor as InstallableEditor
+  const configPath = editorConfigPath(id)
+  if (!configPath) return null
+  return { editor: id, configPath, label: EDITOR_LABELS[id] }
+}
+
+/**
+ * Resolve which editors to configure during install (non-interactive).
+ * Interactive multiselect when several editors are detected stays in `install.ts`.
+ */
+export function resolveEditorsForInstall(opts: { editor?: string }): DetectedEditor[] {
+  const detected = detectEditors()
+  if (opts.editor) {
+    const matched = detected.filter(e => e.editor === opts.editor)
+    if (matched.length > 0) return matched
+    const forced = forceEditor(opts.editor)
+    return forced ? [forced] : []
+  }
+  if (detected.length === 0) {
+    return [{
+      editor:     'claude-code',
+      configPath: join(homedir(), '.claude.json'),
+      label:      'Claude Code',
+    }]
+  }
+  return detected
 }
 
 // ── Detection ──────────────────────────────────────────────────
@@ -46,6 +98,13 @@ export function detectEditors(): DetectedEditor[] {
     found.push({ editor: 'copilot', configPath: vscodeSettings, label: 'GitHub Copilot (VS Code)' })
   }
 
+  // Codex CLI — ~/.codex/config.toml
+  const codexPath = join(home, '.codex', 'config.toml')
+  const codexDir  = join(home, '.codex')
+  if (existsSync(codexDir) || existsSync(codexPath)) {
+    found.push({ editor: 'codex', configPath: codexPath, label: 'Codex CLI' })
+  }
+
   return found
 }
 
@@ -67,6 +126,13 @@ function getVSCodeSettingsPath(): string | null {
 
 // ── MCP config writer ──────────────────────────────────────────
 
+export type LlmProvider = 'anthropic' | 'openai'
+
+/** Reads LLM_PROVIDER; anything other than "openai" (case-insensitive) means Anthropic. */
+export function resolveLlmProviderFromEnv(env: NodeJS.ProcessEnv = process.env): LlmProvider {
+  return env.LLM_PROVIDER?.trim().toLowerCase() === 'openai' ? 'openai' : 'anthropic'
+}
+
 export interface McpWriteOptions {
   sensingMcpPath:  string
   controlMcpPath:  string
@@ -77,11 +143,51 @@ export interface McpWriteOptions {
   planningKey:     string
   embeddingProvider: string
   embeddingKey:    string
+  /** Default anthropic. When openai, Sensing needs LLM_PROVIDER + OPENAI_API_KEY in MCP env. */
+  llmProvider?: LlmProvider
+  /** OpenAI key for LLM when llmProvider is openai and embedding provider is not openai. */
+  openaiKey?: string
   /** When false, drops robrain-control (OSS self-hosted — Control ships with Rory cloud only). Default true. */
   includeControl?: boolean
 }
 
+/** Env vars for robrain-sensing — shared by JSON MCP configs and Codex TOML. */
+export function buildSensingMcpEnv(opts: McpWriteOptions): Record<string, string> {
+  const env: Record<string, string> = {
+    ANTHROPIC_API_KEY:  opts.anthropicKey,
+    EMBEDDING_PROVIDER: opts.embeddingProvider,
+    PERCEPTION_API_URL: opts.perceptionUrl,
+    PERCEPTION_API_KEY: opts.perceptionKey,
+  }
+
+  const llmProvider = opts.llmProvider ?? 'anthropic'
+  if (llmProvider === 'openai') {
+    env.LLM_PROVIDER = 'openai'
+  }
+
+  if (opts.embeddingProvider === 'voyage') env.VOYAGE_API_KEY = opts.embeddingKey
+  if (opts.embeddingProvider === 'cohere') env.COHERE_API_KEY = opts.embeddingKey
+
+  const needsOpenAi = opts.embeddingProvider === 'openai' || llmProvider === 'openai'
+  if (needsOpenAi) {
+    env.OPENAI_API_KEY =
+      opts.embeddingProvider === 'openai'
+        ? opts.embeddingKey
+        : (opts.openaiKey?.trim() ?? '')
+  }
+
+  return env
+}
+
 export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void {
+  // Codex CLI uses TOML at ~/.codex/config.toml — handled in a separate writer
+  // because the file can contain unrelated TOML (model selection, sandbox prefs,
+  // user-managed MCP entries) we must not lose.
+  if (configPath.endsWith('.toml')) {
+    writeCodexMcpConfig(configPath, opts)
+    return
+  }
+
   // Read existing config if present.
   // Refuse to proceed on parse failure: configPath may be a shared file (e.g. ~/.claude.json
   // contains theme, projects, history) — overwriting it with `{ mcpServers: ... }` would
@@ -107,15 +213,7 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
   mcpServers['robrain-sensing'] = {
     command: 'node',
     args:    [opts.sensingMcpPath],
-    env: {
-      ANTHROPIC_API_KEY:  opts.anthropicKey,
-      EMBEDDING_PROVIDER: opts.embeddingProvider,
-      ...(opts.embeddingProvider === 'openai'  && { OPENAI_API_KEY:  opts.embeddingKey }),
-      ...(opts.embeddingProvider === 'voyage'  && { VOYAGE_API_KEY:  opts.embeddingKey }),
-      ...(opts.embeddingProvider === 'cohere'  && { COHERE_API_KEY:  opts.embeddingKey }),
-      PERCEPTION_API_URL: opts.perceptionUrl,
-      PERCEPTION_API_KEY: opts.perceptionKey,
-    },
+    env:     buildSensingMcpEnv(opts),
   }
 
   if (includeControl) {
@@ -142,13 +240,97 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
   writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf8')
 }
 
-// ── RoBrain instruction text (CLAUDE.md + Cursor rule) ───────
+// ── Codex MCP TOML writer ──────────────────────────────────────
+//
+// Codex CLI reads ~/.codex/config.toml (top-level + [mcp_servers.<name>]
+// sections). The file can also contain unrelated user settings (model
+// selection, sandbox prefs, user MCP servers), so we splice a marker-bounded
+// block in/out instead of parsing the whole file — same approach as CLAUDE.md.
+
+const CODEX_BLOCK_START = '# <!-- robrain -->'
+const CODEX_BLOCK_END   = '# <!-- /robrain -->'
+
+function tomlString(s: string): string {
+  return `"${s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')}"`
+}
+
+/** @internal Exported for unit tests. */
+export function renderCodexBlock(opts: McpWriteOptions): string {
+  const includeControl = opts.includeControl ?? true
+  const sensingEnv = buildSensingMcpEnv(opts)
+
+  const lines: string[] = []
+  lines.push(CODEX_BLOCK_START)
+  lines.push('# Managed by `robrain install` — do not edit between the markers.')
+  lines.push('')
+  lines.push('[mcp_servers.robrain-sensing]')
+  lines.push(`command = ${tomlString('node')}`)
+  lines.push(`args = [${tomlString(opts.sensingMcpPath)}]`)
+  lines.push('enabled = true')
+  lines.push('')
+  lines.push('[mcp_servers.robrain-sensing.env]')
+  for (const [k, v] of Object.entries(sensingEnv)) {
+    lines.push(`${k} = ${tomlString(v)}`)
+  }
+
+  if (includeControl) {
+    lines.push('')
+    lines.push('[mcp_servers.robrain-control]')
+    lines.push(`command = ${tomlString('node')}`)
+    lines.push(`args = [${tomlString(opts.controlMcpPath)}]`)
+    lines.push('enabled = true')
+    lines.push('')
+    lines.push('[mcp_servers.robrain-control.env]')
+    lines.push(`PLANNING_API_URL = ${tomlString(opts.planningUrl)}`)
+    lines.push(`PLANNING_API_KEY = ${tomlString(opts.planningKey)}`)
+    lines.push(`PERCEPTION_API_URL = ${tomlString(opts.perceptionUrl)}`)
+    lines.push(`PERCEPTION_API_KEY = ${tomlString(opts.perceptionKey)}`)
+  }
+
+  lines.push(CODEX_BLOCK_END)
+  return lines.join('\n')
+}
+
+export function writeCodexMcpConfig(configPath: string, opts: McpWriteOptions): void {
+  const block = renderCodexBlock(opts)
+
+  const dir = dirname(configPath)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+
+  let existing = ''
+  if (existsSync(configPath)) {
+    existing = readFileSync(configPath, 'utf8')
+    const start = existing.indexOf(CODEX_BLOCK_START)
+    const end   = existing.indexOf(CODEX_BLOCK_END, start)
+    if (start !== -1 && end !== -1) {
+      const endInclusive = end + CODEX_BLOCK_END.length
+      const next =
+        existing.slice(0, start).trimEnd() +
+        '\n\n' +
+        block +
+        '\n\n' +
+        existing.slice(endInclusive).trimStart()
+      writeFileSync(configPath, next.trimEnd() + '\n', 'utf8')
+      return
+    }
+    existing = existing.trimEnd() + '\n\n'
+  }
+
+  writeFileSync(configPath, existing + block + '\n', 'utf8')
+}
+
+// ── RoBrain instruction text (CLAUDE.md, AGENTS.md, Cursor rule) ─
 
 const ROBRAIN_MARKER_START = '<!-- robrain -->'
 const ROBRAIN_MARKER_END   = '<!-- /robrain -->'
 export type RoBrainInstructionMode = 'sensing-only' | 'sensing+control'
 
-/** Shared body for CLAUDE.md and `.cursor/rules/robrain.mdc` (keep in sync). */
+/** Shared body for CLAUDE.md, AGENTS.md, and `.cursor/rules/robrain.mdc` (keep in sync). */
 function roBrainInstructionsMarkdown(projectId: string, mode: RoBrainInstructionMode): string {
   if (mode === 'sensing-only') {
     return `## RoBrain — Context Management (OSS self-hosted)
@@ -167,6 +349,7 @@ Use the session_id from the tool response (or pass your own unique id per chat).
 \`\`\`
 sensing_record_turn(session_id="<stored session_id>", sequence=<n>, user_message="<full user message>", claude_reply="<full assistant reply>", files_touched=[...], injected_memory_ids=[])
 \`\`\`
+The \`claude_reply\` parameter is the MCP field name for your full assistant reply (any editor).
 Increment sequence by 1 after each successful call.
 
 If topic_shift=true is returned, note it for follow-up context retrieval.
@@ -192,8 +375,9 @@ Inject the always_on_summary returned by control_get_session_context into your c
 
 ### After every response
 \`\`\`
-sensing_record_turn(session_id=..., sequence=<n>, user_message=..., claude_reply=..., files_touched=[...], injected_memory_ids=[...])
+sensing_record_turn(session_id=..., sequence=<n>, user_message=..., claude_reply="<assistant reply>", files_touched=[...], injected_memory_ids=[...])
 \`\`\`
+(\`claude_reply\` is the required MCP parameter name for the assistant reply.)
 If topic_shift=true is returned, immediately call:
 \`\`\`
 control_inject_context(project_id="${projectId}", session_id=..., task_description=..., files_in_scope=[...])
@@ -232,19 +416,12 @@ ${roBrainInstructionsMarkdown(projectId, mode)}${ROBRAIN_MARKER_END}
 `
 }
 
-// ── CLAUDE.md writer ───────────────────────────────────────────
+// ── CLAUDE.md / AGENTS.md writers ──────────────────────────────
 
-export function writeClaudeMd(
-  projectRoot: string,
-  projectId: string,
-  mode: RoBrainInstructionMode = 'sensing+control',
-): void {
-  const claudeMdPath = join(projectRoot, 'CLAUDE.md')
-  const canonicalBlock = roBrainMarkedBlock(projectId, mode)
-
+function upsertRoBrainMarkdownBlock(filePath: string, canonicalBlock: string): void {
   let existing = ''
-  if (existsSync(claudeMdPath)) {
-    existing = readFileSync(claudeMdPath, 'utf8')
+  if (existsSync(filePath)) {
+    existing = readFileSync(filePath, 'utf8')
     const start = existing.indexOf(ROBRAIN_MARKER_START)
     const end   = existing.indexOf(ROBRAIN_MARKER_END, start)
     if (start !== -1 && end !== -1) {
@@ -257,13 +434,36 @@ export function writeClaudeMd(
         canonicalBlock +
         '\n\n' +
         existing.slice(endInclusive).trimStart()
-      writeFileSync(claudeMdPath, next.trimEnd() + '\n', 'utf8')
+      writeFileSync(filePath, next.trimEnd() + '\n', 'utf8')
       return
     }
     existing = existing.trimEnd() + '\n\n'
   }
 
-  writeFileSync(claudeMdPath, existing + canonicalBlock + '\n', 'utf8')
+  writeFileSync(filePath, existing + canonicalBlock + '\n', 'utf8')
+}
+
+export function writeClaudeMd(
+  projectRoot: string,
+  projectId: string,
+  mode: RoBrainInstructionMode = 'sensing+control',
+): void {
+  upsertRoBrainMarkdownBlock(
+    join(projectRoot, 'CLAUDE.md'),
+    roBrainMarkedBlock(projectId, mode),
+  )
+}
+
+/** Writes/updates `AGENTS.md` at the project root (Codex CLI and other AGENTS.md clients). Same managed block as CLAUDE.md. */
+export function writeAgentsMd(
+  projectRoot: string,
+  projectId: string,
+  mode: RoBrainInstructionMode = 'sensing+control',
+): void {
+  upsertRoBrainMarkdownBlock(
+    join(projectRoot, 'AGENTS.md'),
+    roBrainMarkedBlock(projectId, mode),
+  )
 }
 
 /** Writes `.cursor/rules/robrain.mdc` when Cursor is used. Replaces any existing RoBrain block in place; appends if markers are missing; creates the file (with frontmatter) if absent. Returns true when the file is written or updated. */

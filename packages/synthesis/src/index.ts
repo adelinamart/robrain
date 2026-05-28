@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonrepair } from 'jsonrepair'
 import pg from 'pg'
-import { THRESHOLDS, loadEnv } from '@robrain/shared'
+import { THRESHOLDS, loadEnv, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 
 const { Pool } = pg
 
@@ -23,8 +23,15 @@ loadEnv(repoRootForCli)
 const config = {
   databaseUrl:      requireEnv('DATABASE_URL'),
   schema:           process.env.DB_SCHEMA ?? 'context_system',
-  anthropicKey:     requireEnv('ANTHROPIC_API_KEY'),
-  anthropicModel:   process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+  // Reasoning LLM for the three passes. Default Anthropic (Haiku); set
+  // LLM_PROVIDER=openai to run Synthesis without an Anthropic account.
+  llmProvider:      resolveLlmProvider(),
+  anthropicKey:     process.env.ANTHROPIC_API_KEY ?? '',
+  anthropicModel:   process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_LLM_MODEL,
+  // gpt-4o-mini can hallucinate fields under structured-output prompts —
+  // prefer gpt-4o / gpt-4.1 for fidelity. Reuses OPENAI_API_KEY.
+  openaiKey:        process.env.OPENAI_API_KEY ?? '',
+  openaiModel:      process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
   lookbackDays:     Number(process.env.SYNTHESIS_LOOKBACK_DAYS ?? 0),
   minClusterSize:   Number(process.env.SYNTHESIS_MIN_CLUSTER ?? 3),
   contThreshold:    Number(process.env.SYNTHESIS_CONT_THRESHOLD ?? THRESHOLDS.SIMILARITY_LINK),
@@ -43,9 +50,56 @@ function requireEnv(key: string): string {
   return v
 }
 
+// Require the selected reasoning provider's key — the passes can't run without it.
+if (config.llmProvider === 'anthropic' && !config.anthropicKey) {
+  throw new Error('Missing env var: ANTHROPIC_API_KEY (or set LLM_PROVIDER=openai with OPENAI_API_KEY)')
+}
+if (config.llmProvider === 'openai' && !config.openaiKey) {
+  throw new Error('Missing env var: OPENAI_API_KEY (required when LLM_PROVIDER=openai)')
+}
+
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 5 })
-const anthropic = new Anthropic({ apiKey: config.anthropicKey })
+// Construct the Anthropic client only when selected — the SDK throws on an empty key.
+const anthropic = config.llmProvider === 'anthropic'
+  ? new Anthropic({ apiKey: config.anthropicKey })
+  : null
 const S         = config.schema
+
+/**
+ * Provider-agnostic single-shot completion → returns the model's text.
+ *
+ * Anthropic wraps the static system prompt in an ephemeral prompt cache
+ * (`cacheSystem`) so repeat cron / multi-project runs pay less for identical
+ * system text. The OpenAI path skips that — OpenAI caches inputs automatically,
+ * so the only difference is cost behavior, not correctness.
+ */
+async function llmText(opts: {
+  system: string
+  user: string
+  maxTokens: number
+  json?: boolean
+  /** Anthropic-only: cache the static system prompt. Ignored on OpenAI (auto-cached). */
+  cacheSystem?: boolean
+}): Promise<string> {
+  if (config.llmProvider === 'openai') {
+    return openaiChat({
+      apiKey:    config.openaiKey,
+      model:     config.openaiModel,
+      system:    opts.system,
+      user:      opts.user,
+      maxTokens: opts.maxTokens,
+      json:      opts.json,
+    })
+  }
+  const resp = await anthropic!.messages.create({
+    model:      config.anthropicModel,
+    max_tokens: opts.maxTokens,
+    system:     opts.cacheSystem ? cachedEphemeral(opts.system) : opts.system,
+    messages:   [{ role: 'user', content: opts.user }],
+  })
+  const block = resp.content[0]
+  return block?.type === 'text' ? block.text : ''
+}
 
 /** Static system prompts — identical across runs; ephemeral cache cuts input-token cost on repeat cron / multi-project. */
 const SYSTEM_PASS1_CLUSTER = `You cluster software architecture decisions into topic areas.
@@ -476,17 +530,16 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
       return `${i + 1}. [${date}] [${review}] [${d.id.slice(0, 8)}] ${d.decision}${d.rationale ? ` — ${d.rationale}` : ''}`
     }).join('\n')
 
-    const resp = await withRetry(() =>
-      anthropic.messages.create({
-        model:      config.anthropicModel,
-        max_tokens: 4096,
-        system:     cachedEphemeral(SYSTEM_PASS1_CLUSTER),
-        messages: [{ role: 'user', content: `Cluster these decisions:\n\n${list}` }],
+    const rawText = await withRetry(() =>
+      llmText({
+        system:     SYSTEM_PASS1_CLUSTER,
+        user:       `Cluster these decisions:\n\n${list}`,
+        maxTokens:  4096,
+        json:       true,
+        cacheSystem: true,
       }),
     )
 
-    const block = resp.content[0]
-    const rawText = block?.type === 'text' ? block.text : ''
     const clusters = parsePass1ClusterResponse(rawText)
     if (!clusters?.length) {
       warn(`  Could not parse cluster response for chunk (${chunk.length} decisions)`)
@@ -525,17 +578,16 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
         .map(d => `${d.decision}${d.rationale ? ` — ${d.rationale}` : ''}`)
         .join('\n')
 
-      const truthResp = await withRetry(() =>
-        anthropic.messages.create({
-          model:      config.anthropicModel,
-          max_tokens: 120,
-          system:     cachedEphemeral(SYSTEM_PASS1_COMPILED_TRUTH),
-          messages: [{ role: 'user', content: `Topic: ${topic}\n\nDecisions:\n${text}` }],
+      const truthText = await withRetry(() =>
+        llmText({
+          system:      SYSTEM_PASS1_COMPILED_TRUTH,
+          user:        `Topic: ${topic}\n\nDecisions:\n${text}`,
+          maxTokens:   120,
+          cacheSystem: true,
         }),
       )
 
-      const truthBlock    = truthResp.content[0]
-      const compiledTruth = truthBlock?.type === 'text' ? truthBlock.text.trim() : null
+      const compiledTruth = truthText.trim() || null
       if (!compiledTruth) {
         /* skip write */
       } else if (!config.dryRun) {
@@ -634,17 +686,16 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
         const pair = pairs[idx]
         if (!pair) return { contradictions: localContradictions, extends: localExtends }
 
-        const resp = await withRetry(() =>
-          anthropic.messages.create({
-            model:      config.anthropicModel,
-            max_tokens: 24,
-            system:     cachedEphemeral(SYSTEM_PASS2_CONTRADICTION),
-            messages: [{ role: 'user', content: `A: ${pair.decision_a}\nB: ${pair.decision_b}` }],
+        const respText = await withRetry(() =>
+          llmText({
+            system:      SYSTEM_PASS2_CONTRADICTION,
+            user:        `A: ${pair.decision_a}\nB: ${pair.decision_b}`,
+            maxTokens:   24,
+            cacheSystem: true,
           }),
         )
 
-        const block = resp.content[0]
-        const raw   = block?.type === 'text' ? block.text.trim().toLowerCase() : 'no'
+        const raw    = respText.trim().toLowerCase() || 'no'
         const answer = raw.replace(/\.$/, '').split(/\s+/)[0] ?? 'no'
 
         if (answer === 'yes') {
@@ -729,17 +780,16 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
     )
     .join('\n')
 
-  const resp = await withRetry(() =>
-    anthropic.messages.create({
-      model:      config.anthropicModel,
-      max_tokens: 400,
-      system:     cachedEphemeral(SYSTEM_PASS3_ENTITY_EXTRACT),
-      messages: [{ role: 'user', content: sample.slice(0, 4000) }],
+  const raw = await withRetry(() =>
+    llmText({
+      system:      SYSTEM_PASS3_ENTITY_EXTRACT,
+      user:        sample.slice(0, 4000),
+      maxTokens:   400,
+      json:        true,
+      cacheSystem: true,
     }),
   )
 
-  const block = resp.content[0]
-  const raw   = block?.type === 'text' ? block.text : ''
   const parsedRows = parseEntityArrayFromModelText(raw)
   if (parsedRows == null) {
     warn('  could not parse entities')
@@ -772,21 +822,15 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
   if (config.dryRun) return
 
   for (const e of promoted) {
-    const summaryResp = await withRetry(() =>
-      anthropic.messages.create({
-        model:      config.anthropicModel,
-        max_tokens: 80,
-        system:     cachedEphemeral(SYSTEM_PASS3_ENTITY_SUMMARY),
-        messages: [
-          {
-            role:    'user',
-            content: `Entity: ${e.name}\nMentioned ${e.count}x across decisions.\nSample: ${sample.slice(0, 1500)}`,
-          },
-        ],
+    const summaryText = await withRetry(() =>
+      llmText({
+        system:      SYSTEM_PASS3_ENTITY_SUMMARY,
+        user:        `Entity: ${e.name}\nMentioned ${e.count}x across decisions.\nSample: ${sample.slice(0, 1500)}`,
+        maxTokens:   80,
+        cacheSystem: true,
       }),
     )
-    const block   = summaryResp.content[0]
-    const summary = block?.type === 'text' ? block.text.trim() : ''
+    const summary = summaryText.trim()
     if (!summary) continue
 
     await pool.query(

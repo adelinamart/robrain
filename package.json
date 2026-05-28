@@ -13,6 +13,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter robrain test",
     "synthesis:build": "pnpm --filter @robrain/synthesis build",
     "synthesis:run": "pnpm --filter @robrain/synthesis start",
     "synthesis:dry-run": "SYNTHESIS_DRY_RUN=true pnpm --filter @robrain/synthesis start",

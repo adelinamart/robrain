@@ -96,6 +96,6 @@ export async function projectsMergeCommand(fromId: string, toId: string): Promis
 
   console.log(chalk.green(`  ✓ Merged project ${chalk.bold(fromId)} → ${chalk.bold(toId)}`))
   console.log(chalk.dim('  Sessions and decisions now use the target project id.\n'))
-  console.log(chalk.dim('  If CLAUDE.md / Cursor rules still mention the old id, update them or run '))
+  console.log(chalk.dim('  If CLAUDE.md / AGENTS.md / Cursor rules still mention the old id, update them or run '))
   console.log(chalk.cyan('npx robrain init-project') + chalk.dim(' in the repo root.\n'))
 }

@@ -4,7 +4,7 @@
 
 Open-source shared memory for teams using AI agents. Captures every decision and the alternatives your team ruled out, and flags when a new decision contradicts an old one — so your team revisits past decisions intentionally, instead of re-litigating from zero.
 
-Works across Claude Code, Cursor, and Copilot.
+Works across Claude Code, Cursor, Copilot, and Codex CLI.
 
 RoBrain is built by [Rory Plans](https://roryplans.ai), an agent orchestration platform; it is the memory layer that keeps multi-agent, multi-developer work coherent over time.
 
@@ -82,9 +82,26 @@ When using Rory Plans cloud: conversation turns are sent to Rory Plans' hosted P
 
 ### Why are there two API keys in self-hosted mode?
 
-RoBrain uses Anthropic (Haiku) for decision extraction/classification and a separate embeddings provider (`openai`, `voyage`, or `cohere`) for semantic vector search. That is why you may see both `ANTHROPIC_API_KEY` and an embedding key in setup.
+RoBrain uses one LLM for decision extraction/classification and Synthesis, plus a separate embeddings provider (`openai`, `voyage`, or `cohere`) for semantic vector search. By default the LLM is Anthropic (Haiku), which is why you may see both `ANTHROPIC_API_KEY` and an embedding key in setup.
 
 **Cheapest recommended combo:** `ANTHROPIC_API_KEY` (Haiku) + `EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` (`text-embedding-3-small`).
+
+### Prefer not to use Anthropic? Run OpenAI-only.
+
+The reasoning LLM is pluggable. Set **`LLM_PROVIDER=openai`** and decision extraction + Synthesis use OpenAI chat-completions instead of Haiku — so the whole stack runs on a single OpenAI key (embeddings already default to OpenAI):
+
+```
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+EMBEDDING_PROVIDER=openai     # already the default
+# OPENAI_LLM_MODEL=gpt-4o     # default; see warning below
+```
+
+With this set, **no `ANTHROPIC_API_KEY` is required** — Perception, Sensing, and Synthesis all boot on the OpenAI key alone.
+
+> **Model note:** `gpt-4o-mini` is cheaper but can hallucinate fields (invent or drop keys) when forced into the structured-output JSON prompt — which is exactly why the project default classifier is Haiku. If you go OpenAI, prefer **`gpt-4o`** or **`gpt-4.1`** for extraction fidelity and reserve `gpt-4o-mini` for low-stakes use.
+>
+> Synthesis uses Anthropic's ephemeral prompt cache on the default path; the OpenAI path simply skips that (OpenAI caches inputs automatically), so the only difference is cost behavior, not correctness.
 
 ### How RoBrain compares
 
@@ -129,7 +146,7 @@ The launch story is what you can run **now** (Free / self-hosted and CLI), not r
 - **Systematic passive capture** — Sensing records turns; Perception extracts decisions without the agent deciding what to remember.
 - **`rejected[]` as structured, queryable data** — vetoes are first-class fields in Postgres, not prose buried in markdown.
 - **Decision lifecycle** — active vs superseded rows, linked history, and review flows so memory can stay honest over time.
-- **Team-shared store** — Postgres as the source of truth across machines and editors (with MCP on Claude Code, Cursor, Copilot-capable setups).
+- **Team-shared store** — Postgres as the source of truth across machines and editors (with MCP on Claude Code, Cursor, Copilot, and Codex CLI setups).
 - **Automatic session-start recall** — Sensing fetches the always-on summary so approved decisions can follow the next session automatically, including cross-tool handoffs like Cursor on Tuesday → Claude Code on Wednesday.
 - **`npx robrain inject` for focused retrieval** — semantic or file-scoped context when the always-on summary is not enough for the task in front of you.
 - **`npx robrain explain <file>`** — file-scoped “why does this exist?” from stored decisions.
@@ -167,7 +184,7 @@ The last command runs once per application repo.
 
 ### Install details
 
-`pnpm docker:up` brings up Postgres + Perception in the background; the user-facing surfaces are Sensing and the `robrain` CLI. `npx robrain init-project` writes the project instructions that tell Claude Code to call the Sensing tools at session start and end.
+`pnpm docker:up` brings up Postgres + Perception in the background; the user-facing surfaces are Sensing and the `robrain` CLI. `npx robrain init-project` writes the project instructions that tell each editor's agent to call the Sensing tools at session start and end (`CLAUDE.md`, `AGENTS.md` for Codex, and `.cursor/rules/robrain.mdc` when Cursor is installed).
 
 Self-hosted setup usually needs two keys: **`ANTHROPIC_API_KEY`** for extraction and one embedding-provider key for semantic retrieval. If that surprises you, see [Why are there two API keys in self-hosted mode?](#why-are-there-two-api-keys-in-self-hosted-mode).
 
@@ -201,8 +218,10 @@ Keep `EMBEDDING_PROVIDER` identical between this file and what you select when r
 
 `robrain init-project` writes mode-aware instructions:
 
-- **Free / self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule uses only `sensing_*` tools.
+- **Free / self-hosted** (`robrain install --self-hosted`): generated `CLAUDE.md` / Cursor rule / `AGENTS.md` (Codex) uses only `sensing_*` tools.
 - **Cloud / Control-enabled**: generated instructions include both `sensing_*` and `control_*` calls.
+
+`init-project` always writes the same managed RoBrain block into `AGENTS.md` at the project root (for Codex CLI and any tool that reads AGENTS.md). If Codex CLI is installed (`~/.codex/`), `robrain install` also registers `robrain-sensing` in `~/.codex/config.toml` (use `--editor codex` to configure Codex only).
 
 #### CLI on your `PATH` (optional)
 
@@ -241,6 +260,25 @@ sometimes ignores rule content turn-to-turn. Check the Cursor MCP panel for the
 Adding more rules will not fix a compliance gap. That is a Cursor-side behavior
 that Rory Plans cloud layers additional safeguards against (see
 [Free / self-hosted vs Rory Plans cloud](#free--self-hosted-vs-rory-plans-cloud)).
+
+#### Codex CLI setup
+
+`robrain install` (or `robrain install --editor codex`) writes a marker-bounded
+`robrain-sensing` block into `~/.codex/config.toml`. `init-project` always updates
+`AGENTS.md` at the project root with the same session-lifecycle instructions as
+`CLAUDE.md`.
+
+To verify:
+
+```bash
+grep -A2 'robrain-sensing' ~/.codex/config.toml
+grep 'project_id=' AGENTS.md
+codex mcp list   # optional — confirm robrain-sensing is enabled
+```
+
+Restart the Codex CLI session after install so it reloads MCP config. If captures
+stop landing, check `PERCEPTION_API_KEY` in the managed block (see troubleshooting
+below) and confirm the agent is following the RoBrain section in `AGENTS.md`.
 
 ## Synthesis
 
@@ -408,9 +446,9 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `pnpm docker:down` | Stop the stack |
 | `pnpm synthesis:build` | Compile `@robrain/synthesis` before running it |
 | `pnpm synthesis:dry-run` | Run Synthesis with `SYNTHESIS_DRY_RUN=true` (no DB writes) |
-| `npx robrain install --self-hosted` | Wire Sensing MCP into Claude Code / Cursor; then runs **`init-project` in the current directory** by default |
+| `npx robrain install --self-hosted` | Wire Sensing MCP into detected editors (Claude Code, Cursor, Codex, Copilot); then runs **`init-project` in the current directory** by default |
 | `npx robrain install --token <token>` | Authenticate against Rory Plans cloud (or set `RORY_TOKEN`) |
-| `npx robrain install --editor <claude-code\|cursor\|copilot>` | Target a specific editor instead of all detected |
+| `npx robrain install --editor <claude-code\|cursor\|copilot\|codex>` | Target a specific editor instead of all detected |
 | `npx robrain install --perception-url <url>` | Override Perception URL for self-hosted (default `http://localhost:3001`) |
 | `npx robrain install --repo-root <path>` | Path to the robrain clone — needed so MCP bundle gets linked (or set `ROBRAIN_REPO`) |
 | `npx robrain install --skip-init-project` | Wire editors only — do not run **`init-project`** in the current directory after install |
@@ -704,6 +742,7 @@ The most common silent failure: the editor's MCP panel shows Sensing as connecte
 ```bash
 grep PERCEPTION_API_KEY ~/.cursor/mcp.json          # Cursor
 grep PERCEPTION_API_KEY ~/.claude.json | head       # Claude Code
+grep PERCEPTION_API_KEY ~/.codex/config.toml        # Codex CLI
 ```
 
 If you see `"PERCEPTION_API_KEY": ""`, that's the bug. Versions of `robrain` **< 0.4.0** wrote it as empty even when `.env` had a key. Upgrade and reinstall:
@@ -828,6 +867,8 @@ docker compose -f docker/docker-compose.yml logs -f --tail=80 perception
 Tracked improvements not yet implemented in this repo:
 
 - **Stable project identity.** Replace cwd-hash `project_id` with a content-based id where possible: hash of `git config --get remote.origin.url` (normalized), with a `.robrain/project.json` UUID fallback for non-git or no-remote repos — plus a migration story for existing DB rows. Survives `mv`, `cp -r`, and nested clones without orphaning decisions.
+
+- **Remote MCP for cloud agents (e.g. ChatGPT Codex web agent).** `robrain install` wires a **stdio** MCP server (`command = "node"`, a local bundle path) that talks to Perception at `localhost:3001`. That covers the local Codex CLI and the Codex IDE extension — both share `~/.codex/config.toml` — but **not** the cloud/web Codex agent, which runs in a sandboxed container where neither the local node binary nor a `localhost` Perception exists. Codex supports **remote Streamable-HTTP MCP servers** (`url` + `bearer_token_env_var`), so a hosted Perception/Sensing endpoint behind HTTPS + a token could let cloud agents capture too. That hosted surface is the Rory Plans cloud direction, not the OSS self-hosted path — tracked here so the gap is explicit. (`AGENTS.md` is still read by the cloud agent; only the `sensing_*` tools are unavailable there.)
 
 **Shipped recently:** Perception **404** responses include an actionable **`hint`** (copy tells users to run **`npx robrain init-project`** from the project root). Sensing MCP surfaces **`perception_error`** / **`perception_write_error`** in tool JSON; **`install`** chains **`init-project`** by default (`--skip-init-project` to opt out); **`robrain projects list`** / **`merge`** help repair fragmented installs.
 

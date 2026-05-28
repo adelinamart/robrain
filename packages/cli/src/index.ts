@@ -115,7 +115,7 @@ program
   .command('install')
   .description('Wire RoBrain into your AI editors (self-hosted or Rory Plans cloud)')
   .option('-t, --token <token>',      'Rory Plans API token (or set RORY_TOKEN env var)')
-  .option('-e, --editor <editor>',    'Target editor: claude-code | cursor | copilot')
+  .option('-e, --editor <editor>',    'Target editor: claude-code | cursor | copilot | codex')
   .option('--self-hosted',            'Self-hosted mode — skip Rory Plans auth')
   .option('--perception-url <url>',   'Perception URL for self-hosted mode (default: http://localhost:3001)')
   .option(

@@ -3,8 +3,8 @@
 // robrain init-project [--project-id ID]
 //
 // Warm-starts the memory store from existing codebase context.
-// Reads: package.json, README, git log, CLAUDE.md
-// Writes: CLAUDE.md instructions, optional .cursor/rules/robrain.mdc,
+// Reads: package.json, README, git log, CLAUDE.md, AGENTS.md
+// Writes: CLAUDE.md + AGENTS.md instructions, optional .cursor/rules/robrain.mdc,
 //         seeds 3-5 inferred decisions,
 //         triggers always-on summary generation.
 //
@@ -19,7 +19,7 @@ import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { gatherProjectInfo, seedProjectMemory } from '../lib/project.js'
-import { detectEditors, writeClaudeMd, writeCursorRoBrainRule } from '../lib/editor.js'
+import { detectEditors, writeClaudeMd, writeCursorRoBrainRule, writeAgentsMd } from '../lib/editor.js'
 import type { RoBrainInstructionMode } from '../lib/editor.js'
 
 interface InitProjectOptions {
@@ -98,24 +98,22 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
     }
   }
 
-  // ── Write CLAUDE.md (+ Cursor rule if Cursor is installed) ─
-  const hasCursor = detectEditors().some(e => e.editor === 'cursor')
+  // ── Write CLAUDE.md + AGENTS.md (+ Cursor rule when Cursor is installed) ─
+  const editors = detectEditors()
+  const hasCursor = editors.some(e => e.editor === 'cursor')
+  const hasCodex  = editors.some(e => e.editor === 'codex')
+  const instructionExtras = hasCursor ? 'CLAUDE.md + AGENTS.md + Cursor' : 'CLAUDE.md + AGENTS.md'
   const mdSpinner = ora({
-    text: hasCursor
-      ? 'Writing editor instructions (CLAUDE.md + Cursor)...'
-      : 'Writing CLAUDE.md instructions...',
+    text: `Writing editor instructions (${instructionExtras})...`,
     color: 'green',
   }).start()
   writeClaudeMd(projectRoot, resolvedProjectId, instructionMode)
+  writeAgentsMd(projectRoot, resolvedProjectId, instructionMode)
   let cursorRuleApplied = false
   if (hasCursor) {
     cursorRuleApplied = writeCursorRoBrainRule(projectRoot, resolvedProjectId, instructionMode)
   }
-  mdSpinner.succeed(
-    hasCursor
-      ? 'Editor instructions updated (CLAUDE.md + Cursor rule)'
-      : 'CLAUDE.md updated with RoBrain instructions',
-  )
+  mdSpinner.succeed(`Editor instructions updated (${instructionExtras})`)
 
   // ── Seed memory ────────────────────────────────────────────
   const seedSpinner = ora({ text: 'Inferring architectural decisions from codebase...', color: 'green' }).start()
@@ -141,7 +139,8 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   console.log()
   console.log(chalk.green('  ✓ Project initialized\n'))
   console.log(chalk.dim('  Project ID: ') + chalk.cyan(resolvedProjectId))
-  console.log(chalk.dim('  CLAUDE.md:  ') + chalk.dim('updated with RoBrain instructions'))
+  console.log(chalk.dim('  CLAUDE.md: ') + chalk.dim('updated with RoBrain instructions'))
+  console.log(chalk.dim('  AGENTS.md: ') + chalk.dim('updated (Codex CLI and other AGENTS.md clients)'))
   if (hasCursor) {
     console.log(
       chalk.dim('  Cursor:    ') +
@@ -154,11 +153,10 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   }
   console.log()
   console.log(chalk.bold('  You\'re ready.'))
-  if (hasCursor) {
-    console.log(chalk.dim('  Open Claude Code or Cursor and start a session.'))
-  } else {
-    console.log(chalk.dim('  Open Claude Code and start a session.'))
-  }
+  const editorNames = ['Claude Code']
+  if (hasCursor) editorNames.push('Cursor')
+  if (hasCodex)  editorNames.push('Codex')
+  console.log(chalk.dim(`  Open ${editorNames.join(' / ')} and start a session.`))
   console.log(chalk.dim('  Session 2 will remember what happened in session 1.'))
   console.log()
 }
@@ -172,12 +170,16 @@ function findAncestorRoBrainProject(startDir: string): { projectId: string; sour
   for (;;) {
     const claudeMdPath = join(dir, 'CLAUDE.md')
     const cursorRulePath = join(dir, '.cursor', 'rules', 'robrain.mdc')
+    const agentsMdPath = join(dir, 'AGENTS.md')
 
     const claudeMdProjectId = readRoBrainProjectIdFromFile(claudeMdPath)
     if (claudeMdProjectId) return { projectId: claudeMdProjectId, source: 'CLAUDE.md', dir }
 
     const cursorProjectId = readRoBrainProjectIdFromFile(cursorRulePath)
     if (cursorProjectId) return { projectId: cursorProjectId, source: '.cursor/rules/robrain.mdc', dir }
+
+    const agentsProjectId = readRoBrainProjectIdFromFile(agentsMdPath)
+    if (agentsProjectId) return { projectId: agentsProjectId, source: 'AGENTS.md', dir }
 
     const parent = dirname(dir)
     if (parent === dir) return null

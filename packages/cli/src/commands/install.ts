@@ -1,6 +1,6 @@
 // src/commands/install.ts
 // ─────────────────────────────────────────────────────────────
-// robrain install [--token TOKEN] [--editor claude-code|cursor|copilot]
+// robrain install [--token TOKEN] [--editor claude-code|cursor|copilot|codex]
 //
 // 1. Authenticate with Rory Plans
 // 2. Fetch provisioned API URLs + keys
@@ -15,7 +15,11 @@ import ora      from 'ora'
 import prompts  from 'prompts'
 import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
 import { validateToken, fetchProvisionedConfig }                from '../lib/auth.js'
-import { detectEditors, writeMcpConfig }                        from '../lib/editor.js'
+import {
+  resolveEditorsForInstall,
+  resolveLlmProviderFromEnv,
+  writeMcpConfig,
+} from '../lib/editor.js'
 import {
   ensureSensingMcpBundle,
   controlBundleReady,
@@ -183,42 +187,21 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   }
 
   // ── Step 5: Detect / select editors ───────────────────────
-  const detected = detectEditors()
-
-  let editorsToConfig = detected
-  if (opts.editor) {
-    editorsToConfig = detected.filter(e => e.editor === opts.editor)
-    if (editorsToConfig.length === 0) {
-      // Force the specified editor even if not detected
-      const configPaths: Record<string, string> = {
-        'claude-code': join(homedir(), '.claude.json'),
-        'cursor':      join(homedir(), '.cursor', 'mcp.json'),
-      }
-      const configPath = configPaths[opts.editor]
-      if (configPath) {
-        editorsToConfig = [{
-          editor:     opts.editor as 'claude-code' | 'cursor',
-          configPath,
-          label:      opts.editor,
-        }]
-      }
-    }
-  } else if (detected.length === 0) {
-    console.log(chalk.yellow('\n  No AI editors detected. Configuring Claude Code by default.'))
-    editorsToConfig = [{
-      editor:     'claude-code',
-      configPath: join(homedir(), '.claude.json'),
-      label:      'Claude Code',
-    }]
-  } else if (detected.length > 1) {
+  let editorsToConfig = resolveEditorsForInstall(opts)
+  if (opts.editor && editorsToConfig.length === 0) {
+    console.log(chalk.red(`\n  ✗ Unknown or unavailable editor: ${opts.editor}`))
+    console.log(chalk.dim('  Use: claude-code | cursor | copilot | codex\n'))
+    process.exit(1)
+  }
+  if (!opts.editor && editorsToConfig.length > 1) {
     console.log()
     const { chosen } = await prompts({
       type:    'multiselect',
       name:    'chosen',
       message: 'Configure RoBrain for which editors?',
-      choices: detected.map(e => ({ title: e.label, value: e.editor, selected: true })),
+      choices: editorsToConfig.map(e => ({ title: e.label, value: e.editor, selected: true })),
     })
-    editorsToConfig = detected.filter(e => (chosen as string[]).includes(e.editor))
+    editorsToConfig = editorsToConfig.filter(e => (chosen as string[]).includes(e.editor))
   }
 
   // ── Step 6: Write MCP configs ──────────────────────────────
@@ -226,6 +209,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   const includeControl = controlBundleReady(ROBRAIN_MCP_DIR)
 
+  const llmProvider = resolveLlmProviderFromEnv()
   const mcpOpts = {
     sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
     controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
@@ -236,6 +220,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     planningKey:       provisioned.planningKey,
     embeddingProvider: embeddingProvider ?? 'openai',
     embeddingKey,
+    llmProvider,
+    openaiKey:         process.env.OPENAI_API_KEY ?? '',
     includeControl,
   }
 
@@ -332,21 +318,51 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     embKey = answer.embKey as string
   }
 
-  let anthropicKey = process.env.ANTHROPIC_API_KEY ?? ''
-  if (anthropicKey) {
-    console.log(chalk.dim('  Using ANTHROPIC_API_KEY from environment'))
-  } else {
-    const answer = await prompts({ type: 'password', name: 'anthropicKey', message: 'ANTHROPIC_API_KEY (for Sensing classifiers):' })
-    anthropicKey = answer.anthropicKey as string
+  const llmProvider = resolveLlmProviderFromEnv()
+  if (llmProvider === 'openai') {
+    console.log(chalk.dim('  Using LLM_PROVIDER=openai from environment'))
   }
 
-  // Detect editors
-  const detected = detectEditors()
-  const editorsToConfig = detected.length > 0 ? detected : [{
-    editor:     'claude-code' as const,
-    configPath: join(homedir(), '.claude.json'),
-    label:      'Claude Code',
-  }]
+  let openaiKey = process.env.OPENAI_API_KEY ?? ''
+  if (llmProvider === 'openai') {
+    if (!openaiKey && provider === 'openai') {
+      openaiKey = embKey
+    } else if (openaiKey) {
+      console.log(chalk.dim('  Using OPENAI_API_KEY from environment (LLM)'))
+    } else {
+      const answer = await prompts({
+        type:    'password',
+        name:    'openaiKey',
+        message: 'OPENAI_API_KEY (for Sensing decision extraction):',
+      })
+      openaiKey = answer.openaiKey as string
+    }
+  }
+
+  let anthropicKey = ''
+  if (llmProvider === 'anthropic') {
+    anthropicKey = process.env.ANTHROPIC_API_KEY ?? ''
+    if (anthropicKey) {
+      console.log(chalk.dim('  Using ANTHROPIC_API_KEY from environment'))
+    } else {
+      const answer = await prompts({
+        type:    'password',
+        name:    'anthropicKey',
+        message: 'ANTHROPIC_API_KEY (for Sensing classifiers):',
+      })
+      anthropicKey = answer.anthropicKey as string
+    }
+  } else {
+    console.log(chalk.dim('  Skipping ANTHROPIC_API_KEY (LLM_PROVIDER=openai)'))
+  }
+
+  let editorsToConfig = resolveEditorsForInstall(opts)
+  if (opts.editor && editorsToConfig.length === 0) {
+    console.log(chalk.red(`\n  ✗ Unknown or unavailable editor: ${opts.editor}`))
+    console.log(chalk.dim('  Use: claude-code | cursor | copilot | codex'))
+    console.log(chalk.dim('  For copilot, install VS Code first.\n'))
+    process.exit(1)
+  }
 
   const spinner = ora('Writing MCP configuration...').start()
 
@@ -375,6 +391,8 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     planningKey:       '',
     embeddingProvider: provider,
     embeddingKey:      embKey,
+    llmProvider,
+    openaiKey:         llmProvider === 'openai' ? openaiKey : undefined,
     includeControl:    false as const,
   }
 
@@ -406,6 +424,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   console.log()
   console.log(chalk.green('  ✓ RoBrain (self-hosted) installed\n'))
+  console.log(chalk.dim('  Configured for: ') + editorsToConfig.map(e => e.label).join(', '))
   console.log(chalk.dim('  Perception: ') + chalk.cyan(perceptionUrl))
   console.log(chalk.dim('  Planning + Control injection: ') + chalk.yellow('not available in self-hosted OSS'))
   console.log()
