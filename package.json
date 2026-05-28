@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "0.4.1",
+  "version": "2.0.0",
   "description": "Institutional memory for AI coding agents \u2014 capture decisions, rejected alternatives, and rationale across sessions",
   "private": true,
   "packageManager": "pnpm@10.33.3",

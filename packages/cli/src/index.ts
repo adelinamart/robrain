@@ -24,7 +24,7 @@ import { exportMemoryCommand } from './commands/export-memory.js'
 import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 
-const VERSION = '0.4.1'
+const VERSION = '2.0.0'
 
 program
   .name('robrain')
