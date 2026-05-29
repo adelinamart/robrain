@@ -6,9 +6,7 @@ How RoBrain works, the capture + judgment pillars, Synthesis, comparisons, and r
 
 Most agent-memory tools stop at capture — they store what happened and hope you query it later. RoBrain is built around a different question: **what is worth keeping, and what should surface before the agent acts again?** Passive capture records every decision and the alternatives your team ruled out; batch **Synthesis** reads the whole corpus to flag contradictions, drift, and recurring entities that no single session could see.
 
-The cost of forgetting a rejection is not just inefficiency:
-
-> the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE.
+> The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent with no memory of why you said no.
 
 ## How it works
 

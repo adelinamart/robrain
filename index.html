@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RoBrain — open-source shared memory for AI teams</title>
+    <title>RoBrain — shared memory with judgment for AI teams</title>
     <meta
       name="description"
       content="Shared memory with judgment for AI teams — capture decisions and vetoes, scan the corpus for contradictions, surface what matters before the agent acts."
@@ -280,17 +280,20 @@
         margin-top: 0;
       }
 
-      blockquote {
+      blockquote.callout {
         margin: 0.85rem 0;
-        padding: 0.7rem 1.1rem;
-        border-left: 4px solid var(--violet-400);
-        background: var(--violet-50);
-        color: var(--violet-900);
-        font-size: 0.98rem;
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 1.05rem;
+        font-weight: 600;
+        line-height: 1.5;
+        color: var(--violet-950);
+        padding: 0.85rem 1rem;
+        background: linear-gradient(105deg, var(--violet-100) 0%, rgba(232, 223, 249, 0.35) 55%, transparent 100%);
+        border-left: 4px solid var(--violet-600);
         border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
       }
 
-      blockquote p {
+      blockquote.callout p {
         margin: 0;
       }
 
@@ -513,23 +516,6 @@
         letter-spacing: -0.01em;
       }
 
-      .pull-quote {
-        font-family: "Fraunces", Georgia, serif;
-        font-size: 1.08rem;
-        font-weight: 600;
-        line-height: 1.5;
-        color: var(--violet-950);
-        margin: 1rem 0;
-        padding: 0.85rem 1rem;
-        background: linear-gradient(105deg, var(--violet-100) 0%, rgba(232, 223, 249, 0.35) 55%, transparent 100%);
-        border-left: 4px solid var(--violet-600);
-        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-      }
-
-      .pull-quote p {
-        margin: 0;
-      }
-
       .matrix-callout {
         margin-top: 1rem;
         padding: 0.9rem 1rem;
@@ -553,16 +539,13 @@
         margin-top: 1.25rem;
       }
 
-      details.capture-detail {
-        margin-top: 1rem;
-        font-size: 0.95rem;
-        color: var(--violet-800);
+      .qualify-list {
+        margin: 0;
+        padding-left: 1.2rem;
       }
 
-      details.capture-detail summary {
-        cursor: pointer;
-        font-weight: 600;
-        color: var(--violet-700);
+      .qualify-list li {
+        margin: 0.5rem 0;
       }
 
       .link-subtle {
@@ -587,8 +570,9 @@
         <h1>RoBrain</h1>
         <p class="lead">Shared memory across your team and your AI agents — with judgment about what's worth keeping.</p>
         <p class="hero-thesis">
-          The cost of forgetting a rejection is not just inefficiency — it is the auth bypass you already patched,
-          the migration you already rolled back, the dependency you already removed for a CVE.
+          The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the
+          migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent
+          with no memory of why you said no.
         </p>
         <div class="pill-row">
           <span class="pill">Claude Code</span>
@@ -598,51 +582,57 @@
         </div>
         <div class="cta-row hero-cta">
           <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
-          <a class="btn btn-ghost" href="./docs/concepts.md#how-it-works">How it works</a>
+          <a
+            class="btn btn-ghost"
+            href="https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1"
+            >Join cloud early access</a
+          >
         </div>
-        <p class="link-subtle" style="margin-top: 1.25rem">
-          Built by <a href="https://roryplans.ai">Rory Plans</a>
-        </p>
       </header>
 
       <section class="card">
         <h2><span class="icon">◇</span> How it works</h2>
-        <h3 class="card-sub">The layer above memory</h3>
-        <p>
-          Memory answers <em>“what did we decide in March?”</em> Judgment answers whether you are contradicting
-          yourselves, whether stance drifted without anyone noticing, and whether the agent is about to re-litigate a
-          veto. <strong>Synthesis</strong> scans the full corpus; <code>rejected[]</code> is the substrate pre-task
-          warnings run on.
-        </p>
-        <p style="font-size: 0.98rem; color: var(--violet-800)">
+        <p style="font-size: 0.98rem; color: var(--violet-800); margin-bottom: 1rem">
           Coding is the first vertical because reverts and incidents make forgotten rejections measurable. The same
           architecture applies wherever agents make decisions that outlast a session.
         </p>
-        <h3 class="card-sub">The loop (Cursor → Claude Code)</h3>
+        <h3 class="card-sub">The layer above memory</h3>
         <p>
-          <strong>Tuesday, Alice in Cursor:</strong> her agent settles on Zustand over Redux for the cart; RoBrain
-          captures the decision and veto automatically — no notes, no extra commands.
-          <strong>Wednesday, Bob in Claude Code:</strong> a fresh session is about to suggest Redux again; the
-          always-on summary (or <code>npx robrain inject</code>) surfaces Alice’s veto before he re-litigates from
-          scratch.
+          Memory answers <em>what did we decide?</em> Judgment answers whether you are contradicting yourselves, whether
+          stance drifted, and whether the agent is about to re-litigate a veto — <strong>Synthesis</strong> on the full
+          corpus, <code>rejected[]</code> as structured input.
         </p>
-        <blockquote class="pull-quote">
-          <p>Chose Zustand over Redux (re-render perf issues in cart) — Mar 15, high confidence</p>
+        <h3 class="card-sub">Cursor Tuesday → Claude Code Wednesday</h3>
+        <p>
+          An experienced teammate locks in <strong>Hono over Express</strong> for Perception in Cursor; RoBrain captures
+          it passively. A new teammate opens Claude Code and asks whether to port to Express — reasonable in a fresh
+          session. The always-on summary (or <code>npx robrain inject</code>) surfaces the prior decision before the team
+          burns churn on a path they already rejected.
+        </p>
+        <blockquote class="callout">
+          <p>
+            Hono over Express for Perception — Bun and edge without a rewrite; API already Express-shaped — Mar 12, high
+            confidence
+          </p>
         </blockquote>
         <p>
-          That is the cross-tool handoff: capture in one editor, judgment-backed recall in another — automatically at
-          session start, with <code>inject</code> when you want a narrower pull (cloud can automate that at task
-          boundaries).
+          Capture in one editor, judgment-backed recall in another — at session start by default, <code>inject</code> for a
+          narrower pull (cloud automates that at task boundaries).
         </p>
-        <details class="capture-detail">
-          <summary>Example captured row (JSON)</summary>
-          <pre class="json-block" style="margin-top: 0.75rem"><code>{
-  "decision": "Use Zustand for state management",
-  "rationale": "Redux caused re-render issues in cart",
-  "rejected": [{ "option": "Redux", "reason": "re-render perf issues in cart" }],
-  "files_affected": ["src/store/cart.ts"]
-}</code></pre>
-        </details>
+      </section>
+
+      <section class="card">
+        <h2><span class="icon">✓</span> Is RoBrain for you?</h2>
+        <ul class="qualify-list">
+          <li>More than one developer touching the same codebase with AI agents</li>
+          <li>More than one tool in the stack (e.g. Cursor and Claude Code, not just one editor)</li>
+          <li>Project older than a few months — enough history that contradictions actually accumulate</li>
+          <li>You have watched an agent re-suggest something your team already rejected</li>
+        </ul>
+        <p style="margin-top: 0.85rem; font-size: 0.95rem">
+          If none of these sound familiar, a static <code>CLAUDE.md</code> may be enough for now.
+          <a href="./docs/concepts.md#how-it-works">See the full walkthrough →</a>
+        </p>
       </section>
 
       <section class="card">
@@ -793,11 +783,8 @@
           <code>ANTHROPIC_API_KEY</code>) and embeddings call OpenAI, Voyage, or Cohere. Those are the only outbound
           calls. You can swap providers or run a local model if you want full air-gapping.
         </p>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">◈</span> What RoBrain sees — and doesn't</h2>
-        <div class="grid-2" style="margin-top: 0.5rem">
+        <h3 class="card-sub">What RoBrain sees — and doesn't</h3>
+        <div class="grid-2" style="margin-top: 0.35rem">
           <div class="mini-card">
             <h3>Captured</h3>
             <ul>
@@ -840,8 +827,12 @@ npx robrain install --self-hosted --repo-root "$(pwd)"</code></pre>
         <p class="code-label">Per application project</p>
         <pre><code>cd /path/to/your/project
 npx robrain init-project</code></pre>
-        <p class="code-label">Contradiction scan (manual once, or add to cron)</p>
+        <p class="code-label">Corpus judgment (manual once, or add to cron)</p>
         <pre><code>npx robrain synth</code></pre>
+        <p style="margin-top: 0.65rem; font-size: 0.95rem">
+          Synthesis writes contradiction flags, drift signals, and entity summaries into your DB — review with
+          <code>npx robrain review</code>. It does not capture new decisions; it judges what you already have.
+        </p>
         <p class="code-label">Git-committed decision ledger (opt-in, after review)</p>
         <pre><code>npx robrain export-memory --ledger
 # custom path: npx robrain export-memory --ledger docs/decisions.md</code></pre>
@@ -851,20 +842,21 @@ npx robrain init-project</code></pre>
           See
           <a href="./docs/cli.md">docs/cli.md</a> (install + commands) and
           <a href="./docs/troubleshooting.md">docs/troubleshooting.md</a> for editor-specific notes.
-          Concept walkthrough: <a href="./docs/concepts.md#how-it-works">docs/concepts.md</a>.
+          Install details: <a href="./docs/cli.md#install-and-setup">docs/cli.md</a> ·
+          <a href="./docs/concepts.md#how-it-works">Concept walkthrough</a>.
         </p>
-        <div class="cta-row" style="margin-top: 1rem">
-          <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
-          <a class="btn btn-ghost" href="./docs/cli.md#install-and-setup">Install guide</a>
-        </div>
       </section>
 
       <section class="card cloud-cta">
         <h2><span class="icon">☁</span> Rory Plans cloud</h2>
         <p>
           Self-hosted gives capture, corpus-wide judgment, and the always-on summary at session start. When you need
-          focused context beyond that block, you still pull it with <code>inject</code>. Cloud adds Planning +
-          Control — rejection warnings and conflict surfacing <strong>before the agent acts</strong>, without paste.
+          focused context beyond that block, you still pull it with <code>inject</code>.
+        </p>
+        <p>
+          Cloud adds Planning + Control — rejection warnings and conflict surfacing <strong>before the agent acts</strong>,
+          without paste. Next up: linking decisions to outcomes (reverts, incidents, cycle time) so RoBrain can flag when a
+          team is optimizing for the wrong thing in its own codebase.
         </p>
         <div class="cta-row">
           <a
@@ -872,7 +864,7 @@ npx robrain init-project</code></pre>
             href="https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1"
             >Join early access</a
           >
-          <a class="btn btn-ghost" href="https://roryplans.ai">roryplans.ai</a>
+          <a class="btn btn-ghost" href="./docs/concepts.md#free--self-hosted-vs-rory-plans-cloud">Self-hosted vs cloud</a>
         </div>
       </section>
 
@@ -895,8 +887,9 @@ npx robrain init-project</code></pre>
       </section>
 
       <footer>
-        <a href="./README.md">README</a>
-        ·
+        <p style="margin: 0 0 0.75rem">
+          Built by <a href="https://roryplans.ai">Rory Plans</a> · Apache 2.0
+        </p>
         <a href="./docs/concepts.md">Concepts</a>
         ·
         <a href="./docs/cli.md">CLI</a>

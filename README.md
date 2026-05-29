@@ -4,27 +4,25 @@
 
 Most agent-memory tools stop at capture — they store what happened and hope you query it later. RoBrain is built around a different question: **what is worth keeping, and what should surface before the agent acts again?** Passive capture records every decision and the alternatives your team ruled out; batch **Synthesis** reads the whole corpus to flag contradictions, drift, and recurring entities that no single session could see.
 
-The cost of forgetting a rejection is not just inefficiency:
+> The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent with no memory of why you said no.
 
-> the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE.
+Open-source, self-hosted Postgres. Works with **Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI** via `robrain install` (see [CLI reference](docs/cli.md#install-and-setup) for editor-specific setup).
 
-Open-source, self-hosted Postgres. **Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI** — each wired via `robrain install` (Codex: marker-bounded block in `~/.codex/config.toml` + `AGENTS.md` session instructions; see [CLI reference](docs/cli.md#codex-cli-setup)).
+Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that outlast a session.
 
 RoBrain is built by [Rory Plans](https://roryplans.ai), an agent orchestration platform; it is the memory and judgment layer that keeps multi-agent, multi-developer work coherent over time.
 
-## Documentation
+---
 
-| Guide | What you'll find |
-|-------|------------------|
-| **[Concepts](docs/concepts.md)** | How it works, two pillars (capture + judgment), Synthesis, comparisons |
-| **[CLI reference](docs/cli.md)** | `explain` examples, install, editor setup, full command table |
-| **[Troubleshooting](docs/troubleshooting.md)** | Silent 401s, Docker rebuilds, stale summaries, verification |
+## How it works (short)
 
-All guides (repo root):
+**Tuesday — experienced teammate in Cursor:** The team is shipping Perception as a small Hono server. They consider porting to Express so contributors have a familiar stack, but settle on Hono: it runs on Bun and edge runtimes without a rewrite, and the API is already Express-shaped (`app.get`, middleware chain). RoBrain captures the decision and the rejected Express path automatically — no one tags it as “worth remembering.”
 
-- [docs/concepts.md](docs/concepts.md)
-- [docs/cli.md](docs/cli.md)
-- [docs/troubleshooting.md](docs/troubleshooting.md)
+**Wednesday — new teammate in Claude Code:** A fresh session has no memory of Tuesday. They ask whether Perception should move to Express — a reasonable question if you only see the repo today. With RoBrain wired in, the agent pulls the prior decision (always-on summary at session start, or `npx robrain inject` for a focused pull) and pushes back with the recorded rationale: deliberate Hono choice, marginal familiarity upside, real cost in locking out edge deploy and churn on a working server. The team does not re-litigate from zero.
+
+That is the handoff RoBrain is built for: **Cursor Tuesday → Claude Code Wednesday**, same Postgres store, same structured vetoes — captured passively, surfaced before the agent steers you down a path you already rejected.
+
+Full walkthrough (including the Zustand/Redux cart example): **[Concepts — How it works](docs/concepts.md#how-it-works)**.
 
 ---
 
@@ -36,31 +34,38 @@ Sensing records session turns; Perception extracts decisions without the agent c
 
 ### Judgment (corpus-wide)
 
-**Synthesis** runs three passes over the full `decisions` table: **drift** (stance moving without an explicit reversal), **contradictions** (pairs incompatible decisions from different sessions), and **entity promotion** (recurring tools/patterns condensed into `planning_blocks`). Perception flags conflicts at write time; Synthesis catches what reactive capture missed. **`robrain review`** and the always-on summary keep only what you trust.
+**Synthesis** runs three passes over the full `decisions` table: **drift** (stance moving without an explicit reversal), **contradictions** (pairs of incompatible decisions from different sessions), and **entity promotion** (recurring tools/patterns condensed into `planning_blocks`). Perception flags conflicts at write time; Synthesis catches what reactive capture missed. **`robrain review`** and the always-on summary keep only what you trust.
 
 That is what “judgment about what's worth keeping” looks like in code — not another grep over chat logs.
 
 ---
 
-## What ships today
+## What you get
 
-- **Systematic passive capture** — every turn classified; agents do not decide what to remember.
-- **`rejected[]` in Postgres** — vetoes as queryable fields; input for inject, cloud Control warnings, and contradiction surfacing.
-- **Decision lifecycle** — active vs superseded, linked history, review so memory stays honest.
-- **Team-shared store** — one Postgres across machines and MCP editors.
-- **Always-on summary at session start** — cross-tool handoffs (Cursor Tuesday → Claude Code Wednesday) without paste.
-- **`npx robrain inject` / `explain`** — focused pull and file-scoped “why does this exist?” ([examples](docs/cli.md#why-does-this-code-exist)).
-- **Conflict visibility** — flagged contradictions; cloud adds proactive warnings at task boundaries ([comparison](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud)).
+- **Capture** decisions automatically — every turn classified; the agent does not choose what to remember.
+- **Query** vetoes as structured `rejected[]` fields in Postgres.
+- **Catch** contradictions and drift across the corpus (Synthesis + review).
+- **Hand off** context across tools and developers (always-on summary at session start).
+- **Explain** any file's history (`npx robrain explain`; [examples](docs/cli.md#why-does-this-code-exist)).
 
 ---
 
-## How it works (short)
+## Compared to other memory tools
 
-Alice settles on Zustand over Redux in Cursor on Tuesday; RoBrain captures it automatically. Bob opens Claude Code on Wednesday; the always-on summary (or `npx robrain inject`) surfaces the veto before Redux gets suggested again.
+Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs scheduled corpus-wide contradiction scans. **[Full comparison →](docs/concepts.md#comparisons)**
 
-Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that outlast a session.
+### Self-hosted vs Rory Plans cloud
 
-Full walkthrough: **[Concepts — How it works](docs/concepts.md#how-it-works)**.
+| | Free / self-hosted | Rory Plans cloud |
+|---|-------------------|------------------|
+| Capture + `rejected[]` + Synthesis + review | ✓ | ✓ |
+| Data stays on your machine | ✓ | processed remotely |
+| Always-on summary at session start | ✓ | ✓ |
+| Automatic injection + rejection warnings at task boundaries | — | ✓ |
+
+Self-hosted gives capture, judgment batch jobs, and session-start recall; you pull focused context with `inject` when needed. Cloud adds Planning + Control so vetoes and conflicts surface before the agent acts.
+
+Details: **[Concepts — Free / self-hosted vs Rory Plans cloud](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud)**.
 
 ---
 
@@ -92,22 +97,9 @@ The last command runs once per application repo.
 
 ---
 
-## Self-hosted vs Rory Plans cloud
-
-| | Free / self-hosted | Rory Plans cloud |
-|---|-------------------|------------------|
-| Capture + `rejected[]` + Synthesis + review | ✓ | ✓ |
-| Data stays on your machine | ✓ | processed remotely |
-| Always-on summary at session start | ✓ | ✓ |
-| Automatic injection + rejection warnings at task boundaries | — | ✓ |
-
-Self-hosted gives capture, judgment batch jobs, and session-start recall; you pull focused context with `inject` when needed. Cloud adds Planning + Control so vetoes and conflicts surface before the agent acts.
-
-Details: **[Concepts — Free / self-hosted vs Rory Plans cloud](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud)**.
-
----
-
 ## Run Synthesis
+
+Synthesis writes contradiction flags, drift signals, and entity summaries into your DB (`planning_blocks`, relation edges). Review what it finds with **`robrain review`** — it does not capture new decisions; it judges the corpus you already have.
 
 ```bash
 pnpm synthesis:build && pnpm synthesis:run
@@ -120,13 +112,23 @@ Deep dive (three passes, cron, env vars): **[Concepts — Synthesis](docs/concep
 
 ## What's next
 
-**Next:** connecting decisions to outcomes (reverts, incidents, cycle time) so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase. If you want to help shape that layer, [get in touch via Rory Plans](https://roryplans.ai).
+Connecting decisions to outcomes (reverts, incidents, cycle time) so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase.
+
+---
+
+## Documentation
+
+| Guide | What you'll find |
+|-------|------------------|
+| **[Concepts](docs/concepts.md)** | How it works, two pillars (capture + judgment), Synthesis, comparisons |
+| **[CLI reference](docs/cli.md)** | `explain` examples, install, editor setup, full command table |
+| **[Troubleshooting](docs/troubleshooting.md)** | Silent 401s, Docker rebuilds, stale summaries, verification |
 
 ---
 
 ## Contributing
 
-Apache 2.0. PRs welcome for extraction accuracy, new editor integrations, and embedding providers. See [Concepts — Reference](docs/concepts.md#reference) for tradeoffs and schema. Full docs: [concepts](docs/concepts.md) · [CLI](docs/cli.md) · [troubleshooting](docs/troubleshooting.md).
+Apache 2.0. PRs welcome for extraction accuracy, new editor integrations, and embedding providers. See [Concepts — Reference](docs/concepts.md#reference) for tradeoffs and schema.
 
 ## License
 
