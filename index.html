@@ -561,6 +561,25 @@
         margin: 0 0 1rem;
       }
 
+      .section-bridge {
+        text-align: center;
+        font-size: 1.02rem;
+        font-weight: 500;
+        font-style: italic;
+        color: var(--violet-700);
+        line-height: 1.55;
+        max-width: 36rem;
+        margin: 0.25rem auto 1.5rem;
+        padding: 0 0.5rem;
+      }
+
+      .trust-bridge {
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: var(--violet-800);
+        margin: 1.15rem 0 0.65rem;
+      }
+
     </style>
   </head>
   <body>
@@ -621,6 +640,8 @@
         </p>
       </section>
 
+      <p class="section-bridge">Whether that's worth the setup depends on your situation.</p>
+
       <section class="card">
         <h2><span class="icon">✓</span> Is RoBrain for you?</h2>
         <ul class="qualify-list">
@@ -635,12 +656,12 @@
         </p>
       </section>
 
+      <p class="section-bridge">
+        If they do, here's how RoBrain compares to the obvious alternatives.
+      </p>
+
       <section class="card">
         <h2 id="product-comparison"><span class="icon">⊞</span> What RoBrain does that others don't</h2>
-        <p style="margin-bottom: 0.5rem">
-          RoBrain next to <strong>Mem0</strong>, <strong>Cloudflare Agent Memory</strong>, and
-          <strong>Claude Code Auto-Memory</strong>.
-        </p>
         <div class="table-wrap table-wrap--matrix" role="region" aria-labelledby="product-comparison">
           <table class="compare-matrix">
             <caption>
@@ -772,7 +793,7 @@
       </section>
 
       <section class="card">
-        <h2><span class="icon">⌂</span> Self-hosted privacy</h2>
+        <h2><span class="icon">⌂</span> Trust &amp; privacy</h2>
         <p>
           <strong>Your conversation turns never leave your machine.</strong> The Perception API runs locally in
           Docker, extraction happens on your hardware, and decisions are stored in your Postgres. Nothing is sent to
@@ -783,7 +804,7 @@
           <code>ANTHROPIC_API_KEY</code>) and embeddings call OpenAI, Voyage, or Cohere. Those are the only outbound
           calls. You can swap providers or run a local model if you want full air-gapping.
         </p>
-        <h3 class="card-sub">What RoBrain sees — and doesn't</h3>
+        <p class="trust-bridge">And here's exactly what gets stored:</p>
         <div class="grid-2" style="margin-top: 0.35rem">
           <div class="mini-card">
             <h3>Captured</h3>
@@ -804,10 +825,15 @@
         </div>
       </section>
 
+      <p class="section-bridge">
+        Convinced? Here's the path from zero to first capture — plan on one sitting from a fresh clone (Docker, keys,
+        install, then <code>init-project</code> on your app repo).
+      </p>
+
       <section class="card">
         <h2><span class="icon">⚡</span> Quick start</h2>
         <p class="final-cta-intro">
-          See the payoff first — then install. Self-hosted usually needs <code>ANTHROPIC_API_KEY</code> plus one
+          See the payoff first — then install. Self-hosted needs <code>ANTHROPIC_API_KEY</code> plus one
           embedding-provider key.
         </p>
         <p class="code-label">What you get after capture</p>
@@ -846,6 +872,10 @@ npx robrain init-project</code></pre>
           <a href="./docs/concepts.md#how-it-works">Concept walkthrough</a>.
         </p>
       </section>
+
+      <p class="section-bridge">
+        Already running self-hosted, or want the version with less manual lifting?
+      </p>
 
       <section class="card cloud-cta">
         <h2><span class="icon">☁</span> Rory Plans cloud</h2>

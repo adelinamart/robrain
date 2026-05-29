@@ -6,7 +6,7 @@ Most agent-memory tools stop at capture — they store what happened and hope yo
 
 > The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent with no memory of why you said no.
 
-Open-source, self-hosted Postgres. Works with **Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI** via `robrain install` (see [CLI reference](docs/cli.md#install-and-setup) for editor-specific setup).
+Open-source, self-hosted Postgres. Works with **Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI**.
 
 Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that outlast a session.
 
@@ -42,11 +42,11 @@ That is what “judgment about what's worth keeping” looks like in code — no
 
 ## What you get
 
-- **Capture** decisions automatically — every turn classified; the agent does not choose what to remember.
-- **Query** vetoes as structured `rejected[]` fields in Postgres.
-- **Catch** contradictions and drift across the corpus (Synthesis + review).
-- **Hand off** context across tools and developers (always-on summary at session start).
-- **Explain** any file's history (`npx robrain explain`; [examples](docs/cli.md#why-does-this-code-exist)).
+- **Capture** decisions automatically — every turn classified, no agent involvement
+- **Query** vetoes as structured `rejected[]` fields in Postgres
+- **Catch** contradictions and drift across the corpus
+- **Hand off** context across tools and developers
+- **Explain** any file's history with `npx robrain explain`
 
 ---
 
