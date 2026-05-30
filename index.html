@@ -580,9 +580,15 @@
         margin: 1.15rem 0 0.65rem;
       }
 
-      .always-on-summary {
+      .always-on-summary,
+      strong.always-on-summary {
         font-weight: 700;
-        color: var(--violet-600);
+        color: var(--violet-700);
+        background: var(--violet-100);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
       }
 
     </style>
@@ -615,34 +621,18 @@
       </header>
 
       <section class="card">
-        <h2><span class="icon">◇</span> How it works</h2>
-        <p style="font-size: 0.98rem; color: var(--violet-800); margin-bottom: 1rem">
-          Coding is the first vertical because reverts and incidents make forgotten rejections measurable. The same
-          architecture applies wherever agents make decisions that outlast a session.
-        </p>
-        <h3 class="card-sub">The layer above memory</h3>
         <p>
-          Memory answers <em>what did we decide?</em> Judgment answers whether you are contradicting yourselves, whether
-          stance drifted, and whether the agent is about to re-litigate a veto — <strong>Synthesis</strong> on the full
-          corpus, <code>rejected[]</code> as structured input.
+          Most agent-memory tools stop at capture — they store what happened and hope you query it later. RoBrain is
+          built around a different question: <strong>what is worth keeping, and what should surface before the agent acts again?</strong>
+          Passive capture records every decision and the alternatives your team ruled out; batch <strong>Synthesis</strong>
+          reads the whole corpus to flag contradictions, drift, and recurring entities that no single session could see.
+          Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the
+          cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that
+          outlast a session.
         </p>
-        <h3 class="card-sub">Cursor Tuesday → Claude Code Wednesday</h3>
         <p>
-          An experienced teammate locks in <strong>Hono over Express</strong> for Perception in Cursor; RoBrain captures
-          it passively. A new teammate opens Claude Code and asks whether to port to Express — reasonable in a fresh
-          session. The <strong class="always-on-summary">always-on summary</strong> (or
-          <code>npx robrain inject</code>) surfaces the prior decision before the team
-          burns churn on a path they already rejected.
-        </p>
-        <blockquote class="callout">
-          <p>
-            Hono over Express for Perception — Bun and edge without a rewrite; API already Express-shaped — Mar 12, high
-            confidence
-          </p>
-        </blockquote>
-        <p>
-          Capture in one editor, judgment-backed recall in another — at session start by default, <code>inject</code> for a
-          narrower pull (cloud automates that at task boundaries).
+          RoBrain is built by <a href="https://roryplans.ai">Rory Plans</a>, an agent orchestration platform; it is the
+          memory and judgment layer that keeps multi-agent, multi-developer work coherent over time.
         </p>
       </section>
 
@@ -840,19 +830,8 @@
       <section class="card">
         <h2><span class="icon">⚡</span> Quick start</h2>
         <p class="final-cta-intro">
-          See the payoff first — then install. Self-hosted needs <code>ANTHROPIC_API_KEY</code> plus one
-          embedding-provider key.
+          Self-hosted needs <code>ANTHROPIC_API_KEY</code> plus one embedding-provider key.
         </p>
-        <p class="code-label">What you get after capture</p>
-        <pre><code>$ npx robrain explain src/store/cart.ts
-
-  src/store/cart.ts — 3 decisions
-
-  • Chose Zustand over Redux (re-render performance issues in cart) — Mar 15 2024
-  • Chose optimistic updates over server-confirmed writes — Apr 2 2024
-  • Chose normalised shape over nested objects — Apr 18 2024
-
-  Tip: add --why for full rationale and rejected alternatives</code></pre>
         <p class="code-label">One-time — RoBrain repo</p>
         <pre><code>pnpm install && pnpm build
 pnpm docker:up

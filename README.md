@@ -16,7 +16,7 @@ RoBrain is built by [Rory Plans](https://roryplans.ai), an agent orchestration p
 
 ## How it works (short)
 
-**Tuesday — experienced teammate in Cursor:** The team is shipping Perception as a small Hono server. They consider porting to Express so contributors have a familiar stack, but settle on Hono: it runs on Bun and edge runtimes without a rewrite, and the API is already Express-shaped (`app.get`, middleware chain). RoBrain captures the decision and the rejected Express path automatically — no one tags it as “worth remembering.”
+**Tuesday — experienced teammate in Cursor:** The team is shipping Perception as a small Hono server. They consider porting to Express so contributors have a familiar stack, but settle on Hono: it runs on Bun and edge runtimes without a rewrite, and the API is already Express-shaped (`app.get`, middleware chain). RoBrain captures the decision and the rejected Express path automatically — no manual tagging required.
 
 **Wednesday — new teammate in Claude Code:** A fresh session has no memory of Tuesday. They ask whether Perception should move to Express — a reasonable question if you only see the repo today. With RoBrain wired in, the agent pulls the prior decision (<strong><span style="color:#6d4aa3">always-on summary</span></strong> at session start, or `npx robrain inject` for a focused pull) and pushes back with the recorded rationale: deliberate Hono choice, marginal familiarity upside, real cost in locking out edge deploy and churn on a working server. The team does not re-litigate from zero.
 
