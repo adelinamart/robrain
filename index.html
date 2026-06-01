@@ -64,6 +64,52 @@
         position: relative;
       }
 
+      .hero {
+        display: grid;
+        gap: 2rem 2.5rem;
+        align-items: center;
+        position: relative;
+        z-index: 1;
+      }
+
+      @media (min-width: 768px) {
+        .hero {
+          grid-template-columns: 1fr minmax(260px, 42%);
+          gap: 2rem 3rem;
+          text-align: left;
+        }
+      }
+
+      .hero-copy .lead,
+      .hero-copy .hero-thesis {
+        margin-left: 0;
+        margin-right: 0;
+      }
+
+      @media (min-width: 768px) {
+        .hero-copy .pill-row,
+        .hero-copy .cta-row {
+          justify-content: flex-start;
+        }
+
+        .hero-copy .hero-cta {
+          margin-top: 1.5rem;
+        }
+      }
+
+      .hero-figure {
+        margin: 0;
+      }
+
+      .hero-figure img {
+        width: 100%;
+        height: auto;
+        display: block;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        border: 1px solid var(--violet-200);
+      }
+
       header::before {
         content: "";
         position: absolute;
@@ -596,27 +642,39 @@
   <body>
     <div class="wrap">
       <header>
-        <span class="badge">Open-source · cloud option</span>
-        <h1>RoBrain</h1>
-        <p class="lead">Shared memory across your team and your AI agents — with judgment about what's worth keeping.</p>
-        <p class="hero-thesis">
-          The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the
-          migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent
-          with no memory of why you said no.
-        </p>
-        <div class="pill-row">
-          <span class="pill">Claude Code</span>
-          <span class="pill">Cursor</span>
-          <span class="pill">Copilot</span>
-          <span class="pill">Codex CLI</span>
-        </div>
-        <div class="cta-row hero-cta">
-          <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
-          <a
-            class="btn btn-ghost"
-            href="https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1"
-            >Join cloud early access</a
-          >
+        <div class="hero">
+          <div class="hero-copy">
+            <span class="badge">Open-source · cloud option</span>
+            <h1>RoBrain</h1>
+            <p class="lead">Shared memory across your team and your AI agents — with judgment about what's worth keeping.</p>
+            <p class="hero-thesis">
+              RoBrain isn't just another memory layer — it's the brain that helps you and your agents make better
+              decisions and avoid costly mistakes.
+            </p>
+            <div class="pill-row">
+              <span class="pill">Claude Code</span>
+              <span class="pill">Cursor</span>
+              <span class="pill">Copilot</span>
+              <span class="pill">Codex CLI</span>
+            </div>
+            <div class="cta-row hero-cta">
+              <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
+              <a
+                class="btn btn-ghost"
+                href="https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1"
+                >Join cloud early access</a
+              >
+            </div>
+          </div>
+          <figure class="hero-figure">
+            <img
+              src="assets/robrain-hero.jpg"
+              alt="RoBrain robot pushing back against blind instructions — good agents understand, question, and think before acting"
+              width="1024"
+              height="819"
+              loading="eager"
+            />
+          </figure>
         </div>
       </header>
 
