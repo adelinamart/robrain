@@ -24,9 +24,24 @@ export function deriveProjectId(cwd: string): string {
   return createHash('sha256').update(cwd).digest('hex').slice(0, 12)
 }
 
+/** Read the project_id written by init-project from CLAUDE.md / AGENTS.md / Cursor rule */
+function readProjectIdFromEditorFiles(dir: string): string | null {
+  const candidates = [
+    join(dir, 'CLAUDE.md'),
+    join(dir, 'AGENTS.md'),
+    join(dir, '.cursor', 'rules', 'robrain.mdc'),
+  ]
+  for (const p of candidates) {
+    if (!existsSync(p)) continue
+    const match = readFileSync(p, 'utf8').match(/project_id="([^"]+)"/)
+    if (match?.[1]) return match[1].trim()
+  }
+  return null
+}
+
 /** Collect all available context from the project root */
 export function gatherProjectInfo(cwd: string): ProjectInfo {
-  const id   = deriveProjectId(cwd)
+  const id   = readProjectIdFromEditorFiles(cwd) ?? deriveProjectId(cwd)
   let name   = basename(cwd)
   let desc   = ''
   let stack: string[] = []
