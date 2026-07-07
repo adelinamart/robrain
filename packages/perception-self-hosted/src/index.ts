@@ -24,7 +24,7 @@ import { serve }             from '@hono/node-server'
 import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 
 const { Pool } = pg
@@ -45,10 +45,11 @@ const config = {
   // prefer gpt-4o / gpt-4.1 for extraction fidelity. Reuses OPENAI_API_KEY.
   openaiLlmModel:  process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
   ossMode:         process.env.OSS_MODE === 'true',
-  embeddingProvider: process.env.EMBEDDING_PROVIDER ?? 'openai',
+  // Provider/model/timeout/retry resolved by @robrain/shared — the same
+  // resolver Sensing uses, so both sides always embed with the same model.
+  embedding:       resolveEmbeddingConfig(),
+  // Also reused by the OpenAI chat path when LLM_PROVIDER=openai.
   openaiApiKey:    process.env.OPENAI_API_KEY,
-  voyageApiKey:    process.env.VOYAGE_API_KEY,
-  cohereApiKey:    process.env.COHERE_API_KEY,
   rateLimitPerMinute: Number(process.env.PERCEPTION_RATE_LIMIT_PER_MINUTE ?? 120),
   bodyLimitBytes:  Number(process.env.PERCEPTION_BODY_LIMIT_BYTES ?? 1_000_000),
 }
@@ -106,16 +107,6 @@ const anthropic = config.llmProvider === 'anthropic'
   : null
 const app       = new Hono()
 const S         = config.schema
-
-class EmbeddingProviderError extends Error {
-  readonly provider: string
-
-  constructor(provider: string, message: string) {
-    super(message)
-    this.name = 'EmbeddingProviderError'
-    this.provider = provider
-  }
-}
 
 /** Actionable copy for API consumers (CLI + Sensing MCP). */
 const PROJECT_REGISTER_HINT =
@@ -950,63 +941,7 @@ Claude: ${claudeReply}`
 }
 
 async function embed(text: string): Promise<number[]> {
-  const TARGET = 1536
-  const pad = (v: number[]) => v.length >= TARGET ? v.slice(0, TARGET) : [...v, ...new Array(TARGET - v.length).fill(0)]
-  const parseErrorDetail = async (r: Response): Promise<string> => {
-    const raw = await r.text().catch(() => '')
-    if (!raw) return `HTTP ${r.status}`
-    try {
-      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown; detail?: unknown }
-      if (typeof parsed.error === 'string') return parsed.error
-      if (parsed.error && typeof parsed.error === 'object' && typeof (parsed.error as { message?: unknown }).message === 'string') {
-        return (parsed.error as { message: string }).message
-      }
-      if (typeof parsed.message === 'string') return parsed.message
-      if (typeof parsed.detail === 'string') return parsed.detail
-    } catch {
-      // non-JSON payload
-    }
-    return raw.slice(0, 500)
-  }
-  const ensureEmbedding = (provider: string, vector: unknown): number[] => {
-    if (!Array.isArray(vector) || !vector.every(n => typeof n === 'number' && Number.isFinite(n))) {
-      throw new EmbeddingProviderError(provider, 'Invalid embedding payload')
-    }
-    return vector as number[]
-  }
-
-  if (config.embeddingProvider === 'voyage' && config.voyageApiKey) {
-    const r = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${config.voyageApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'voyage-3-lite', input: [text] }),
-    })
-    if (!r.ok) {
-      throw new EmbeddingProviderError('voyage', await parseErrorDetail(r))
-    }
-    const d = await r.json() as { data?: Array<{ embedding?: unknown }> }
-    return pad(ensureEmbedding('voyage', d.data?.[0]?.embedding))
-  }
-  if (config.embeddingProvider === 'cohere' && config.cohereApiKey) {
-    const r = await fetch('https://api.cohere.com/v1/embed', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${config.cohereApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'embed-english-v3.0', texts: [text], input_type: 'search_document', embedding_types: ['float'] }),
-    })
-    if (!r.ok) {
-      throw new EmbeddingProviderError('cohere', await parseErrorDetail(r))
-    }
-    const d = await r.json() as { embeddings?: { float?: unknown[] } }
-    return pad(ensureEmbedding('cohere', d.embeddings?.float?.[0]))
-  }
-  // Default: OpenAI
-  const r = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST', headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-  })
-  if (!r.ok) {
-    throw new EmbeddingProviderError('openai', await parseErrorDetail(r))
-  }
-  const d = await r.json() as { data?: Array<{ embedding?: unknown }> }
-  return pad(ensureEmbedding('openai', d.data?.[0]?.embedding))
+  return sharedEmbed(text, config.embedding)
 }
 
 const REGENERATE_SUMMARY_DEBOUNCE_MS = 30_000

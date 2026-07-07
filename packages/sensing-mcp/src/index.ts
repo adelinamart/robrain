@@ -314,7 +314,7 @@ server.tool(
           last_decision_ship_failure: lastDecisionShipFailure,
           last_classifier_failure: getLastClassifierFailure(),
           perception_url:   config.perceptionApiUrl,
-          embedding_provider: config.embeddingProvider,
+          embedding_provider: config.embedding.provider,
           topic_shift_embeddings_disabled: config.topicShiftDisableEmbedding,
         }),
       }],
