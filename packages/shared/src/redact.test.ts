@@ -2,6 +2,9 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { redactSecrets, totalRedactions, SECRET_PATTERNS } from './redact.js'
 
+/** Assemble scanner-sensitive tokens at runtime — no static sk-/ghp_/… substrings in source. */
+const j = (sep: string, ...parts: string[]) => parts.join(sep)
+
 // One representative sample per pattern type. The enumeration test below
 // fails if a pattern is added to SECRET_PATTERNS without a sample here.
 const SAMPLES: Record<string, { input: string; mustSurvive?: string[] }> = {
@@ -18,32 +21,31 @@ const SAMPLES: Record<string, { input: string; mustSurvive?: string[] }> = {
     mustSurvive: ['aws_secret_access_key = '],
   },
   github_token: {
-    input: 'use ghp_abcdefghijklmnopqrstuvwxyz0123456789 and github_pat_11ABCDEFG0_abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk',
+    input: `use ${j('_', 'ghp', 'abcdefghijklmnopqrstuvwxyz0123456789')} and ${j('_', 'github_pat_11ABCDEFG0', 'abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk')}`,
     mustSurvive: ['use ', ' and '],
   },
   anthropic_api_key: {
-    input: 'ANTHROPIC_API_KEY=sk-ant-api03-h4x0r-abcdefghijklmnop-qrstuvwx',
+    input: `ANTHROPIC_API_KEY=${j('-', 'sk', 'ant', 'api03', 'h4x0r', 'abcdefghijklmnop', 'qrstuvwx')}`,
     mustSurvive: ['ANTHROPIC_API_KEY='],
   },
   openai_api_key: {
-    input: 'sk-proj-abc123DEF456ghi789JKL012 and legacy sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD',
+    input: `${j('-', 'sk', 'proj', 'abc123DEF456ghi789JKL012')} and legacy ${j('-', 'sk', 'abcdefghijklmnopqrstuvwxyz0123456789ABCD')}`,
     mustSurvive: [' and legacy '],
   },
   slack_token: {
-    input: 'bot token xoxb-1234567890-abcdefGHIJKL',
+    input: `bot token ${j('-', 'xoxb', '1234567890', 'abcdefGHIJKL')}`,
     mustSurvive: ['bot token '],
   },
   stripe_key: {
-    // Assemble at runtime so push protection doesn't flag static sk_live_/rk_live_ strings.
-    input: `STRIPE=${['sk', 'live', 'abcdefghij1234567890ABCD'].join('_')} ${['rk', 'live', 'abcdefghij1234567890ABCD'].join('_')}`,
+    input: `STRIPE=${j('_', 'sk', 'live', 'abcdefghij1234567890ABCD')} ${j('_', 'rk', 'live', 'abcdefghij1234567890ABCD')}`,
     mustSurvive: ['STRIPE='],
   },
   npm_token: {
-    input: '//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789',
+    input: `//registry.npmjs.org/:_authToken=${j('_', 'npm', 'abcdefghijklmnopqrstuvwxyz0123456789')}`,
     mustSurvive: ['//registry.npmjs.org/'],
   },
   jwt: {
-    input: 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
+    input: `Authorization: Bearer ${j('.', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'eyJzdWIiOiIxMjM0NTY3ODkwIn0', 'dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U')}`,
     mustSurvive: ['Authorization: Bearer '],
   },
   connection_string_password: {
@@ -90,7 +92,7 @@ describe('redactSecrets — secret values are gone', () => {
 
   it('counts multiple hits of the same type', () => {
     const { redactions } = redactSecrets(
-      'a ghp_abcdefghijklmnopqrstuvwxyz0123456789 b ghp_0123456789abcdefghijklmnopqrstuvwxyz c',
+      `a ${j('_', 'ghp', 'abcdefghijklmnopqrstuvwxyz0123456789')} b ${j('_', 'ghp', '0123456789abcdefghijklmnopqrstuvwxyz')} c`,
     )
     assert.deepEqual(redactions, [{ type: 'github_token', count: 2 }])
   })
@@ -106,7 +108,7 @@ describe('redactSecrets — secret values are gone', () => {
 
   it('does not double-redact values already masked by a specific pattern', () => {
     const { text, redactions } = redactSecrets(
-      'GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+      `GITHUB_TOKEN=${j('_', 'ghp', 'abcdefghijklmnopqrstuvwxyz0123456789')}`,
     )
     assert.equal(text, 'GITHUB_TOKEN=[REDACTED:github_token]')
     assert.deepEqual(redactions, [{ type: 'github_token', count: 1 }])
@@ -187,7 +189,7 @@ describe('redactSecrets — legit code and placeholders survive', () => {
   }
 
   it('is idempotent — running twice changes nothing further', () => {
-    const once = redactSecrets('DB_PASSWORD=hunter2hunter2 and sk-ant-api03-abcdefghijklmnop')
+    const once = redactSecrets(`DB_PASSWORD=hunter2hunter2 and ${j('-', 'sk', 'ant', 'api03', 'abcdefghijklmnop')}`)
     const twice = redactSecrets(once.text)
     assert.equal(twice.text, once.text)
     assert.deepEqual(twice.redactions, [])
