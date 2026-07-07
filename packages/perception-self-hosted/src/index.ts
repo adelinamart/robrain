@@ -21,10 +21,14 @@ import { Hono }              from 'hono'
 import type { Context }      from 'hono'
 import { bodyLimit }         from 'hono/body-limit'
 import { serve }             from '@hono/node-server'
-import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import {
+  SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider,
+  DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL,
+  EmbeddingProviderError, embed as sharedEmbed,
+  extractDecisionLlm,
+} from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 
 const { Pool } = pg
@@ -99,23 +103,8 @@ function validateSchemaName(name: string): string {
 }
 
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 10 })
-// Only construct the Anthropic client when it's the selected provider — the SDK
-// throws on an empty key, and LLM_PROVIDER=openai must boot without ANTHROPIC_API_KEY.
-const anthropic = config.llmProvider === 'anthropic'
-  ? new Anthropic({ apiKey: config.anthropicApiKey })
-  : null
 const app       = new Hono()
 const S         = config.schema
-
-class EmbeddingProviderError extends Error {
-  readonly provider: string
-
-  constructor(provider: string, message: string) {
-    super(message)
-    this.name = 'EmbeddingProviderError'
-    this.provider = provider
-  }
-}
 
 /** Actionable copy for API consumers (CLI + Sensing MCP). */
 const PROJECT_REGISTER_HINT =
@@ -862,151 +851,36 @@ app.post('/projects/:id/regenerate-summary', async (c) => {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-// OSS extraction — kept in sync with Sensing Haiku prompt (packages/sensing-mcp classifyDecision extractDecision)
-// so flush-on-close and any path without signal.extracted still sees the happy path.
-function stripMarkdownJsonFence(raw: string): string {
-  const t = raw.trim()
-  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
-  return m?.[1]?.trim() ?? t
-}
-
+// OSS extraction — prompt and provider switch live in @robrain/shared
+// (extract-decision.ts), the same module Sensing's classifier uses, so
+// flush-on-close re-extraction can no longer drift from the Sensing prompt.
 async function extractDecisionOSS(userMsg: string, claudeReply: string) {
-  const system = `You extract technical decisions from software development conversations.
-
-A decision includes ANY of the following (not only formal deliberation):
-- Explicit choice between alternatives, or adopting/rejecting a tool or approach
-- Brief agreements or directions: e.g. "let's use X", "standardize on Y", "we'll go with Z", "stick with W"
-- Constraints or conventions established for the repo or team (defaults, policies, "from now on")
-- Plans that commit the work to a specific stack, package manager, library, or pattern
-
-NOT a decision: pure questions with no commitment, vague brainstorming with no resolution, or execution-only steps with no stable choice (e.g. "run the tests" with no policy change).
-
-Fields:
-- "decision": one short imperative sentence stating WHAT was chosen or agreed (max ~20 words). If nothing was committed, null.
-- "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
-- "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
-- "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
-
-Output ONLY valid JSON. If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
-Never add explanation outside the JSON.
-Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}`
-
-  const user = `Session turn:
-User: ${userMsg}
-Claude: ${claudeReply}`
-
-  const empty = (): { decision: null; rationale: null; rejected: []; confidence: number } =>
-    ({ decision: null, rationale: null, rejected: [], confidence: 0 })
-
   try {
-    let rawText: string
-    if (config.llmProvider === 'openai') {
-      rawText = await openaiChat({
-        apiKey:    config.openaiApiKey ?? '',
-        model:     config.openaiLlmModel,
-        system,
-        user,
-        maxTokens: 300,
-        json:      true,
-      })
-    } else {
-      if (!anthropic) return empty()
-      const resp = await anthropic.messages.create({
-        model:        config.anthropicModel,
-        max_tokens:   300,
-        system,
-        messages:     [{ role: 'user', content: user }],
-      })
-      const block = resp.content[0]
-      rawText = block?.type === 'text' ? block.text : '{}'
-    }
-    const text = stripMarkdownJsonFence(rawText)
-    const raw = JSON.parse(text) as {
-      decision?: string | null
-      rationale?: string | null
-      rejected?: unknown
-      confidence?: number
-    }
-    const rejected = Array.isArray(raw.rejected)
-      ? raw.rejected.filter(
-          (x): x is { option: string; reason: string } =>
-            x !== null && typeof x === 'object' &&
-            typeof (x as { option?: unknown }).option === 'string' &&
-            typeof (x as { reason?: unknown }).reason === 'string',
-        )
-      : []
-    const confidence = typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
-      ? raw.confidence
-      : 0
-    return {
-      decision: typeof raw.decision === 'string' ? raw.decision : null,
-      rationale: typeof raw.rationale === 'string' ? raw.rationale : null,
-      rejected,
-      confidence,
-    }
+    return await extractDecisionLlm(userMsg, claudeReply, {
+      provider:        config.llmProvider,
+      anthropicApiKey: config.anthropicApiKey,
+      anthropicModel:  config.anthropicModel,
+      openaiApiKey:    config.openaiApiKey,
+      openaiModel:     config.openaiLlmModel,
+    })
   } catch {
-    return empty()
+    // Missing key / provider / parse failure = treat as no decision (keys are
+    // validated at boot, so this is transient provider trouble, not config).
+    return { decision: null, rationale: null, rejected: [], confidence: 0 }
   }
 }
 
+// Shared embedding client bound to this package's config. Selecting a provider
+// whose key is missing now throws EmbeddingProviderError (surfaced as 503 by
+// /signals) instead of silently falling back to OpenAI, and every call carries
+// a timeout + retry so a hung provider cannot stall a request indefinitely.
 async function embed(text: string): Promise<number[]> {
-  const TARGET = 1536
-  const pad = (v: number[]) => v.length >= TARGET ? v.slice(0, TARGET) : [...v, ...new Array(TARGET - v.length).fill(0)]
-  const parseErrorDetail = async (r: Response): Promise<string> => {
-    const raw = await r.text().catch(() => '')
-    if (!raw) return `HTTP ${r.status}`
-    try {
-      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown; detail?: unknown }
-      if (typeof parsed.error === 'string') return parsed.error
-      if (parsed.error && typeof parsed.error === 'object' && typeof (parsed.error as { message?: unknown }).message === 'string') {
-        return (parsed.error as { message: string }).message
-      }
-      if (typeof parsed.message === 'string') return parsed.message
-      if (typeof parsed.detail === 'string') return parsed.detail
-    } catch {
-      // non-JSON payload
-    }
-    return raw.slice(0, 500)
-  }
-  const ensureEmbedding = (provider: string, vector: unknown): number[] => {
-    if (!Array.isArray(vector) || !vector.every(n => typeof n === 'number' && Number.isFinite(n))) {
-      throw new EmbeddingProviderError(provider, 'Invalid embedding payload')
-    }
-    return vector as number[]
-  }
-
-  if (config.embeddingProvider === 'voyage' && config.voyageApiKey) {
-    const r = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${config.voyageApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'voyage-3-lite', input: [text] }),
-    })
-    if (!r.ok) {
-      throw new EmbeddingProviderError('voyage', await parseErrorDetail(r))
-    }
-    const d = await r.json() as { data?: Array<{ embedding?: unknown }> }
-    return pad(ensureEmbedding('voyage', d.data?.[0]?.embedding))
-  }
-  if (config.embeddingProvider === 'cohere' && config.cohereApiKey) {
-    const r = await fetch('https://api.cohere.com/v1/embed', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${config.cohereApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'embed-english-v3.0', texts: [text], input_type: 'search_document', embedding_types: ['float'] }),
-    })
-    if (!r.ok) {
-      throw new EmbeddingProviderError('cohere', await parseErrorDetail(r))
-    }
-    const d = await r.json() as { embeddings?: { float?: unknown[] } }
-    return pad(ensureEmbedding('cohere', d.embeddings?.float?.[0]))
-  }
-  // Default: OpenAI
-  const r = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST', headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
+  return sharedEmbed(text, {
+    provider:     config.embeddingProvider,
+    openaiApiKey: config.openaiApiKey,
+    voyageApiKey: config.voyageApiKey,
+    cohereApiKey: config.cohereApiKey,
   })
-  if (!r.ok) {
-    throw new EmbeddingProviderError('openai', await parseErrorDetail(r))
-  }
-  const d = await r.json() as { data?: Array<{ embedding?: unknown }> }
-  return pad(ensureEmbedding('openai', d.data?.[0]?.embedding))
 }
 
 const REGENERATE_SUMMARY_DEBOUNCE_MS = 30_000

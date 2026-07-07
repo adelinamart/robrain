@@ -1,3 +1,5 @@
 export * from './types.js'
 export * from './load-env.js'
 export * from './llm.js'
+export * from './embeddings.js'
+export * from './extract-decision.js'
