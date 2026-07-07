@@ -14,10 +14,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.24.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@robrain/shared": "workspace:*",
-    "openai": "^4.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

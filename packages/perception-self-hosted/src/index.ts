@@ -21,10 +21,9 @@ import { Hono }              from 'hono'
 import type { Context }      from 'hono'
 import { bodyLimit }         from 'hono/body-limit'
 import { serve }             from '@hono/node-server'
-import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
@@ -124,11 +123,6 @@ function validateSchemaName(name: string): string {
 }
 
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 10 })
-// Only construct the Anthropic client when it's the selected provider — the SDK
-// throws on an empty key, and LLM_PROVIDER=openai must boot without ANTHROPIC_API_KEY.
-const anthropic = config.llmProvider === 'anthropic'
-  ? new Anthropic({ apiKey: config.anthropicApiKey })
-  : null
 const app       = new Hono()
 const S         = config.schema
 
@@ -1071,94 +1065,30 @@ app.post('/projects/:id/regenerate-summary', async (c) => {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-// OSS extraction — kept in sync with Sensing Haiku prompt (packages/sensing-mcp classifyDecision extractDecision)
-// so flush-on-close and any path without signal.extracted still sees the happy path.
-function stripMarkdownJsonFence(raw: string): string {
-  const t = raw.trim()
-  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
-  return m?.[1]?.trim() ?? t
-}
-
+// OSS extraction — prompt and provider switch live in @robrain/shared
+// (extract-decision.ts), the same module Sensing's classifier uses, so
+// flush-on-close re-extraction can no longer drift from the Sensing prompt.
 async function extractDecisionOSS(userMsg: string, claudeReply: string) {
-  const system = `You extract technical decisions from software development conversations.
-
-A decision includes ANY of the following (not only formal deliberation):
-- Explicit choice between alternatives, or adopting/rejecting a tool or approach
-- Brief agreements or directions: e.g. "let's use X", "standardize on Y", "we'll go with Z", "stick with W"
-- Constraints or conventions established for the repo or team (defaults, policies, "from now on")
-- Plans that commit the work to a specific stack, package manager, library, or pattern
-
-NOT a decision: pure questions with no commitment, vague brainstorming with no resolution, or execution-only steps with no stable choice (e.g. "run the tests" with no policy change).
-
-Fields:
-- "decision": one short imperative sentence stating WHAT was chosen or agreed (max ~20 words). If nothing was committed, null.
-- "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
-- "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
-- "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
-
-Output ONLY valid JSON. If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
-Never add explanation outside the JSON.
-Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}`
-
-  const user = `Session turn:
-User: ${userMsg}
-Claude: ${claudeReply}`
-
-  const empty = (): { decision: null; rationale: null; rejected: []; confidence: number } =>
-    ({ decision: null, rationale: null, rejected: [], confidence: 0 })
-
   try {
-    let rawText: string
-    if (config.llmProvider === 'openai') {
-      rawText = await openaiChat({
-        apiKey:    config.openaiApiKey ?? '',
-        model:     config.openaiLlmModel,
-        baseUrl:   config.openaiBaseUrl,
-        system,
-        user,
-        maxTokens: 300,
-        json:      true,
-      })
-    } else {
-      if (!anthropic) return empty()
-      const resp = await anthropic.messages.create({
-        model:        config.anthropicModel,
-        max_tokens:   300,
-        system,
-        messages:     [{ role: 'user', content: user }],
-      })
-      const block = resp.content[0]
-      rawText = block?.type === 'text' ? block.text : '{}'
-    }
-    const text = stripMarkdownJsonFence(rawText)
-    const raw = JSON.parse(text) as {
-      decision?: string | null
-      rationale?: string | null
-      rejected?: unknown
-      confidence?: number
-    }
-    const rejected = Array.isArray(raw.rejected)
-      ? raw.rejected.filter(
-          (x): x is { option: string; reason: string } =>
-            x !== null && typeof x === 'object' &&
-            typeof (x as { option?: unknown }).option === 'string' &&
-            typeof (x as { reason?: unknown }).reason === 'string',
-        )
-      : []
-    const confidence = typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
-      ? raw.confidence
-      : 0
-    return {
-      decision: typeof raw.decision === 'string' ? raw.decision : null,
-      rationale: typeof raw.rationale === 'string' ? raw.rationale : null,
-      rejected,
-      confidence,
-    }
+    return await extractDecisionLlm(userMsg, claudeReply, {
+      provider:        config.llmProvider,
+      anthropicApiKey: config.anthropicApiKey,
+      anthropicModel:  config.anthropicModel,
+      openaiApiKey:    config.openaiApiKey,
+      openaiModel:     config.openaiLlmModel,
+      openaiBaseUrl:   config.openaiBaseUrl,
+    })
   } catch {
-    return empty()
+    // Missing key / provider / parse failure = treat as no decision (keys are
+    // validated at boot, so this is transient provider trouble, not config).
+    return { decision: null, rationale: null, rejected: [], confidence: 0 }
   }
 }
 
+// Shared embedding client bound to this package's config. Selecting a provider
+// whose key is missing now throws EmbeddingProviderError (surfaced as 503 by
+// /signals) instead of silently falling back to OpenAI, and every call carries
+// a timeout + retry so a hung provider cannot stall a request indefinitely.
 async function embed(text: string): Promise<number[]> {
   return sharedEmbed(text, config.embedding)
 }

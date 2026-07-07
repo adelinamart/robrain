@@ -58,9 +58,6 @@ importers:
 
   packages/perception-self-hosted:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.24.0
-        version: 0.24.3
       '@hono/node-server':
         specifier: ^1.9.0
         version: 1.19.14(hono@4.12.16)
@@ -89,18 +86,12 @@ importers:
 
   packages/sensing-mcp:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.24.0
-        version: 0.24.3
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.29.0(zod@3.25.76)
       '@robrain/shared':
         specifier: workspace:*
         version: link:../shared
-      openai:
-        specifier: ^4.0.0
-        version: 4.104.0(zod@3.25.76)
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -150,9 +141,6 @@ importers:
         version: 5.9.3
 
 packages:
-
-  '@anthropic-ai/sdk@0.24.3':
-    resolution: {integrity: sha512-916wJXO6T6k8R6BAAcLhLPv/pnLGy7YSEBZXZ1XTFbLcTZE8oTy3oDW9WJf9KKZwMvVcePIfoTSvzXHRcGxkQQ==}
 
   '@anthropic-ai/sdk@0.32.1':
     resolution: {integrity: sha512-U9JwTrDvdQ9iWuABVsMLj8nJVwAyQz6QXvgLsVhryhCEPkLsbcP/MXxm+jYcAwLoV8ESbaTTjnD4kuAFa+Hyjg==}
@@ -716,18 +704,6 @@ packages:
     resolution: {integrity: sha512-VXJjc87FScF88uafS3JllDgvAm+c/Slfz06lorj2uAY34rlUu0Nt+v8wreiImcrgAjjIHp1rXpTDlLOGw29WwQ==}
     engines: {node: '>=18'}
 
-  openai@4.104.0:
-    resolution: {integrity: sha512-p99EFNsA/yX6UhVO93f5kJsDRLAg+CTA2RBqdHK4RtK8u5IJw32Hyb2dTGKbnnFmnuoBv5r7Z2CURI9sGZpSuA==}
-    hasBin: true
-    peerDependencies:
-      ws: ^8.18.0
-      zod: ^3.23.8
-    peerDependenciesMeta:
-      ws:
-        optional: true
-      zod:
-        optional: true
-
   ora@8.2.0:
     resolution: {integrity: sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw==}
     engines: {node: '>=18'}
@@ -924,10 +900,6 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  web-streams-polyfill@3.3.3:
-    resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
-    engines: {node: '>= 8'}
-
   web-streams-polyfill@4.0.0-beta.3:
     resolution: {integrity: sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug==}
     engines: {node: '>= 14'}
@@ -959,19 +931,6 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
-
-  '@anthropic-ai/sdk@0.24.3':
-    dependencies:
-      '@types/node': 18.19.130
-      '@types/node-fetch': 2.6.13
-      abort-controller: 3.0.0
-      agentkeepalive: 4.6.0
-      form-data-encoder: 1.7.2
-      formdata-node: 4.4.1
-      node-fetch: 2.7.0
-      web-streams-polyfill: 3.3.3
-    transitivePeerDependencies:
-      - encoding
 
   '@anthropic-ai/sdk@0.32.1':
     dependencies:
@@ -1479,20 +1438,6 @@ snapshots:
     dependencies:
       mimic-function: 5.0.1
 
-  openai@4.104.0(zod@3.25.76):
-    dependencies:
-      '@types/node': 18.19.130
-      '@types/node-fetch': 2.6.13
-      abort-controller: 3.0.0
-      agentkeepalive: 4.6.0
-      form-data-encoder: 1.7.2
-      formdata-node: 4.4.1
-      node-fetch: 2.7.0
-    optionalDependencies:
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - encoding
-
   ora@8.2.0:
     dependencies:
       chalk: 5.6.2
@@ -1700,8 +1645,6 @@ snapshots:
   unpipe@1.0.0: {}
 
   vary@1.1.2: {}
-
-  web-streams-polyfill@3.3.3: {}
 
   web-streams-polyfill@4.0.0-beta.3: {}
 

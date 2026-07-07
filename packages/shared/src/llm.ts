@@ -118,3 +118,61 @@ export async function openaiChat(params: OpenAiChatParams): Promise<string> {
 
   throw new Error(`OpenAI chat failed: ${lastErr}`)
 }
+
+export interface AnthropicChatParams {
+  apiKey:    string
+  model:     string
+  system:    string
+  user:      string
+  maxTokens: number
+}
+
+/**
+ * Minimal Anthropic Messages call returning the first text block. Fetch-based
+ * like openaiChat so callers (Sensing, Perception) need no SDK dependency.
+ * Retries 429 / 5xx (incl. 529 overloaded) with exponential backoff; throws
+ * on non-retriable failure or after the final attempt.
+ */
+export async function anthropicChat(params: AnthropicChatParams): Promise<string> {
+  if (!params.apiKey) {
+    throw new Error('ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic')
+  }
+
+  const body = JSON.stringify({
+    model:      params.model,
+    max_tokens: params.maxTokens,
+    system:     params.system,
+    messages:   [{ role: 'user', content: params.user }],
+  })
+
+  let lastErr = ''
+  for (let attempt = 0; attempt < OPENAI_MAX_ATTEMPTS; attempt++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:  'POST',
+      headers: {
+        'x-api-key':         params.apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type':      'application/json',
+      },
+      body,
+    })
+
+    if (res.ok) {
+      const data = await res.json() as {
+        content?: Array<{ type?: string; text?: string }>
+      }
+      const block = data.content?.[0]
+      return block?.type === 'text' ? (block.text ?? '') : ''
+    }
+
+    lastErr = `${res.status}${res.statusText ? ` ${res.statusText}` : ''}`
+    const retriable = res.status === 429 || res.status >= 500
+    if (!retriable || attempt >= OPENAI_MAX_ATTEMPTS - 1) {
+      throw new Error(`Anthropic chat failed: ${lastErr}`)
+    }
+    const delay = OPENAI_BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 150)
+    await new Promise(r => setTimeout(r, delay))
+  }
+
+  throw new Error(`Anthropic chat failed: ${lastErr}`)
+}

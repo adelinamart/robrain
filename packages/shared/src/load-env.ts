@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 function parseDotenv(raw: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -21,15 +21,44 @@ function parseDotenv(raw: string): Record<string, string> {
   return out
 }
 
-/** Paths checked in order; earlier paths win per key when merging into process.env. */
+/** Nearest ancestor of `start` (inclusive) that looks like a repo / workspace root. */
+function findRepoRootUpward(start: string): string | null {
+  let dir = start
+  while (true) {
+    if (existsSync(join(dir, '.git')) || existsSync(join(dir, 'pnpm-workspace.yaml'))) {
+      return dir
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+/**
+ * Paths checked in order; earlier paths win per key when merging into process.env.
+ * After the explicit repoRoot and cwd, walk upward from cwd to the enclosing
+ * `.git` / `pnpm-workspace.yaml` root (inclusive) — MCP servers and CLI runs are
+ * often launched from a subdirectory of the repo that owns `.env`. Nearer
+ * directories win, and the walk never leaves the repo, so an unrelated `.env`
+ * higher up (e.g. in $HOME) cannot leak into the process.
+ */
 function candidateEnvPaths(repoRoot?: string): string[] {
   const paths: string[] = []
-  if (repoRoot) {
-    paths.push(join(repoRoot, '.env'))
+  const push = (p: string): void => {
+    if (!paths.includes(p)) paths.push(p)
   }
-  const cwdEnv = join(process.cwd(), '.env')
-  if (existsSync(cwdEnv) && !paths.includes(cwdEnv)) {
-    paths.push(cwdEnv)
+  if (repoRoot) {
+    push(join(repoRoot, '.env'))
+  }
+  const cwd = process.cwd()
+  push(join(cwd, '.env'))
+  const repoTop = findRepoRootUpward(cwd)
+  if (repoTop) {
+    let dir = cwd
+    while (dir !== repoTop) {
+      dir = dirname(dir)
+      push(join(dir, '.env'))
+    }
   }
   return paths
 }

@@ -8,6 +8,7 @@
 //   install        Authenticate + wire MCP servers into your editors
 //   init-project   Warm-start memory from existing codebase
 //   status         Show auth status + service health
+//   doctor         Diagnose install, editor wiring, keys, and service health
 //   rule           Add / list / remove explicit Planning rules
 //   logout         Clear local credentials
 // ─────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ import { loadCliEnv }                             from './lib/load-env.js'
 import { installCommand }     from './commands/install.js'
 import { initProjectCommand }  from './commands/init-project.js'
 import { statusCommand, ruleCommand, logoutCommand } from './commands/status.js'
+import { doctorCommand }       from './commands/doctor.js'
 import { reviewCommand }       from './commands/review.js'
 import { injectCommand }       from './commands/inject.js'
 import { synthCommand }        from './commands/synth.js'
@@ -216,6 +218,15 @@ program
     await statusCommand()
   })
 
+// ── doctor ────────────────────────────────────────────────────
+
+program
+  .command('doctor')
+  .description('Diagnose the full setup: install config, MCP bundle, editor wiring, keys, Perception health, project registration')
+  .action(async () => {
+    await doctorCommand()
+  })
+
 // ── rule ──────────────────────────────────────────────────────
 
 program
@@ -257,6 +268,7 @@ program.addHelpText('afterAll', `
     pnpm docker:up                                  Start Postgres + Perception
     npx robrain install --self-hosted --repo-root <robrain-clone>   Wire Sensing (needs built MCP bundle)
     npx robrain init-project                        Warm-start memory from codebase
+    npx robrain doctor                              Something not capturing? Diagnose the whole setup
     npx robrain review                              Review captured decisions
     npx robrain inject --query "..." --copy         Get context to paste into Claude Code
     npx robrain export-memory                       Project approved decisions into Claude Code auto-memory

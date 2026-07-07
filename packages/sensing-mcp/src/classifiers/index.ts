@@ -6,7 +6,6 @@
 // inline from sensing_record_turn because Control needs it.
 // ─────────────────────────────────────────────────────────────
 
-import Anthropic from '@anthropic-ai/sdk'
 import type {
   SessionTurn,
   DecisionSignal,
@@ -15,33 +14,13 @@ import type {
   ExtractedDecision,
   Scope,
 } from '@robrain/shared'
-import { THRESHOLDS, openaiChat, DEFAULT_OPENAI_BASE_URL } from '@robrain/shared'
+import { extractDecisionLlm, LlmKeyMissingError } from '@robrain/shared'
 import { config } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
-
-function stripMarkdownJsonFence(raw: string): string {
-  const t = raw.trim()
-  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
-  return m?.[1]?.trim() ?? t
-}
 
 let lastClassifierFailure: string | null = null
 export function getLastClassifierFailure(): string | null {
   return lastClassifierFailure
-}
-
-/** Lazily built so the MCP process can start without ANTHROPIC_API_KEY (Cursor often omits it on reconnect). */
-let anthropicClient: Anthropic | null | undefined
-
-function getAnthropicClient(): Anthropic | null {
-  if (anthropicClient !== undefined) return anthropicClient
-  const key = config.anthropicApiKey.trim()
-  if (!key) {
-    anthropicClient = null
-    return null
-  }
-  anthropicClient = new Anthropic({ apiKey: key })
-  return anthropicClient
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -134,76 +113,29 @@ export async function classifyDecision(
   }
 }
 
+// Prompt + provider switch live in @robrain/shared (extract-decision.ts),
+// shared with Perception's flush-on-close re-extraction so they cannot drift.
 async function extractDecision(turn: SessionTurn): Promise<ExtractedDecision> {
-  const systemPrompt = `You extract technical decisions from software development conversations.
-
-A decision includes ANY of the following (not only formal deliberation):
-- Explicit choice between alternatives, or adopting/rejecting a tool or approach
-- Brief agreements or directions: e.g. "let's use X", "standardize on Y", "we'll go with Z", "stick with W"
-- Constraints or conventions established for the repo or team (defaults, policies, "from now on")
-- Plans that commit the work to a specific stack, package manager, library, or pattern
-
-NOT a decision:
-- pure questions with no commitment
-- vague brainstorming with no resolution
-- execution-only steps with no stable choice (e.g. "run the tests" with no policy change)
-- one-time troubleshooting or runbook steps with no durable policy (e.g. "restart the app to pick up env changes", "delete the lock file and reinstall", "fully quit and reopen"). Test: would this guide a future choice, or is its value spent once executed? If spent, skip.
-- diagnoses or explanations of why something broke, unless paired with a rule about how to handle it going forward
-- a proposal made by the ASSISTANT that the user did not explicitly affirm. Look for user-side affirmation ("yes", "agreed", "let's do it", "go with that", "sounds good") or the user proceeding to execute the proposed action. If the assistant suggested something and the user moved on without affirming, do NOT extract.
-
-Fields:
-- "decision": one short imperative sentence stating WHAT was chosen or agreed as a durable rule/preference (max ~20 words). Procedural steps and one-time fixes are NOT decisions. If nothing durable was committed, null.
-- "rationale": why, IF stated in the turn; otherwise null. Empty is normal for offhand agreement. Max 15 words.
-- "rejected": options explicitly declined, IF any; otherwise []. An empty list is EXPECTED when alternatives were never discussed — do NOT treat that as "no decision".
-- "confidence": 0.0–1.0. Use HIGH (e.g. 0.75–1.0) when the turn clearly states a commitment or resolution, even if brief. Use LOW only when speculative, purely exploratory, or ambiguous.
-
-Output ONLY valid JSON. If no decision: {"decision": null, "rationale": null, "rejected": [], "confidence": 0}.
-Never add explanation outside the JSON.
-Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number}`
-
-  const userPrompt = `Session turn:
-User: ${turn.user_message}
-Claude: ${turn.claude_reply}`
-
   const empty = (): ExtractedDecision => ({ decision: null, rationale: null, rejected: [], confidence: 0 })
 
   try {
-    let rawText: string
-
-    if (config.llmProvider === 'openai') {
-      if (!config.openaiApiKey && config.openaiBaseUrl === DEFAULT_OPENAI_BASE_URL) {
-        console.error('[Sensing] OPENAI_API_KEY is not set — skipping OpenAI decision extraction (set OPENAI_BASE_URL for keyless local servers)')
-        return empty()
-      }
-      rawText = await openaiChat({
-        apiKey:    config.openaiApiKey ?? '',
-        model:     config.openaiLlmModel,
-        system:    systemPrompt,
-        user:      userPrompt,
-        maxTokens: 300,
-        baseUrl:   config.openaiBaseUrl,
-        json:      true,
-      })
-    } else {
-      const client = getAnthropicClient()
-      if (!client) {
-        console.error('[Sensing] ANTHROPIC_API_KEY is not set — skipping Haiku decision extraction')
-        return empty()
-      }
-      const response = await client.messages.create({
-        model:      config.anthropicModel,
-        max_tokens: 300,
-        system:     systemPrompt,
-        messages:   [{ role: 'user', content: userPrompt }],
-      })
-      const block = response.content[0]
-      rawText = block?.type === 'text' ? block.text : '{}'
-    }
-
-    const parsed = JSON.parse(stripMarkdownJsonFence(rawText)) as ExtractedDecision
+    const extracted = await extractDecisionLlm(turn.user_message, turn.claude_reply, {
+      provider:        config.llmProvider,
+      anthropicApiKey: config.anthropicApiKey,
+      anthropicModel:  config.anthropicModel,
+      openaiApiKey:    config.openaiApiKey,
+      openaiModel:     config.openaiLlmModel,
+      openaiBaseUrl:   config.openaiBaseUrl,
+    })
     lastClassifierFailure = null
-    return parsed
+    return extracted
   } catch (err) {
+    if (err instanceof LlmKeyMissingError) {
+      // Missing key = expected on partial setups (e.g. Cursor omitting env on
+      // reconnect) — skip extraction without recording a classifier failure.
+      console.error(`[Sensing] ${err.message} — skipping decision extraction`)
+      return empty()
+    }
     lastClassifierFailure =
       `${new Date().toISOString()} ${turn.session_id} seq ${turn.sequence}: ${String(err)}`
     console.error('[Sensing] decision extraction failed:', err)

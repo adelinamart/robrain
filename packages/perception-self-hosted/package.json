@@ -16,7 +16,6 @@
     "test": "bun test src"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.24.0",
     "@robrain/shared": "workspace:*",
     "hono": "^4.0.0",
     "@hono/node-server": "^1.9.0",

@@ -4,6 +4,8 @@
 // Copy .env.example → .env and fill in values before running.
 // ─────────────────────────────────────────────────────────────
 
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { resolveLlmProvider, resolveEmbeddingConfig, resolveOpenAiBaseUrl, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 
 export const config = {
@@ -62,4 +64,11 @@ export const config = {
   topicShiftWindowSize:  Number(process.env.TOPIC_SHIFT_WINDOW_SIZE  ?? 3),
   // When true, skip embedding API calls — topic_shift is never detected via embeddings.
   topicShiftDisableEmbedding: process.env.SENSING_TOPIC_SHIFT_DISABLE_EMBEDDING === 'true',
+
+  // ── Session registry mirror ────────────────────────────────
+  // Active sessions are mirrored to this JSON file so a restarted MCP server
+  // (editor reconnect, crash, upgrade) resumes them transparently —
+  // sensing_record_turn keeps accepting the same session_id instead of erroring.
+  sessionRegistryPath: process.env.SENSING_SESSION_REGISTRY_PATH
+    ?? join(homedir(), '.robrain', 'sensing-sessions.json'),
 } as const
