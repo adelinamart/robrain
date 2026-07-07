@@ -115,9 +115,17 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 
 Self-hosted gives capture, judgment batch jobs, and session-start recall; you pull focused context with `inject` when needed. Cloud adds Planning + Control so vetoes and conflicts surface before the agent acts. Details: [Concepts — Free / self-hosted vs Rory Plans cloud](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud).
 
+## Security
+
+The memory corpus is guarded by `PERCEPTION_API_KEY` — a random secret in the repo-root `.env` that every client (Sensing MCP, CLI, Synthesis) sends as a Bearer token and Perception verifies on every request except `/health`. It is not issued by any service: `pnpm docker:up` generates one automatically on first run, or set your own (e.g. `openssl rand -hex 32`). `npx robrain install --self-hosted` copies the same value into your editor configs so clients authenticate.
+
+Perception refuses to start when the key is empty — running unauthenticated requires an explicit opt-in. **Upgrading from a version that ran without a key:** add one to `.env` (or re-run `pnpm docker:up` to auto-fill it), then re-run `npx robrain install --self-hosted` so editors pick it up. Details and the opt-in flag are documented in [`.env.example`](.env.example).
+
+Also on by default: secrets redaction (API keys, tokens, private keys, connection-string passwords are scrubbed at capture and again at ingest, before anything is embedded or stored), and a fully-local mode where extraction and embeddings run on an OpenAI-compatible local server — see [`.env.example`](.env.example).
+
 ## What's next
 
-Connecting decisions to outcomes (reverts, incidents, cycle time) so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase.
+`robrain outcomes` now feeds git reverts back into memory quality; next is widening that to incidents and cycle time, so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase.
 
 ## Requirements
 
@@ -132,6 +140,7 @@ Connecting decisions to outcomes (reverts, incidents, cycle time) so RoBrain can
 - Concepts (how it works, two pillars, Synthesis, comparisons) → [docs/concepts.md](docs/concepts.md)
 - CLI reference (`explain`, install, upgrading, editor setup, full command table) → [docs/cli.md](docs/cli.md)
 - Troubleshooting (silent 401s, Docker rebuilds, stale summaries) → [docs/troubleshooting.md](docs/troubleshooting.md)
+- Memory interchange format (`robrain export`, `robrain-memory/v1` JSONL) → [docs/memory-interchange.md](docs/memory-interchange.md)
 
 ## Contributing
 

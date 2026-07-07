@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- Relevance score updated by feedback loop (Planning reads this)
   historical_relevance FLOAT NOT NULL DEFAULT 0.5,
 
+  -- Provenance snapshot: originating turn sequence + ≤300-char user-message
+  -- excerpt — survives session_turns cascade deletion
+  source_turn_sequence INTEGER,
+  source_excerpt      TEXT,
+
+  -- Quality-loop counters: times injected vs times judged used in the reply
+  injected_count      INTEGER NOT NULL DEFAULT 0,
+  used_count          INTEGER NOT NULL DEFAULT 0,
+
   -- Set when decision is no longer valid — never hard-deleted
   -- History is always preserved and queryable
   invalidated_at      TIMESTAMPTZ,
@@ -118,6 +127,21 @@ CREATE TABLE IF NOT EXISTS context_system.decision_relations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (from_id, to_id, relation)
 );
+
+-- ── Decision outcomes — real-world feedback ledger ────────────
+-- Written by POST /outcomes: revert/incident sink historical_relevance
+-- (and flag the decision for review), confirmed raises it.
+
+CREATE TABLE IF NOT EXISTS context_system.decision_outcomes (
+  id           TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  decision_id  TEXT NOT NULL REFERENCES context_system.decisions(id) ON DELETE CASCADE,
+  -- revert | incident | confirmed
+  outcome      TEXT NOT NULL CHECK (outcome IN ('revert', 'incident', 'confirmed')),
+  evidence     TEXT,
+  observed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_outcomes_decision ON context_system.decision_outcomes(decision_id);
 
 -- ── Session turns — raw buffer for Sensing ────────────────────
 

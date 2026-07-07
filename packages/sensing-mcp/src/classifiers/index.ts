@@ -15,7 +15,7 @@ import type {
   ExtractedDecision,
   Scope,
 } from '@robrain/shared'
-import { THRESHOLDS, openaiChat } from '@robrain/shared'
+import { THRESHOLDS, openaiChat, DEFAULT_OPENAI_BASE_URL } from '@robrain/shared'
 import { config } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
 
@@ -171,16 +171,17 @@ Claude: ${turn.claude_reply}`
     let rawText: string
 
     if (config.llmProvider === 'openai') {
-      if (!config.openaiApiKey) {
-        console.error('[Sensing] OPENAI_API_KEY is not set — skipping OpenAI decision extraction')
+      if (!config.openaiApiKey && config.openaiBaseUrl === DEFAULT_OPENAI_BASE_URL) {
+        console.error('[Sensing] OPENAI_API_KEY is not set — skipping OpenAI decision extraction (set OPENAI_BASE_URL for keyless local servers)')
         return empty()
       }
       rawText = await openaiChat({
-        apiKey:    config.openaiApiKey,
+        apiKey:    config.openaiApiKey ?? '',
         model:     config.openaiLlmModel,
         system:    systemPrompt,
         user:      userPrompt,
         maxTokens: 300,
+        baseUrl:   config.openaiBaseUrl,
         json:      true,
       })
     } else {

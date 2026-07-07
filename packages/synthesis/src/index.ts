@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonrepair } from 'jsonrepair'
 import pg from 'pg'
-import { THRESHOLDS, loadEnv, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import { THRESHOLDS, loadEnv, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL } from '@robrain/shared'
 
 const { Pool } = pg
 
@@ -32,6 +32,9 @@ const config = {
   // prefer gpt-4o / gpt-4.1 for fidelity. Reuses OPENAI_API_KEY.
   openaiKey:        process.env.OPENAI_API_KEY ?? '',
   openaiModel:      process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
+  // OPENAI_BASE_URL — non-default means a local OpenAI-compatible server
+  // (Ollama / LM Studio / vLLM); OPENAI_API_KEY becomes optional then.
+  openaiBaseUrl:    resolveOpenAiBaseUrl(),
   lookbackDays:     Number(process.env.SYNTHESIS_LOOKBACK_DAYS ?? 0),
   minClusterSize:   Number(process.env.SYNTHESIS_MIN_CLUSTER ?? 3),
   contThreshold:    Number(process.env.SYNTHESIS_CONT_THRESHOLD ?? THRESHOLDS.SIMILARITY_LINK),
@@ -54,8 +57,15 @@ function requireEnv(key: string): string {
 if (config.llmProvider === 'anthropic' && !config.anthropicKey) {
   throw new Error('Missing env var: ANTHROPIC_API_KEY (or set LLM_PROVIDER=openai with OPENAI_API_KEY)')
 }
-if (config.llmProvider === 'openai' && !config.openaiKey) {
-  throw new Error('Missing env var: OPENAI_API_KEY (required when LLM_PROVIDER=openai)')
+// A non-default OPENAI_BASE_URL means a local OpenAI-compatible server
+// (Ollama / LM Studio / vLLM) — those usually run keyless, so only require
+// OPENAI_API_KEY when talking to api.openai.com itself.
+const usingLocalOpenAi = config.openaiBaseUrl !== DEFAULT_OPENAI_BASE_URL
+if (config.llmProvider === 'openai' && !config.openaiKey && !usingLocalOpenAi) {
+  throw new Error(
+    'Missing env var: OPENAI_API_KEY (required when LLM_PROVIDER=openai, ' +
+    'unless OPENAI_BASE_URL points at a local OpenAI-compatible server — Ollama / LM Studio / vLLM)'
+  )
 }
 
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 5 })
@@ -85,6 +95,7 @@ async function llmText(opts: {
     return openaiChat({
       apiKey:    config.openaiKey,
       model:     config.openaiModel,
+      baseUrl:   config.openaiBaseUrl,
       system:    opts.system,
       user:      opts.user,
       maxTokens: opts.maxTokens,

@@ -229,6 +229,12 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain export-memory --to <dir>` | Write to a custom memory dir instead of `~/.claude/projects/<slug>/memory` |
 | `npx robrain export-memory --ledger` | Also write a single git-committed decisions ledger (default: `<project>/decisions.md`); DB is source of truth — file is regenerated each run |
 | `npx robrain export-memory --ledger <path>` | Same as `--ledger`, but write to a custom path under the project root (e.g. `docs/decisions.md`) |
+| `npx robrain export --format interchange` | Dump the full decision corpus (lifecycle included) as JSONL, one memory per line, format **`robrain-memory/v1`** — spec in [docs/memory-interchange.md](https://github.com/adelinamart/robrain/blob/main/docs/memory-interchange.md). JSONL goes to stdout (pipe-friendly); status to stderr |
+| `npx robrain export --format interchange --out <file>` | Same, written to a file instead of stdout; optional **`--cwd`** / **`--project-id`** |
+| `npx robrain outcomes` | Scan git history for revert commits (subject starts with **`Revert`**), match them to stored decisions by file overlap + 90-day window, and record **`revert`** outcomes (lowers `historical_relevance`, flags the decision for review) |
+| `npx robrain outcomes --since <ref\|date>` | Scan window: a git ref (**`<ref>..HEAD`**) or a date git understands (default: **"30 days ago"**) |
+| `npx robrain outcomes --dry-run` | Show matched decisions without recording anything |
+| `npx robrain outcomes record <decision-id> --outcome <revert\|incident\|confirmed>` | Manually record an outcome; optional **`--evidence "<text>"`** (commit hash, incident link) |
 | `npx robrain inject` | Get formatted context to paste into Claude Code |
 | `npx robrain inject --query "..."` | Semantic search for relevant decisions |
 | `npx robrain inject --files "..."` | Get decisions about specific files |

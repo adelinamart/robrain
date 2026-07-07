@@ -31,12 +31,28 @@ export function resolveLlmProvider(env: NodeJS.ProcessEnv = process.env): LlmPro
   return env.LLM_PROVIDER?.trim().toLowerCase() === 'openai' ? 'openai' : 'anthropic'
 }
 
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+/**
+ * Reads OPENAI_BASE_URL — point the OpenAI-compatible calls (chat AND
+ * embeddings) at Ollama / LM Studio / vLLM for a fully-local setup.
+ * When a non-default base URL is in use, OPENAI_API_KEY becomes optional
+ * (local servers usually ignore auth).
+ */
+export function resolveOpenAiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.OPENAI_BASE_URL?.trim()
+  if (!raw) return DEFAULT_OPENAI_BASE_URL
+  return raw.replace(/\/+$/, '')
+}
+
 export interface OpenAiChatParams {
   apiKey:    string
   model:     string
   system:    string
   user:      string
   maxTokens: number
+  /** OpenAI-compatible endpoint root. Defaults to OPENAI_BASE_URL / api.openai.com. */
+  baseUrl?:  string
   /**
    * When true, request a JSON object via response_format. The prompt must
    * mention "JSON" (all our extraction system prompts already do). Leave
@@ -55,8 +71,11 @@ const OPENAI_BASE_DELAY_MS = 400
  * own try/catch or retry (Synthesis withRetry, Perception/Sensing try-catch).
  */
 export async function openaiChat(params: OpenAiChatParams): Promise<string> {
-  if (!params.apiKey) {
-    throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai')
+  const baseUrl = params.baseUrl ?? resolveOpenAiBaseUrl()
+  // Local OpenAI-compatible servers (Ollama, LM Studio, vLLM) typically ignore
+  // auth — only require a key when talking to api.openai.com itself.
+  if (!params.apiKey && baseUrl === DEFAULT_OPENAI_BASE_URL) {
+    throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai (unless OPENAI_BASE_URL points at a local server)')
   }
 
   const body = JSON.stringify({
@@ -70,14 +89,14 @@ export async function openaiChat(params: OpenAiChatParams): Promise<string> {
     ...(params.json ? { response_format: { type: 'json_object' as const } } : {}),
   })
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (params.apiKey) headers['Authorization'] = `Bearer ${params.apiKey}`
+
   let lastErr = ''
   for (let attempt = 0; attempt < OPENAI_MAX_ATTEMPTS; attempt++) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method:  'POST',
-      headers: {
-        'Authorization': `Bearer ${params.apiKey}`,
-        'Content-Type':  'application/json',
-      },
+      headers,
       body,
     })
 

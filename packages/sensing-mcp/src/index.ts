@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { loadEnv, type SessionTurn } from '@robrain/shared'
+import { loadEnv, redactSecrets, totalRedactions, type SessionTurn } from '@robrain/shared'
 
 // `.env` is the single source of truth for API keys; values there override anything
 // already in process.env (including the env block injected from ~/.claude.json),
@@ -145,11 +145,21 @@ server.tool(
       }
     }
 
+    // ── Secrets redaction at capture — before anything is buffered,
+    // embedded, classified, or shipped to Perception.
+    const redactedUser  = redactSecrets(user_message)
+    const redactedReply = redactSecrets(claude_reply)
+    const secretsRedacted =
+      totalRedactions(redactedUser.redactions) + totalRedactions(redactedReply.redactions)
+    if (secretsRedacted > 0) {
+      console.error(`[Sensing] Redacted ${secretsRedacted} secret(s) from turn ${sequence} before buffering`)
+    }
+
     const turn: SessionTurn = {
       session_id,
       sequence,
-      user_message,
-      claude_reply,
+      user_message: redactedUser.text,
+      claude_reply: redactedReply.text,
       files_touched,
       timestamp: new Date().toISOString(),
     }
@@ -209,6 +219,9 @@ server.tool(
             injected_memory_ids: injected_memory_ids,
             term_match_score:    0,
             final_score:         0,
+            // Already redacted above — Perception judges usage against this
+            // directly instead of a session_turns row that never exists.
+            claude_reply:        turn.claude_reply,
           })
         } catch (err) {
           console.error('[Sensing] Reply scorer error:', err)
@@ -223,6 +236,7 @@ server.tool(
           buffered:         true,
           topic_shift:      topicShift,
           task_description: taskDescription,
+          secrets_redacted: secretsRedacted,
           sequence,
         }),
       }],

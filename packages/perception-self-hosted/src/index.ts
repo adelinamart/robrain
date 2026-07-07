@@ -24,8 +24,10 @@ import { serve }             from '@hono/node-server'
 import Anthropic             from '@anthropic-ai/sdk'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
+import { bearerAuthorized } from './auth.js'
+import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
 
 const { Pool } = pg
 
@@ -44,6 +46,10 @@ const config = {
   // gpt-4o-mini can hallucinate fields under structured-output prompts —
   // prefer gpt-4o / gpt-4.1 for extraction fidelity. Reuses OPENAI_API_KEY.
   openaiLlmModel:  process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
+  // OPENAI_BASE_URL — point OpenAI-compatible chat + embeddings calls at
+  // Ollama / LM Studio / vLLM for a fully-local setup. When set,
+  // OPENAI_API_KEY becomes optional (local servers usually ignore auth).
+  openaiBaseUrl:   resolveOpenAiBaseUrl(),
   ossMode:         process.env.OSS_MODE === 'true',
   // Provider/model/timeout/retry resolved by @robrain/shared — the same
   // resolver Sensing uses, so both sides always embed with the same model.
@@ -75,12 +81,30 @@ if (config.llmProvider === 'anthropic' && !config.anthropicApiKey) {
   )
   process.exit(1)
 }
-if (config.llmProvider === 'openai' && !config.openaiApiKey) {
+// A non-default OPENAI_BASE_URL means a local OpenAI-compatible server
+// (Ollama / LM Studio / vLLM) — those usually run keyless, so only require
+// OPENAI_API_KEY when talking to api.openai.com itself.
+const usingLocalOpenAi = config.openaiBaseUrl !== DEFAULT_OPENAI_BASE_URL
+if (config.llmProvider === 'openai' && !config.openaiApiKey && !usingLocalOpenAi) {
   console.error(
     '[RoBrain Perception OSS] Refusing to start: LLM_PROVIDER=openai but OPENAI_API_KEY is empty.\n' +
-    '  Set OPENAI_API_KEY in .env (same key also works for EMBEDDING_PROVIDER=openai).'
+    '  Set OPENAI_API_KEY in .env (same key also works for EMBEDDING_PROVIDER=openai),\n' +
+    '  or set OPENAI_BASE_URL to a local OpenAI-compatible server (Ollama / LM Studio / vLLM).'
   )
   process.exit(1)
+}
+if (usingLocalOpenAi) {
+  console.log(`[RoBrain Perception OSS] OpenAI-compatible base URL override: ${config.openaiBaseUrl}`)
+}
+// Perception previously hardcoded text-embedding-3-small; installs that set
+// OPENAI_EMBEDDING_MODEL for Sensing change Perception's behavior on upgrade.
+if (config.embedding.provider === 'openai' && config.embedding.openaiModel !== DEFAULT_OPENAI_EMBEDDING_MODEL) {
+  console.warn(
+    `[RoBrain Perception OSS] WARNING: OPENAI_EMBEDDING_MODEL=${config.embedding.openaiModel} differs from the\n` +
+    '  historical default (text-embedding-3-small). Vectors from different models are not\n' +
+    '  comparable — a corpus embedded with another model will silently mis-rank in vector\n' +
+    '  search. Re-embed all stored decisions after changing the embedding model.'
+  )
 }
 
 function requireEnv(key: string): string {
@@ -153,8 +177,7 @@ app.use('*', async (c, next) => {
     return
   }
   if (config.apiKey) {
-    const auth = c.req.header('Authorization')
-    if (!auth || auth !== `Bearer ${config.apiKey}`) {
+    if (!bearerAuthorized(c.req.header('Authorization'), config.apiKey)) {
       return c.json({ error: 'Unauthorized' }, 401)
     }
   }
@@ -224,6 +247,7 @@ const MAX_REASON_TEXT = 4_000
 const MAX_FILES = 200
 const MAX_FILE_PATH = 1_000
 const MAX_REJECTED = 50
+const MAX_EXCERPT = 300               // provenance snapshot of the originating user message
 
 const ExtractedSchema = z.object({
   decision:   z.string().max(MAX_DECISION_TEXT).nullable(),
@@ -251,6 +275,8 @@ const SignalSchema = z.object({
     scope:                z.enum(['user','local','team','global']).default('team'),
     needs_classification: z.boolean().optional(),
     extracted:            ExtractedSchema.optional(),
+    source_turn_sequence: z.number().int().optional(),
+    source_excerpt:       z.string().max(MAX_TURN_TEXT).optional(),
   }),
 })
 
@@ -269,6 +295,22 @@ app.post('/signals', writeRateLimit, async (c) => {
   if (unknownProject) return unknownProject
 
   const { signal } = body
+
+  // Defence-in-depth: Sensing already redacts at capture, but /signals is an
+  // open HTTP surface — scrub every free-text field again BEFORE extraction,
+  // embedding, and storage so raw secrets never reach the LLM, the embedding
+  // provider, or Postgres.
+  const redactionTally = new Map<string, number>()
+  const scrub = (text: string): string => {
+    const r = redactSecrets(text)
+    for (const { type, count } of r.redactions) {
+      redactionTally.set(type, (redactionTally.get(type) ?? 0) + count)
+    }
+    return r.text
+  }
+  signal.turn.user_message = scrub(signal.turn.user_message)
+  signal.turn.claude_reply = scrub(signal.turn.claude_reply)
+  if (signal.source_excerpt !== undefined) signal.source_excerpt = scrub(signal.source_excerpt)
 
   try {
     // Confidence gate — discard low-confidence signals (flush-on-close bypasses via needs_classification)
@@ -291,12 +333,29 @@ app.post('/signals', writeRateLimit, async (c) => {
       )
 
     // Prefer Sensing's Haiku extraction when present; otherwise OSS re-extract (flush path, etc.)
-    const extracted = trustSensingExtract
+    const rawExtracted = trustSensingExtract
       ? signal.extracted!
       : await extractDecisionOSS(signal.turn.user_message, signal.turn.claude_reply)
 
-    if (!extracted.decision || extracted.confidence < minConf) {
+    if (!rawExtracted.decision || rawExtracted.confidence < minConf) {
       return c.json({ accepted: false, action: 'discarded', message: 'No decision extracted' })
+    }
+
+    // Scrub extracted fields too (covers Sensing-supplied extracts and any
+    // secret the LLM echoed back) — must happen before the embedding call.
+    const extracted = {
+      ...rawExtracted,
+      decision:  scrub(rawExtracted.decision),
+      rationale: rawExtracted.rationale == null ? null : scrub(rawExtracted.rationale),
+      rejected:  (rawExtracted.rejected ?? []).map(r => ({
+        option: scrub(r.option),
+        reason: scrub(r.reason),
+      })),
+    }
+
+    if (redactionTally.size > 0) {
+      const detail = [...redactionTally].map(([t, n]) => `${t}=${n}`).join(', ')
+      console.warn(`[Perception OSS] POST /signals redacted secrets before storage: ${detail}`)
     }
 
     // Embed the decision
@@ -358,11 +417,17 @@ app.post('/signals', writeRateLimit, async (c) => {
       })
     }
 
+    // Provenance snapshot — excerpt of the originating user message survives
+    // session_turns cascade deletion. Derive from the turn when Sensing didn't send one.
+    const sourceExcerpt = (signal.source_excerpt ?? signal.turn.user_message ?? '').slice(0, MAX_EXCERPT) || null
+    const sourceTurnSequence = signal.source_turn_sequence ?? signal.turn.sequence
+
     const { rows } = await pool.query<{ id: string }>(`
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
-        rejected, files_affected, confidence, scope, source, embedding
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector)
+        rejected, files_affected, confidence, scope, source, embedding,
+        source_turn_sequence, source_excerpt
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector, $11, $12)
       RETURNING id
     `, [
       projectId,
@@ -375,6 +440,8 @@ app.post('/signals', writeRateLimit, async (c) => {
       signal.scope,
       'sensing',
       JSON.stringify(embedding),
+      sourceTurnSequence,
+      sourceExcerpt,
     ])
 
     scheduleRegenerateSummary(projectId)
@@ -407,6 +474,11 @@ app.get('/decisions', async (c) => {
   const limit       = Number.isFinite(parsedLimit) && parsedLimit >= 1
     ? Math.min(parsedLimit, 100)
     : 20
+  // Pagination for the history branch only — limit is capped at 100, so
+  // CLI consumers (outcomes scan, interchange export) page with offset.
+  const offsetRaw    = c.req.query('offset') ?? '0'
+  const parsedOffset = Number.parseInt(offsetRaw, 10)
+  const offset       = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0
 
   if (!projectId) return c.json({ error: 'project_id required' }, 400)
 
@@ -451,7 +523,8 @@ app.get('/decisions', async (c) => {
                    d.files_affected, d.confidence, d.scope,
                    d.created_at, d.session_id, d.conflict_flag,
                    d.supersedes_id, d.invalidated_at, d.reviewed_at,
-                   d.historical_relevance,
+                   d.historical_relevance, d.source_turn_sequence,
+                   d.source_excerpt, d.injected_count, d.used_count,
                    ${conflictCounterpartSql},
                    1 - (d.embedding <=> $1::vector) AS similarity,
                    POWER(0.5, LEAST(3650, EXTRACT(EPOCH FROM (NOW() - d.created_at)) / 86400.0) / ${hl}) AS recency_score,
@@ -492,6 +565,8 @@ app.get('/decisions', async (c) => {
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
+               d.historical_relevance, d.source_turn_sequence,
+               d.source_excerpt, d.injected_count, d.used_count,
                ${conflictCounterpartSql}
         FROM ${S}.decisions d
         WHERE d.session_id = $1
@@ -507,6 +582,8 @@ app.get('/decisions', async (c) => {
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
+               d.historical_relevance, d.source_turn_sequence,
+               d.source_excerpt, d.injected_count, d.used_count,
                ${conflictCounterpartSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
@@ -523,12 +600,14 @@ app.get('/decisions', async (c) => {
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
+               d.historical_relevance, d.source_turn_sequence,
+               d.source_excerpt, d.injected_count, d.used_count,
                ${conflictCounterpartSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
-        ORDER BY d.created_at ASC LIMIT $2
-      `, [projectId, limit])
+        ORDER BY d.created_at ASC LIMIT $2 OFFSET $3
+      `, [projectId, limit, offset])
       rows = result.rows
     } else {
       // Bare query (no mode flags): same as recent — unreviewed + active, newest first
@@ -537,6 +616,8 @@ app.get('/decisions', async (c) => {
                d.files_affected, d.confidence, d.scope,
                d.created_at, d.session_id, d.conflict_flag,
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
+               d.historical_relevance, d.source_turn_sequence,
+               d.source_excerpt, d.injected_count, d.used_count,
                ${conflictCounterpartSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
@@ -560,55 +641,161 @@ app.get('/decisions', async (c) => {
 
 app.post('/scores', writeRateLimit, async (c) => {
   const body = await c.req.json<{
-    scores: Array<{ session_id: string; sequence: number; injected_memory_ids: string[]; final_score: number }>
+    scores: Array<{ session_id: string; sequence: number; injected_memory_ids: string[]; final_score: number; claude_reply?: string }>
   }>()
 
-  const updates: Promise<void>[] = []
+  let updated = 0
 
   for (const score of body.scores) {
-    let claudeReply = ''
-    try {
-      const { rows } = await pool.query<{ claude_reply: string }>(`
-        SELECT claude_reply FROM ${S}.session_turns
-        WHERE session_id = $1 AND sequence = $2 LIMIT 1
-      `, [score.session_id, score.sequence])
-      claudeReply = rows[0]?.claude_reply ?? ''
-    } catch { /* fall back to default delta */ }
+    // Prefer the redacted reply text Sensing ships in the payload; the
+    // session_turns SELECT is a fallback only (nothing populates that table today).
+    let claudeReply = typeof score.claude_reply === 'string' ? score.claude_reply : ''
+    if (!claudeReply) {
+      try {
+        const { rows } = await pool.query<{ claude_reply: string }>(`
+          SELECT claude_reply FROM ${S}.session_turns
+          WHERE session_id = $1 AND sequence = $2 LIMIT 1
+        `, [score.session_id, score.sequence])
+        claudeReply = rows[0]?.claude_reply ?? ''
+      } catch { /* fall back to default delta */ }
+    }
+
+    // One reply embedding per score, compared (cosine) against each decision's
+    // stored embedding in SQL. Term matching stays as the fallback signal when
+    // the provider call fails or the decision has no embedding.
+    let replyEmbedding: number[] | null = null
+    if (claudeReply) {
+      try { replyEmbedding = await embed(claudeReply) } catch { replyEmbedding = null }
+    }
 
     for (const id of score.injected_memory_ids) {
-      let delta = 0.03
+      let used   = false
+      let judged = false
+      let delta  = usageDelta(false, false)
       if (claudeReply) {
         try {
-          const { rows } = await pool.query<{ decision: string; rationale: string | null }>(
-            `SELECT decision, rationale FROM ${S}.decisions WHERE id = $1`, [id]
-          )
+          const { rows } = await pool.query<{ decision: string; rationale: string | null; cosine: number | null }>(`
+            SELECT decision, rationale,
+                   CASE WHEN embedding IS NOT NULL AND $2::vector IS NOT NULL
+                        THEN 1 - (embedding <=> $2::vector) END AS cosine
+            FROM ${S}.decisions WHERE id = $1
+          `, [id, replyEmbedding ? JSON.stringify(replyEmbedding) : null])
           const row = rows[0]
           if (row) {
-            const terms = extractKeyTerms(`${row.decision} ${row.rationale ?? ''}`)
-            const replyLower = claudeReply.toLowerCase()
-            const matchCount = terms.filter(t => replyLower.includes(t)).length
-            const termScore  = terms.length > 0 ? matchCount / terms.length : 0
-            delta = termScore > 0.3 ? 0.05 : -0.02
+            const termScore = termMatchScore(`${row.decision} ${row.rationale ?? ''}`, claudeReply)
+            used   = judgeUsed(row.cosine == null ? null : Number(row.cosine), termScore)
+            delta  = usageDelta(true, used)
+            judged = true
           }
         } catch { /* use default */ }
       }
-      updates.push(
-        pool.query(
-          `UPDATE ${S}.decisions SET historical_relevance = GREATEST(0, LEAST(1, historical_relevance + $2)), updated_at = now() WHERE id = $1`,
-          [id, delta]
-        ).then(() => {})
-      )
+
+      try {
+        // injected_count: every time this id was in injected_memory_ids (reach).
+        // used_count: only when we judged the reply and found the memory was used.
+        // demotionDelta ratio uses both — so injected must count even without reply text.
+        const { used: usedInc } = scoreCounterIncrements(judged, used)
+        const { rows } = await pool.query<{ injected_count: number; used_count: number }>(`
+          UPDATE ${S}.decisions
+          SET injected_count = injected_count + 1,
+              used_count = used_count + $3,
+              historical_relevance = GREATEST(0, LEAST(1, historical_relevance + $2)),
+              updated_at = now()
+          WHERE id = $1
+          RETURNING injected_count, used_count
+        `, [id, delta, usedInc])
+        const counts = rows[0]
+        if (counts) {
+          updated += 1
+          // Auto-demotion: ratio uses cumulative injected/used counters — run after
+          // every injection so memories that reach MIN_INJECTED without reply text
+          // (or without semantic match) still sink; not gated on this turn's judged flag.
+          const demotion = demotionDelta(Number(counts.injected_count), Number(counts.used_count))
+          if (demotion !== 0) {
+            await pool.query(
+              `UPDATE ${S}.decisions SET historical_relevance = GREATEST(0, LEAST(1, historical_relevance + $2)), updated_at = now() WHERE id = $1`,
+              [id, demotion],
+            )
+          }
+        }
+      } catch (err) {
+        console.error('[Perception OSS] POST /scores update failed:', id, err)
+      }
     }
   }
 
-  await Promise.allSettled(updates)
-  return c.json({ accepted: true, updated: updates.length })
+  return c.json({ accepted: true, updated })
 })
 
-function extractKeyTerms(text: string): string[] {
-  const stop = new Set(['the','a','an','and','or','in','on','at','to','for','of','with','is','are','was','use','used','this','that','we'])
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length > 3 && !stop.has(t))
-}
+// ── POST /outcomes — real-world outcome feedback ──────────────
+const OutcomeSchema = z.object({
+  project_id:  z.string().max(200),
+  decision_id: z.string().max(200),
+  outcome:     z.enum(['revert', 'incident', 'confirmed']),
+  evidence:    z.string().max(4_000).optional(),
+})
+
+app.post('/outcomes', writeRateLimit, async (c) => {
+  let body: z.infer<typeof OutcomeSchema>
+  try {
+    body = OutcomeSchema.parse(await c.req.json())
+  } catch (err) {
+    return c.json({ error: 'Invalid body', detail: String(err) }, 400)
+  }
+
+  const unknownProject = await jsonIfProjectUnknown(body.project_id, c)
+  if (unknownProject) return unknownProject
+
+  // Open HTTP surface — scrub evidence before comparison and storage.
+  const evidence = body.evidence == null ? null : redactSecrets(body.evidence).text
+
+  try {
+    // Idempotency: repeated scans re-report the same revert — the same
+    // (decision, outcome, evidence) triple must not re-apply the delta forever.
+    const dup = await pool.query<{ historical_relevance: number }>(`
+      SELECT d.historical_relevance
+      FROM ${S}.decision_outcomes o
+      JOIN ${S}.decisions d ON d.id = o.decision_id
+      WHERE o.decision_id = $1 AND o.outcome = $2 AND o.evidence IS NOT DISTINCT FROM $3
+      LIMIT 1
+    `, [body.decision_id, body.outcome, evidence])
+    if (dup.rowCount) {
+      return c.json({
+        accepted:             true,
+        duplicate:            true,
+        historical_relevance: Number(dup.rows[0]!.historical_relevance),
+      })
+    }
+
+    // revert/incident also raise conflict_flag so the decision surfaces in `robrain review`.
+    const result = await pool.query<{ historical_relevance: number }>(`
+      UPDATE ${S}.decisions
+      SET historical_relevance = GREATEST(0, LEAST(1, historical_relevance + $3)),
+          conflict_flag = conflict_flag OR $4,
+          updated_at = now()
+      WHERE id = $1 AND project_id = $2
+      RETURNING historical_relevance
+    `, [body.decision_id, body.project_id, outcomeDelta(body.outcome), body.outcome !== 'confirmed'])
+    if (!result.rowCount) {
+      return c.json(decisionNotFoundJson(body.decision_id), 404)
+    }
+
+    const { rows } = await pool.query<{ id: string }>(`
+      INSERT INTO ${S}.decision_outcomes (decision_id, outcome, evidence)
+      VALUES ($1, $2, $3)
+      RETURNING id
+    `, [body.decision_id, body.outcome, evidence])
+
+    return c.json({
+      accepted:             true,
+      outcome_id:           rows[0]?.id,
+      historical_relevance: Number(result.rows[0]!.historical_relevance),
+    })
+  } catch (err) {
+    console.error('[Perception OSS] POST /outcomes error:', err)
+    return c.json({ error: 'Internal error', detail: String(err) }, 500)
+  }
+})
 
 // ── POST /corrections — from robrain review ────────────────────
 app.post('/corrections', async (c) => {
@@ -692,8 +879,13 @@ app.post('/corrections', async (c) => {
 
     // FK: session_id must reference an existing sessions row — use the row being corrected
     // (CLI used to send X-Session-Id = robrain-review-cli with no matching session → 500).
-    const { rows: srcRows } = await pool.query<{ session_id: string; scope: string }>(
-      `SELECT session_id, scope FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
+    const { rows: srcRows } = await pool.query<{
+      session_id: string
+      scope: string
+      source_turn_sequence: number | null
+      source_excerpt: string | null
+    }>(
+      `SELECT session_id, scope, source_turn_sequence, source_excerpt FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
       [body.decision_id],
     )
     const src = srcRows[0]
@@ -701,23 +893,34 @@ app.post('/corrections', async (c) => {
       return c.json(decisionNotFoundJson(body.decision_id), 404)
     }
 
-    const embedding = await embed(`${body.corrected_decision}. ${body.corrected_rationale ?? ''}`)
+    // Open HTTP surface — scrub corrected text (same defence-in-depth as
+    // /signals) BEFORE it reaches the embedding provider or Postgres.
+    const correctedDecision  = redactSecrets(body.corrected_decision).text
+    const correctedRationale = body.corrected_rationale == null
+      ? null
+      : redactSecrets(body.corrected_rationale).text
 
+    const embedding = await embed(`${correctedDecision}. ${correctedRationale ?? ''}`)
+
+    // Carry provenance from the superseded row — corrections rewrite the text,
+    // not where the decision came from.
     await pool.query(`
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
-        supersedes_id, embedding
-      ) VALUES ($1,$2,$3,$4,'[]'::jsonb,'{}'::text[],1.0,$5,$6,$7,$8::vector)
+        supersedes_id, embedding, source_turn_sequence, source_excerpt
+      ) VALUES ($1,$2,$3,$4,'[]'::jsonb,'{}'::text[],1.0,$5,$6,$7,$8::vector,$9,$10)
     `, [
       projectId,
       src.session_id,
-      body.corrected_decision,
-      body.corrected_rationale ?? null,
+      correctedDecision,
+      correctedRationale,
       src.scope,
       body.source,
       body.invalidate ? body.decision_id : null,
       JSON.stringify(embedding),
+      src.source_turn_sequence,
+      src.source_excerpt,
     ])
 
     // New row enters high_signal / recent_fill; regen again so the summary
@@ -838,6 +1041,21 @@ app.get('/projects/:id/summary', async (c) => {
   if (!rows[0]) {
     return c.json(projectNotRegisteredJson(id), 404)
   }
+  // hit_count measures serves, not write churn: this route is what Sensing hits
+  // at session start, so count the blocks riding along in the summary here
+  // (same top-8-by-weight selection regenerateSummary includes). Fire-and-forget.
+  pool.query(`
+    UPDATE ${S}.planning_blocks
+    SET hit_count = hit_count + 1, updated_at = now()
+    WHERE id IN (
+      SELECT id FROM ${S}.planning_blocks
+      WHERE project_id = $1
+      ORDER BY weight DESC, last_refreshed_at DESC NULLS LAST
+      LIMIT 8
+    )
+  `, [id]).catch(err =>
+    console.error('[Perception OSS] planning_blocks hit_count update failed:', id, err),
+  )
   return c.json(rows[0])
 })
 
@@ -895,6 +1113,7 @@ Claude: ${claudeReply}`
       rawText = await openaiChat({
         apiKey:    config.openaiApiKey ?? '',
         model:     config.openaiLlmModel,
+        baseUrl:   config.openaiBaseUrl,
         system,
         user,
         maxTokens: 300,
@@ -1030,9 +1249,24 @@ async function regenerateSummary(projectId: string): Promise<void> {
     return `${i + 1}. ${r.decision}${rationale}${rejected}${tagSuffix}`
   }).join('\n')
 
+  // Synthesis planning blocks (compiled_truth / drift_signal / entity) ride
+  // along — the always-on summary is the only OSS injection surface.
+  // hit_count is incremented on the serve path (GET /projects/:id/summary),
+  // not here — rebuilds are write churn, not serves.
+  const { rows: blocks } = await pool.query<{ id: string; content: string }>(`
+    SELECT id, content FROM ${S}.planning_blocks
+    WHERE project_id = $1
+    ORDER BY weight DESC, last_refreshed_at DESC NULLS LAST
+    LIMIT 8
+  `, [projectId])
+
+  const blockSection = blocks.length
+    ? '\nSynthesis:\n' + blocks.map(b => `- ${b.content}`).join('\n')
+    : ''
+
   await pool.query(
     `UPDATE ${S}.projects SET always_on_summary=$2, updated_at=now() WHERE id=$1`,
-    [projectId, summary],
+    [projectId, summary + blockSection],
   )
 }
 

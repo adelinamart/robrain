@@ -54,6 +54,9 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     confidence:     number
     scope:          string
     created_at:     string
+    session_id?:    string
+    source_turn_sequence?: number | null
+    source_excerpt?:       string | null
     similarity?:    number
   }> = []
 
@@ -129,7 +132,20 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
       ? ` [sim ${(d.similarity * 100).toFixed(0)}%]`
       : ''
 
-    return `• Chose ${d.decision}${vetoStr}${rationale} [${date}, ${conf} confidence${supersedes}]${similarityStr}`
+    const line = `• Chose ${d.decision}${vetoStr}${rationale} [${date}, ${conf} confidence${supersedes}]${similarityStr}`
+
+    // Provenance — which session/turn this decision was captured from
+    if (d.session_id && (d.source_turn_sequence != null || d.source_excerpt)) {
+      const turn    = d.source_turn_sequence != null ? ` · turn ${d.source_turn_sequence}` : ''
+      const excerpt = d.source_excerpt ? ` · "${truncateExcerpt(d.source_excerpt)}"` : ''
+      return `${line}\n  ↳ from session ${d.session_id.slice(0, 8)}${turn} · ${date}${excerpt}`
+    }
+    return line
+  }
+
+  function truncateExcerpt(text: string, max = 80): string {
+    const oneLine = text.replace(/\s+/g, ' ').trim()
+    return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`
   }
 
   const hasSimilarityScores = query && decisions.some(d => typeof d.similarity === 'number')

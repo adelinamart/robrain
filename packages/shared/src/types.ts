@@ -59,6 +59,10 @@ export interface DecisionSignal {
   needs_classification?: boolean   // true = flush-on-close raw turn
   /** When set (Sensing Haiku path), Perception OSS should prefer this over re-extraction. */
   extracted?: ExtractedDecision
+  /** Provenance: originating turn sequence (defaults to turn.sequence server-side). */
+  source_turn_sequence?: number
+  /** Provenance: ≤300-char user-message excerpt — survives session_turns cascade deletion. */
+  source_excerpt?: string
 }
 
 /** Output of the topic-shift classifier */
@@ -79,6 +83,8 @@ export interface ReplyScore {
   term_match_score: number         // v1: simple term matching
   semantic_score?: number          // v2: cosine similarity (optional)
   final_score: number              // 0.0 – 1.0
+  /** Already-redacted assistant reply text — lets Perception judge usage without a session_turns row. */
+  claude_reply?: string
 }
 
 // ── Perception API ────────────────────────────────────────────
@@ -118,6 +124,27 @@ export interface CorrectionRequest {
   source: 'user_correction' | 'claude_disagreement'
 }
 
+// ── Decision outcomes (real-world feedback) ───────────────────
+
+export type DecisionOutcomeType = 'revert' | 'incident' | 'confirmed'
+
+/** POST /outcomes — CLI/scripts → Perception (outcome feedback) */
+export interface OutcomeRequest {
+  project_id:  string
+  decision_id: string
+  outcome:     DecisionOutcomeType
+  evidence?:   string
+}
+
+export interface OutcomeResponse {
+  accepted:              boolean
+  outcome_id?:           string
+  /** True when this (decision, outcome, evidence) was already recorded — no delta re-applied. */
+  duplicate?:            boolean
+  /** historical_relevance after the outcome adjustment (clamped to [0,1]). */
+  historical_relevance?: number
+}
+
 // ── Extracted decision (Haiku output) ─────────────────────────
 
 export interface ExtractedDecision {
@@ -147,6 +174,12 @@ export interface Decision {
   conflict_flag: boolean
   needs_classification: boolean
   historical_relevance: number
+  /** Provenance snapshot (optional — rows predating migration 002 have null). */
+  source_turn_sequence?: number
+  source_excerpt?: string
+  /** Quality-loop counters: times injected vs times judged used in the reply. */
+  injected_count: number
+  used_count: number
   created_at: string
   updated_at: string
 }
@@ -273,5 +306,9 @@ export const THRESHOLDS = {
   DECISION_DEDUP_SIMILARITY: 0.85,
   /** Same-scope dedup vs a row in the same session — lower floor so wording drift across turns still merges. */
   DECISION_DEDUP_SIMILARITY_SAME_SESSION: 0.78,
+  /** POST /scores blend: reply counts as "used" when cosine(reply, decision) ≥ this… */
+  REPLY_USED_COSINE:         0.55,
+  /** …or when the term-match fallback ratio ≥ this. */
+  REPLY_USED_TERM_MATCH:     0.30,
   RECENCY_HALF_LIFE_DAYS:    30,     // recency score halves every 30 days
 } as const

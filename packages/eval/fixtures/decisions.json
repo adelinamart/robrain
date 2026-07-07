@@ -1,0 +1,218 @@
+[
+  {
+    "id": "d001",
+    "decision": "Use JWT access tokens with short expiry for API authentication",
+    "rationale": "Stateless authentication avoids session storage and scales across API instances",
+    "files_affected": ["src/auth/jwt.ts", "src/auth/middleware.ts"],
+    "created_at": "2026-05-20T10:00:00Z",
+    "reviewed_at": "2026-05-21T09:00:00Z",
+    "historical_relevance": 0.7
+  },
+  {
+    "id": "d002",
+    "decision": "Store refresh tokens in httpOnly cookies, never in localStorage",
+    "rationale": "httpOnly cookies keep refresh tokens out of reach of XSS attacks",
+    "files_affected": ["src/auth/refresh.ts"],
+    "created_at": "2026-05-22T10:00:00Z",
+    "reviewed_at": "2026-05-23T09:00:00Z",
+    "historical_relevance": 0.65
+  },
+  {
+    "id": "d003",
+    "decision": "Hash passwords with argon2id instead of bcrypt",
+    "rationale": "argon2id is memory-hard and the current OWASP recommendation for password hashing",
+    "files_affected": ["src/auth/password.ts"],
+    "created_at": "2026-04-10T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.55
+  },
+  {
+    "id": "d004",
+    "decision": "Authenticate service-to-service calls with bearer keys checked in auth middleware",
+    "rationale": "Single bearer middleware keeps authentication checks consistent across every route",
+    "files_affected": ["src/auth/middleware.ts", "src/routes/index.ts"],
+    "created_at": "2026-06-01T10:00:00Z",
+    "reviewed_at": "2026-06-02T09:00:00Z",
+    "historical_relevance": 0.6
+  },
+  {
+    "id": "d005",
+    "decision": "Use OAuth device flow for CLI login instead of pasting API keys",
+    "rationale": "Device flow login avoids long-lived keys sitting in shell history",
+    "files_affected": ["src/cli/login.ts"],
+    "created_at": "2026-03-15T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  },
+  {
+    "id": "d006",
+    "decision": "Use Postgres with pgvector for embedding storage and vector search",
+    "rationale": "pgvector keeps vector search in the same Postgres database as relational data",
+    "files_affected": ["src/db/schema.sql", "src/db/vectors.ts"],
+    "created_at": "2026-04-05T10:00:00Z",
+    "reviewed_at": "2026-04-06T09:00:00Z",
+    "historical_relevance": 0.75
+  },
+  {
+    "id": "d007",
+    "decision": "Write schema migrations as plain SQL files, no ORM migration DSL",
+    "rationale": "Plain SQL migrations are reviewable and avoid ORM lock-in",
+    "files_affected": ["src/db/migrations/001_init.sql", "src/db/migrate.ts"],
+    "created_at": "2026-04-08T10:00:00Z",
+    "reviewed_at": "2026-04-09T09:00:00Z",
+    "historical_relevance": 0.7
+  },
+  {
+    "id": "d008",
+    "decision": "Use a single pg connection pool shared across the app",
+    "rationale": "One shared pool avoids exhausting Postgres connections under load",
+    "files_affected": ["src/db/pool.ts"],
+    "created_at": "2026-05-02T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.6
+  },
+  {
+    "id": "d009",
+    "decision": "Query the database with raw parameterized SQL instead of an ORM",
+    "rationale": "Parameterized SQL queries stay transparent and avoid ORM query surprises",
+    "files_affected": ["src/db/queries.ts"],
+    "created_at": "2026-03-20T10:00:00Z",
+    "reviewed_at": "2026-03-21T09:00:00Z",
+    "historical_relevance": 0.65
+  },
+  {
+    "id": "d010",
+    "decision": "Index embedding columns with HNSW for approximate vector search",
+    "rationale": "HNSW index makes nearest-neighbour vector search fast enough at our corpus size",
+    "files_affected": ["src/db/schema.sql"],
+    "created_at": "2026-05-28T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.55
+  },
+  {
+    "id": "d011",
+    "decision": "Style components with Tailwind utility classes, no CSS modules",
+    "rationale": "Tailwind utility classes keep styling colocated with markup",
+    "files_affected": ["web/src/components/Button.tsx", "web/tailwind.config.js"],
+    "created_at": "2026-02-14T10:00:00Z",
+    "reviewed_at": "2026-02-15T09:00:00Z",
+    "historical_relevance": 0.6
+  },
+  {
+    "id": "d012",
+    "decision": "Manage client state with Zustand instead of Redux",
+    "rationale": "Zustand keeps client state simple without Redux boilerplate",
+    "files_affected": ["web/src/store/index.ts"],
+    "created_at": "2026-02-20T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  },
+  {
+    "id": "d013",
+    "decision": "Fetch server data with TanStack Query and cache by route",
+    "rationale": "TanStack Query handles caching and refetching of server data declaratively",
+    "files_affected": ["web/src/api/client.ts"],
+    "created_at": "2026-03-01T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.45
+  },
+  {
+    "id": "d014",
+    "decision": "Build UI components as small composable functions, one component per file",
+    "rationale": "One component per file keeps the component tree easy to navigate",
+    "files_affected": ["web/src/components/README.md"],
+    "created_at": "2026-02-10T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.4
+  },
+  {
+    "id": "d015",
+    "decision": "Run tests with the node:test runner, assertions from node:assert/strict",
+    "rationale": "node:test needs no test framework dependency and runs under bun test too",
+    "files_affected": ["packages/cli/src/lib/editor.codex.test.ts"],
+    "created_at": "2026-05-05T10:00:00Z",
+    "reviewed_at": "2026-05-06T09:00:00Z",
+    "historical_relevance": 0.7
+  },
+  {
+    "id": "d016",
+    "decision": "Keep unit tests colocated with source files as *.test.ts",
+    "rationale": "Colocated test files make missing test coverage obvious in review",
+    "files_affected": ["packages/cli/src/lib/editor.codex.test.ts", "docs/contributing.md"],
+    "created_at": "2026-05-07T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.55
+  },
+  {
+    "id": "d017",
+    "decision": "Test pure functions directly, mock nothing but the network boundary",
+    "rationale": "Extracting pure functions beats mocking; mock only fetch at the network boundary",
+    "files_affected": ["packages/cli/src/commands/outcomes.test.ts"],
+    "created_at": "2026-06-10T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  },
+  {
+    "id": "d018",
+    "decision": "Use deterministic fixtures for retrieval tests, no live embedding calls",
+    "rationale": "Deterministic fixtures keep retrieval tests reproducible offline",
+    "files_affected": ["packages/eval/fixtures/decisions.json"],
+    "created_at": "2026-06-12T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  },
+  {
+    "id": "d019",
+    "decision": "Ship Perception as a Docker image via docker compose",
+    "rationale": "Docker compose gives self-hosted users one command to start Postgres and Perception",
+    "files_affected": ["docker/docker-compose.yml", "docker/Dockerfile"],
+    "created_at": "2026-03-10T10:00:00Z",
+    "reviewed_at": "2026-03-11T09:00:00Z",
+    "historical_relevance": 0.7
+  },
+  {
+    "id": "d020",
+    "decision": "Run CI on GitHub Actions with a single workflow for typecheck and tests",
+    "rationale": "One GitHub Actions workflow keeps CI fast and easy to read",
+    "files_affected": [".github/workflows/ci.yml"],
+    "created_at": "2026-04-18T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.55
+  },
+  {
+    "id": "d021",
+    "decision": "Load environment variables from .env with shell env taking precedence",
+    "rationale": "Shell environment wins over .env so deploys can override without editing files",
+    "files_affected": ["packages/shared/src/load-env.ts", ".env.example"],
+    "created_at": "2026-05-12T10:00:00Z",
+    "reviewed_at": "2026-05-13T09:00:00Z",
+    "historical_relevance": 0.65
+  },
+  {
+    "id": "d022",
+    "decision": "Pin the pnpm version in package.json packageManager field",
+    "rationale": "Pinned pnpm version keeps installs reproducible across machines and CI",
+    "files_affected": ["package.json"],
+    "created_at": "2026-04-25T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  },
+  {
+    "id": "d023",
+    "decision": "Log structured JSON lines to stdout, no log files",
+    "rationale": "Structured JSON logs on stdout let any collector parse them",
+    "files_affected": ["src/lib/logger.ts"],
+    "created_at": "2026-03-25T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.45
+  },
+  {
+    "id": "d024",
+    "decision": "Return typed error responses with a stable error code field",
+    "rationale": "Stable error codes let clients branch on failures without parsing messages",
+    "files_affected": ["src/lib/errors.ts"],
+    "created_at": "2026-04-02T10:00:00Z",
+    "reviewed_at": null,
+    "historical_relevance": 0.5
+  }
+]

@@ -30,7 +30,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test dist/lib/editor.codex.test.js",
+    "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js",
     "postinstall": "node scripts/chmod-bin.cjs"
   },
   "dependencies": {

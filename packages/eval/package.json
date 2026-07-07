@@ -1,0 +1,20 @@
+{
+  "name": "@robrain/eval",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/run.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "eval": "pnpm build && node dist/run.js",
+    "test": "pnpm build && node --test dist/scoring.test.js"
+  },
+  "dependencies": {
+    "@robrain/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -21,6 +21,8 @@ import { reviewCommand }       from './commands/review.js'
 import { injectCommand }       from './commands/inject.js'
 import { synthCommand }        from './commands/synth.js'
 import { exportMemoryCommand } from './commands/export-memory.js'
+import { exportInterchangeCommand } from './commands/export-interchange.js'
+import { outcomesScanCommand, outcomesRecordCommand } from './commands/outcomes.js'
 import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 
@@ -107,6 +109,39 @@ program
   .option('--project-id <id>',   'Perception project id when it differs from the path-derived id')
   .action(async (opts: { dryRun?: boolean; includeUnreviewed?: boolean; to?: string; ledger?: string | boolean; cwd?: string; projectId?: string }) => {
     await exportMemoryCommand(opts)
+  })
+
+// ── export — machine-readable interchange dump ────────────────
+
+program
+  .command('export')
+  .description('Export the decision corpus as JSONL for other agent-memory tools (robrain-memory/v1)')
+  .option('--format <format>',  'Export format (default: interchange)', 'interchange')
+  .option('--out <file>',       'Write to a file instead of stdout')
+  .option('--cwd <path>',       'Project root for project-id derivation (default: current directory)')
+  .option('--project-id <id>',  'Perception project id when it differs from the path-derived id')
+  .action(async (opts: { format?: string; out?: string; cwd?: string; projectId?: string }) => {
+    await exportInterchangeCommand(opts)
+  })
+
+// ── outcomes — real-world outcome feedback ────────────────────
+
+const outcomesCmd = program
+  .command('outcomes')
+  .description('Scan git history for reverts of stored decisions and feed outcomes back into memory')
+  .option('--since <ref|date>', 'Scan reverts since a git ref or date (default: "30 days ago")')
+  .option('--dry-run',          'Show matched decisions without recording outcomes')
+  .action(async (opts: { since?: string; dryRun?: boolean }) => {
+    await outcomesScanCommand(opts)
+  })
+
+outcomesCmd
+  .command('record <decision-id>')
+  .description('Manually record an outcome for a decision')
+  .requiredOption('--outcome <type>', 'revert | incident | confirmed')
+  .option('--evidence <text>',        'Supporting evidence (commit hash, incident link, note)')
+  .action(async (decisionId: string, opts: { outcome: string; evidence?: string }) => {
+    await outcomesRecordCommand(decisionId, opts)
   })
 
 // ── install ───────────────────────────────────────────────────
@@ -227,6 +262,8 @@ program.addHelpText('afterAll', `
     npx robrain export-memory                       Project approved decisions into Claude Code auto-memory
     npx robrain export-memory --ledger              Also write git-committed decisions.md in the project
     npx robrain explain src/store/cart.ts           Why does this file look this way?
+    npx robrain outcomes --dry-run                  Match git reverts against stored decisions
+    npx robrain export --format interchange         Dump memories as portable JSONL (robrain-memory/v1)
     npx robrain synth --dry-run                     Run Synthesis from the robrain clone (needs DATABASE_URL + ANTHROPIC_API_KEY)
 
   Cloud quick start (automatic injection, no paste):

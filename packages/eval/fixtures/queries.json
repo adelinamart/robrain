@@ -1,0 +1,65 @@
+{
+  "as_of": "2026-07-01T00:00:00Z",
+  "queries": [
+    {
+      "id": "q01",
+      "query": "how do we handle API authentication and JWT access tokens",
+      "files_in_scope": ["src/auth/jwt.ts"],
+      "expected": ["d001", "d002", "d004"]
+    },
+    {
+      "id": "q02",
+      "query": "where should refresh tokens be stored, localStorage or cookies",
+      "files_in_scope": [],
+      "expected": ["d002", "d001"]
+    },
+    {
+      "id": "q03",
+      "query": "password hashing algorithm bcrypt or argon2id",
+      "files_in_scope": ["src/auth/password.ts"],
+      "expected": ["d003"]
+    },
+    {
+      "id": "q04",
+      "query": "vector search over embedding columns in Postgres pgvector",
+      "files_in_scope": ["src/db/schema.sql"],
+      "expected": ["d006", "d010"]
+    },
+    {
+      "id": "q05",
+      "query": "schema migrations and parameterized SQL queries without an ORM",
+      "files_in_scope": ["src/db/migrate.ts", "src/db/queries.ts"],
+      "expected": ["d007", "d009"]
+    },
+    {
+      "id": "q06",
+      "query": "database connection pool exhausting Postgres connections",
+      "files_in_scope": ["src/db/pool.ts"],
+      "expected": ["d008"]
+    },
+    {
+      "id": "q07",
+      "query": "styling components with Tailwind utility classes and client state",
+      "files_in_scope": ["web/src/components/Button.tsx"],
+      "expected": ["d011", "d012"]
+    },
+    {
+      "id": "q08",
+      "query": "which test runner do we use, node:test or a framework",
+      "files_in_scope": ["packages/cli/src/lib/editor.codex.test.ts"],
+      "expected": ["d015", "d016"]
+    },
+    {
+      "id": "q09",
+      "query": "docker compose setup for self-hosted Postgres and Perception",
+      "files_in_scope": ["docker/docker-compose.yml"],
+      "expected": ["d019"]
+    },
+    {
+      "id": "q10",
+      "query": "environment variables precedence between shell env and .env file",
+      "files_in_scope": ["packages/shared/src/load-env.ts"],
+      "expected": ["d021"]
+    }
+  ]
+}

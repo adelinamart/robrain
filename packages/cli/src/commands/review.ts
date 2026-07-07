@@ -42,6 +42,20 @@ interface StoredDecision {
   invalidated_at:  string | null    // lifecycle: when this was superseded
   reviewed_at?:    string | null    // lifecycle: when the user explicitly approved (older Perception versions omit)
   superseded_by?:  string | null    // lifecycle: id of decision that replaced this
+  historical_relevance?: number          // quality: composite-score signal (older Perception versions omit)
+  source_turn_sequence?: number | null   // provenance: originating turn in the session
+  source_excerpt?:       string | null   // provenance: ≤300-char user-message excerpt
+  injected_count?:       number          // quality: times injected into context
+  used_count?:           number          // quality: times judged used in the reply
+}
+
+/** Mirrors Perception's demotion gate (packages/perception-self-hosted/src/scoring.ts DEMOTION). */
+const RARELY_USED_MIN_INJECTED = 5
+const RARELY_USED_MAX_RATIO    = 0.2
+
+function truncateExcerpt(text: string, max = 80): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim()
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`
 }
 
 export async function reviewCommand(opts: ReviewOptions): Promise<void> {
@@ -187,6 +201,25 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     if (d.files_affected.length > 0) {
       console.log(chalk.dim(`     files:    `) + d.files_affected.slice(0, 3).join(', ') + (d.files_affected.length > 3 ? ` +${d.files_affected.length - 3} more` : ''))
+    }
+
+    // Provenance — which session/turn this decision was captured from
+    if (d.session_id && (d.source_turn_sequence != null || d.source_excerpt)) {
+      const turn    = d.source_turn_sequence != null ? ` · turn ${d.source_turn_sequence}` : ''
+      const excerpt = d.source_excerpt ? ` · "${truncateExcerpt(d.source_excerpt)}"` : ''
+      console.log(chalk.dim(`     from:     session ${d.session_id.slice(0, 8)}${turn} · ${date}${excerpt}`))
+    }
+
+    // Quality stats — historical relevance + injection/usage counters
+    if (typeof d.historical_relevance === 'number' || typeof d.injected_count === 'number') {
+      const injected = d.injected_count ?? 0
+      const used     = d.used_count ?? 0
+      const parts = [
+        ...(typeof d.historical_relevance === 'number' ? [`relevance ${d.historical_relevance.toFixed(2)}`] : []),
+        `injected ${injected}× · used ${used}×`,
+      ]
+      const rarelyUsed = injected >= RARELY_USED_MIN_INJECTED && used / injected < RARELY_USED_MAX_RATIO
+      console.log(chalk.dim(`     stats:    ${parts.join(' · ')}`) + (rarelyUsed ? chalk.yellow('  ⚠ rarely used') : ''))
     }
 
     // Lifecycle info

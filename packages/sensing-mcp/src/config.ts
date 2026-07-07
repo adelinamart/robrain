@@ -4,7 +4,7 @@
 // Copy .env.example → .env and fill in values before running.
 // ─────────────────────────────────────────────────────────────
 
-import { resolveLlmProvider, resolveEmbeddingConfig, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import { resolveLlmProvider, resolveEmbeddingConfig, resolveOpenAiBaseUrl, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 
 export const config = {
   // ── Reasoning LLM provider for decision classifier Stage 2 ──
@@ -15,6 +15,10 @@ export const config = {
   // gpt-4o-mini can hallucinate JSON fields under structured-output prompts —
   // prefer gpt-4o / gpt-4.1 for extraction fidelity. Reuses OPENAI_API_KEY below.
   openaiLlmModel:  process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
+  // OPENAI_BASE_URL — point the OpenAI-compatible calls (LLM_PROVIDER=openai
+  // chat AND EMBEDDING_PROVIDER=openai embeddings) at Ollama / LM Studio /
+  // vLLM for a fully-local setup. When set, OPENAI_API_KEY becomes optional.
+  openaiBaseUrl:   resolveOpenAiBaseUrl(),
 
   // ── Anthropic (needed for decision classifier Stage 2 — Haiku) ─
   // Not validated at process start so the MCP server can boot when Cursor
@@ -59,5 +63,3 @@ export const config = {
   // When true, skip embedding API calls — topic_shift is never detected via embeddings.
   topicShiftDisableEmbedding: process.env.SENSING_TOPIC_SHIFT_DISABLE_EMBEDDING === 'true',
 } as const
-
-

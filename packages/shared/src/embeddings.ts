@@ -17,6 +17,8 @@
 // users don't need a managed SaaS account to run `pnpm docker:up`.
 // ─────────────────────────────────────────────────────────────
 
+import { DEFAULT_OPENAI_BASE_URL } from './llm.js'
+
 export type EmbeddingProvider = 'openai' | 'voyage' | 'cohere'
 
 export const EMBEDDING_TARGET_DIMS = 1536
@@ -24,7 +26,6 @@ export const EMBEDDING_TARGET_DIMS = 1536
 export const DEFAULT_OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small'
 export const DEFAULT_VOYAGE_EMBEDDING_MODEL = 'voyage-3-lite'
 export const DEFAULT_COHERE_EMBEDDING_MODEL = 'embed-english-v3.0'
-export const DEFAULT_OPENAI_BASE_URL        = 'https://api.openai.com/v1'
 
 /**
  * Per-attempt fetch timeout. Local OpenAI-compatible servers (Ollama,

@@ -2,7 +2,6 @@ import { describe, it, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_EMBEDDING_TIMEOUT_MS,
-  DEFAULT_OPENAI_BASE_URL,
   EMBEDDING_TARGET_DIMS,
   EmbeddingProviderError,
   cosineDistance,
@@ -12,6 +11,7 @@ import {
   resolveEmbeddingConfig,
   type EmbeddingConfig,
 } from './embeddings.js'
+import { DEFAULT_OPENAI_BASE_URL } from './llm.js'
 
 const realFetch = globalThis.fetch
 
