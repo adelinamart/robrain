@@ -11,7 +11,8 @@
     "build": "node build.mjs",
     "dev": "node build.mjs",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
