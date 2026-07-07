@@ -4,7 +4,7 @@
 // Copy .env.example → .env and fill in values before running.
 // ─────────────────────────────────────────────────────────────
 
-import { resolveLlmProvider, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import { resolveLlmProvider, resolveEmbeddingConfig, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 
 export const config = {
   // ── Reasoning LLM provider for decision classifier Stage 2 ──
@@ -24,22 +24,14 @@ export const config = {
   anthropicModel:  process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_LLM_MODEL,
 
   // ── Embeddings (for topic-shift in sensing_record_turn unless disabled) ─
-  // Choose ONE provider by setting EMBEDDING_PROVIDER.
-  // Options: 'openai' | 'voyage' | 'cohere'
-  // Then set the corresponding API key below.
-  embeddingProvider: (process.env.EMBEDDING_PROVIDER ?? 'openai') as EmbeddingProvider,
+  // Choose ONE provider by setting EMBEDDING_PROVIDER ('openai' | 'voyage' |
+  // 'cohere') plus its API key. Provider, model, timeout, and retry env vars
+  // are all resolved by @robrain/shared so Sensing and Perception always
+  // embed with the same model — see shared/src/embeddings.ts for the list.
+  embedding: resolveEmbeddingConfig(),
 
-  // OpenAI — text-embedding-3-small (1536 dims, ~$0.00002/1k tokens)
+  // Also reused by the OpenAI chat path when LLM_PROVIDER=openai.
   openaiApiKey: process.env.OPENAI_API_KEY,
-  openaiEmbeddingModel: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
-
-  // Voyage AI — voyage-3-lite (1024 dims, fast + cheap)
-  voyageApiKey: process.env.VOYAGE_API_KEY,
-  voyageEmbeddingModel: process.env.VOYAGE_EMBEDDING_MODEL ?? 'voyage-3-lite',
-
-  // Cohere — embed-english-v3.0 (1024 dims)
-  cohereApiKey: process.env.COHERE_API_KEY,
-  cohereEmbeddingModel: process.env.COHERE_EMBEDDING_MODEL ?? 'embed-english-v3.0',
 
   // ── Perception API (required — where signals get sent) ──────
   // Set after you deploy the Perception API to Railway / Fly.io.
@@ -68,5 +60,4 @@ export const config = {
   topicShiftDisableEmbedding: process.env.SENSING_TOPIC_SHIFT_DISABLE_EMBEDDING === 'true',
 } as const
 
-export type EmbeddingProvider = 'openai' | 'voyage' | 'cohere'
 
