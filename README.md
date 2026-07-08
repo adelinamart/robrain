@@ -78,6 +78,8 @@ Review what it finds with `npx robrain review`. Deep dive (three passes, cron, e
 
 One cross-tool setup covers **Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI** against the same Postgres store. The classifier LLM is your choice — Anthropic Haiku or OpenAI. Decisions carry a lifecycle (active / superseded / invalidated) and a graph (`conflicts_with` / `extends` / `related_to`).
 
+Running [Hermes](https://github.com/NousResearch/hermes-agent)? A standalone memory-provider plugin ships in [integrations/hermes](integrations/hermes/robrain/README.md) — passive capture and veto-aware recall through the same Perception API, installed into `~/.hermes/plugins/`.
+
 Decision ledger for git (opt-in):
 
 ```bash
@@ -99,25 +101,33 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Cross-tool MCP — Claude Code, Cursor, Copilot, Codex CLI | ✓ | ✓ |
 | Classifier LLM choice — Anthropic Haiku or OpenAI | ✓ | ✓ |
 | Always-on summary at session start | ✓ | ✓ |
-| `npx robrain review` | ✓ | ✓ |
-| `npx robrain inject` (manual paste) | ✓ | ✓ |
-| `npx robrain explain <file>` | ✓ | ✓ |
-| `npx robrain export-memory` → Claude auto-memory + ledger | ✓ | ✓ |
+| `npx robrain review` / `inject` / `explain` / `export-memory` | ✓ | ✓ |
 | Synthesis — drift, contradictions, entity promotion | ✓ | ✓ |
 | Decision graph (`conflicts_with` / `extends` / `related_to`) | ✓ | ✓ |
+| Provenance on every memory — source session, turn, excerpt | ✓ | ✓ |
+| Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
+| Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
+| Secrets redaction at capture and ingest | ✓ | ✓ |
+| Memory interchange export (`robrain-memory/v1` JSONL) | ✓ | ✓ |
+| Open retrieval eval + VetoBench gates in CI | ✓ | same scorer |
 | Self-host on your infrastructure | ✓ | — |
 | Your data stays local | ✓ | processed remotely |
+| Fully-local mode — LLM + embeddings on Ollama/LM Studio/vLLM | ✓ | — |
 | Calibrated extraction prompt (fewer false positives) | — | ✓ |
 | Calibrated 4-way contradiction taxonomy | — | ✓ |
 | Automatic injection at task boundaries | — | ✓ |
 | Pre-task `rejected[]` warning | — | ✓ |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
+| Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
 | Full 5-signal relevance scorer | — | ✓ |
-| Conflict auto-resolution + dashboard visualizations | — | ✓ |
-| Team memory — managed multi-user store | — | ✓ |
+| Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
+| Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
+| Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
+| Decision lineage timeline (API + dashboard) | — | ✓ |
+| Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |
 | Web dashboard | — | ✓ |
 
-Self-hosted gives capture, judgment batch jobs, and session-start recall; you pull focused context with `inject` when needed. Cloud adds Planning + Control so vetoes and conflicts surface before the agent acts. Details: [Concepts — Free / self-hosted vs Rory Plans cloud](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud).
+Self-hosted gives capture, judgment batch jobs, outcomes feedback, and session-start recall; you pull focused context with `inject` when needed. Cloud adds Planning + Control so vetoes and conflicts surface automatically at task boundaries — same CLI surface, wire-compatible with Sensing capture. Details: [Concepts — Free / self-hosted vs Rory Plans cloud](docs/concepts.md#free--self-hosted-vs-rory-plans-cloud).
 
 ## VetoBench
 
@@ -146,7 +156,7 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 
 ## What's next
 
-`robrain outcomes` now feeds git reverts back into memory quality; next is widening that to incidents and cycle time, so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase.
+`robrain outcomes` feeds git reverts back into memory quality on both tiers; next is widening that to incidents and cycle time, so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase.
 
 ## Requirements
 

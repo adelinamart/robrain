@@ -37,7 +37,7 @@ Bob runs `npx robrain inject --query "state management" --copy` before his next 
 
 The agent now knows the team's prior reasoning, surfaces it in the conversation, and Bob's Claude Code session continues from informed context — instead of re-litigating Alice's Cursor decision from scratch.
 
-**That's the loop.** Alice can make a decision in Cursor on Tuesday and Bob can pick it up in Claude Code on Wednesday. Decisions and their vetoes flow from one developer's session into every other developer's sessions. Captured automatically; surfaced automatically via the always-on summary, with `inject` for focused pull in Free / self-hosted mode (or task-boundary auto-injection in the cloud).
+**That's the loop.** Alice can make a decision in Cursor on Tuesday and Bob can pick it up in Claude Code on Wednesday. Decisions and their vetoes flow from one developer's session into every other developer's sessions. Captured automatically; surfaced automatically via the always-on summary, with `inject` for on-demand focused pull on either tier (or task-boundary auto-injection in the cloud).
 
 Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that outlast a session.
 
@@ -108,7 +108,7 @@ See [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) an
 There are two retrieval paths, and the automatic one is the default:
 
 - **Automatic, cross-tool via the always-on summary.** At session start, Sensing fetches the project's always-on summary from Perception, so the next session begins with approved decisions already in context. That is how Alice can make a decision in Cursor and Bob can open Claude Code later with the same decision already loaded. For Claude Code specifically, **`npx robrain export-memory`** can also project approved decisions into Claude auto-memory files, and Synthesis can refresh that export after **`compiled_truth`** updates. Opt in to a **team-visible ledger** with **`npx robrain export-memory --ledger`**, which writes a single regenerated **`decisions.md`** in the repo (default: project root) for git diff and PR review — separate from per-user auto-memory under `~/.claude/`.
-- **On-demand semantic pull via `npx robrain inject`.** Use this when you want context for a specific topic, file, or stale decision that does not belong in the always-loaded summary. This is the manual paste path in Free / self-hosted mode; Rory Plans cloud automates that targeted retrieval step at task boundaries via Control.
+- **On-demand semantic pull via `npx robrain inject`.** Use this when you want context for a specific topic, file, or stale decision that does not belong in the always-loaded summary. Available on both tiers (verified wire-compatible against cloud). Rory Plans cloud also automates that targeted retrieval step at task boundaries via Control.
 
 Why isn't retrieval just another MCP tool? You usually don't need to run anything. The always-on summary loads automatically at session start. `inject` is for the cases where you want something narrower than that default block. In Rory Plans cloud, Control automates that second path at task boundaries.
 
@@ -317,7 +317,7 @@ Claude must acknowledge this before proceeding. The contradiction doesn't silent
 
 #### Pre-task rejection warnings
 
-In Free / self-hosted mode, the default retrieval path is the always-on summary Sensing loads at session start. When you need something narrower than that always-loaded block, you run `npx robrain inject`, paste the result, then work. The cloud version removes that manual query-and-paste step entirely — and adds something the self-hosted version can't do.
+In Free / self-hosted mode, the default retrieval path is the always-on summary Sensing loads at session start. When you need something narrower than that always-loaded block, you run `npx robrain inject`, paste the result, then work. Cloud supports the same CLI — and adds automatic injection at task boundaries, plus pre-task `rejected[]` warnings the self-hosted path does not surface on its own:
 
 When Control injects context at a task boundary, it scans the current task description against all stored `rejected[]` arrays. If the task mentions something previously ruled out, a warning fires *before* the agent answers:
 
@@ -332,7 +332,7 @@ Both features run on the `rejected[]` substrate the Free / self-hosted version c
 
 **Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
-The self-hosted version already brings decisions back automatically through the always-on summary, and lets you pull extra context manually with `npx robrain inject` when you need something task-specific. The cloud version adds the layer that makes that focused retrieval automatic too — context arrives at task boundaries without you doing anything.
+The self-hosted version already brings decisions back automatically through the always-on summary, and lets you pull extra context with `npx robrain inject` when you need something task-specific. The cloud version adds automatic injection at task boundaries — context can arrive without you running a command — while exposing the same CLI surface (inject, explain, export, outcomes) against the hosted API.
 
 | Feature | Free / self-hosted | Rory Plans cloud |
 |---------|-------------------|------------------|
@@ -342,27 +342,35 @@ The self-hosted version already brings decisions back automatically through the 
 | Cross-tool MCP — Claude Code, Cursor, Copilot, Codex CLI | ✓ | ✓ |
 | Classifier LLM choice — Anthropic Haiku or OpenAI | ✓ | ✓ |
 | Always-on summary at session start | ✓ | ✓ |
-| `npx robrain review` | ✓ | ✓ |
-| `npx robrain inject` (manual paste) | ✓ | ✓ |
-| `npx robrain explain <file>` | ✓ | ✓ |
-| `npx robrain export-memory` → Claude auto-memory + ledger | ✓ | ✓ |
+| `npx robrain review` / `inject` / `explain` / `export-memory` | ✓ | ✓ |
 | Synthesis — drift, contradictions, entity promotion | ✓ | ✓ |
 | Decision graph (`conflicts_with` / `extends` / `related_to`) | ✓ | ✓ |
+| Provenance on every memory — source session, turn, excerpt | ✓ | ✓ |
+| Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
+| Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
+| Secrets redaction at capture and ingest | ✓ | ✓ |
+| Memory interchange export (`robrain-memory/v1` JSONL) | ✓ | ✓ |
+| Open retrieval eval + VetoBench gates in CI | ✓ | same scorer |
 | Self-host on your infrastructure | ✓ | — |
 | Your data stays local | ✓ | processed remotely |
+| Fully-local mode — LLM + embeddings on Ollama/LM Studio/vLLM | ✓ | — |
 | Calibrated extraction prompt (fewer false positives) | — | ✓ |
-| Calibrated 4-way contradiction taxonomy (page-12 model) | — | ✓ |
+| Calibrated 4-way contradiction taxonomy | — | ✓ |
 | Automatic injection at task boundaries | — | ✓ |
 | Pre-task `rejected[]` warning | — | ✓ |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
+| Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
 | Full 5-signal relevance scorer | — | ✓ |
-| Conflict auto-resolution + dashboard visualizations | — | ✓ |
-| Team memory — managed multi-user store | — | ✓ |
+| Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
+| Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
+| Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
+| Decision lineage timeline (API + dashboard) | — | ✓ |
+| Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |
 | Web dashboard | — | ✓ |
 
-The honest difference: self-hosted already gives you capture, storage, and the always-on summary. When you need focused retrieval beyond that default block, you still pull it manually with `npx robrain inject`. The cloud adds the intelligence layer — Planning scores what's relevant to your current task and Control injects it automatically at every task boundary. You stop pasting for task-specific recall. Context just arrives.
+The honest difference: self-hosted gives you capture, storage, provenance, outcomes feedback, and the always-on summary. When you need focused retrieval beyond that default block, you pull it with `npx robrain inject` (or `explain` / `export` / `outcomes` — all verified against cloud). The cloud adds the intelligence layer — Planning scores what's relevant to your current task and Control injects it automatically at every task boundary, with richer per-injection feedback and team-scoped isolation.
 
-The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. But the bigger gap is task-boundary targeting and proactive injection vs manual focused paste. That's a workflow change, not just an accuracy improvement.
+The extraction quality difference is real but secondary. Both versions use Claude Haiku. The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. The bigger gap is task-boundary targeting and proactive injection vs relying on `inject` yourself — a workflow change, not just an accuracy improvement.
 
 **Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
 
@@ -504,7 +512,7 @@ and whether stored decisions are still true against git history
 
 ## What's next
 
-**Next:** connecting decisions to outcomes (reverts, incidents, cycle time) so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase. If you want to help shape that layer, [get in touch via Rory Plans](https://roryplans.ai).
+**Next:** widening outcome linking beyond git reverts to incidents and cycle time, so RoBrain can surface when a team is optimizing for the wrong thing in its own codebase. If you want to help shape that layer, [get in touch via Rory Plans](https://roryplans.ai).
 
 ## Follow-ups (TODO)
 

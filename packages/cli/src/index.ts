@@ -28,7 +28,7 @@ import { outcomesScanCommand, outcomesRecordCommand } from './commands/outcomes.
 import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 
-const VERSION = '2.1.0'
+const VERSION = '2.2.0'
 
 program
   .name('robrain')
