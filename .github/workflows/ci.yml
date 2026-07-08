@@ -35,3 +35,7 @@ jobs:
       # Retrieval-quality gate — fails below precision/recall thresholds
       # (see packages/eval/README.md)
       - run: pnpm --filter @robrain/eval eval
+
+      # VetoBench offline gate — veto recall@5 under composite scoring
+      # (deterministic, no API key; see packages/vetobench/README.md)
+      - run: pnpm --filter @robrain/vetobench bench

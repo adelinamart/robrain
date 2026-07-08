@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonrepair } from 'jsonrepair'
 import pg from 'pg'
-import { THRESHOLDS, loadEnv, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL } from '@robrain/shared'
+import { THRESHOLDS, loadEnv, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, attachPoolErrorHandler } from '@robrain/shared'
 
 const { Pool } = pg
 
@@ -69,6 +69,7 @@ if (config.llmProvider === 'openai' && !config.openaiKey && !usingLocalOpenAi) {
 }
 
 const pool      = new Pool({ connectionString: config.databaseUrl, max: 5 })
+attachPoolErrorHandler(pool, 'RoBrain Synthesis')
 // Construct the Anthropic client only when selected — the SDK throws on an empty key.
 const anthropic = config.llmProvider === 'anthropic'
   ? new Anthropic({ apiKey: config.anthropicKey })
