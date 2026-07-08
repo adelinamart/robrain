@@ -22,7 +22,7 @@
     "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env down",
     "docker:build": "pnpm prepare-env && docker compose -f docker/docker-compose.yml --env-file .env build perception",
     "docker:up:build": "pnpm prepare-env && docker compose -f docker/docker-compose.yml --env-file .env up -d --build perception",
-    "publish:npm": "pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/sensing-mcp publish --access public --no-git-checks && pnpm --filter robrain build && pnpm --filter robrain publish --access public --no-git-checks"
+    "publish:npm": "pnpm --filter @robrain/sensing-mcp build && pnpm --filter robrain publish --access public --no-git-checks"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

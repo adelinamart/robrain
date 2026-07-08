@@ -17,9 +17,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@robrain/sensing-mcp':
-        specifier: workspace:^
-        version: link:../sensing-mcp
       chalk:
         specifier: ^5.3.0
         version: 5.6.2

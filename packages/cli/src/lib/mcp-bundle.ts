@@ -5,6 +5,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlink
 import { createRequire } from 'module'
 import { platform } from 'os'
 import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 
 export class McpBundleError extends Error {
   override name = 'McpBundleError'
@@ -25,18 +26,27 @@ export function sensingBundleReady(robrainMcpDir: string): boolean {
 }
 
 /**
- * Locate the @robrain/sensing-mcp package installed alongside this CLI (it is a
- * regular dependency, so any npm/npx/pnpm install of `robrain` carries it).
- * Returns the package directory, or undefined when running from a source tree
- * where it has not been linked/built.
+ * Locate the built sensing-mcp bundle shipped with this CLI.
+ * Published tarballs carry it under vendor/; monorepo dev resolves packages/sensing-mcp.
  */
 export function resolveInstalledSensingMcpDir(): string | undefined {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    join(here, '..', 'vendor', 'sensing-mcp'),
+    join(here, '..', '..', 'sensing-mcp'),
+  ]
   try {
     const req = createRequire(import.meta.url)
-    return dirname(req.resolve('@robrain/sensing-mcp/package.json'))
+    candidates.unshift(dirname(req.resolve('@robrain/sensing-mcp/package.json')))
   } catch {
-    return undefined
+    // optional workspace link — not present in the published tarball
   }
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'dist', 'index.js')) && existsSync(join(dir, 'package.json'))) {
+      return dir
+    }
+  }
+  return undefined
 }
 
 /**

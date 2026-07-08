@@ -21,21 +21,21 @@
   "files": [
     "dist",
     "bin",
-    "scripts"
+    "scripts",
+    "vendor"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "pnpm build && node scripts/vendor-sensing-mcp.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/lib/mcp-bundle.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js dist/commands/up.test.js",
     "postinstall": "node scripts/chmod-bin.cjs"
   },
   "dependencies": {
-    "@robrain/sensing-mcp": "workspace:^",
     "dotenv": "^16.4.5",
     "chalk": "^5.3.0",
     "ora": "^8.0.1",
