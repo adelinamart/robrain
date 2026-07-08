@@ -30,10 +30,12 @@ export function sensingBundleReady(robrainMcpDir: string): boolean {
  * Published tarballs carry it under vendor/; monorepo dev resolves packages/sensing-mcp.
  */
 export function resolveInstalledSensingMcpDir(): string | undefined {
+  // Compiled location: <cli-root>/dist/lib/mcp-bundle.js — cli root is two up.
   const here = dirname(fileURLToPath(import.meta.url))
+  const cliRoot = join(here, '..', '..')
   const candidates = [
-    join(here, '..', 'vendor', 'sensing-mcp'),
-    join(here, '..', '..', 'sensing-mcp'),
+    join(cliRoot, 'vendor', 'sensing-mcp'),   // published tarball (or after vendor script)
+    join(cliRoot, '..', 'sensing-mcp'),       // monorepo sibling package
   ]
   try {
     const req = createRequire(import.meta.url)

@@ -3,7 +3,20 @@ import { platform, tmpdir } from 'os'
 import { join } from 'path'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { ensureSensingMcpBundle, materializeSensingBundle, sensingBundleReady } from './mcp-bundle.js'
+import { ensureSensingMcpBundle, materializeSensingBundle, resolveInstalledSensingMcpDir, sensingBundleReady } from './mcp-bundle.js'
+
+describe('resolveInstalledSensingMcpDir', () => {
+  // Regression: the vendor/monorepo fallbacks were once computed relative to
+  // dist/ instead of the cli root, so the published tarball shipped a bundle
+  // the resolver could not see. In the workspace (and CI, after `pnpm -r build`)
+  // at least one candidate — vendor/sensing-mcp or ../sensing-mcp — must hit.
+  it('finds a built sensing-mcp from the compiled dist location', () => {
+    const dir = resolveInstalledSensingMcpDir()
+    assert.ok(dir, 'expected a sensing-mcp dir, got undefined')
+    assert.ok(existsSync(join(dir, 'dist', 'index.js')))
+    assert.ok(existsSync(join(dir, 'package.json')))
+  })
+})
 
 let root: string
 let pkgDir: string

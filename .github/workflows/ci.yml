@@ -32,6 +32,10 @@ jobs:
 
       - run: pnpm -r test
 
+      # Published CLI tarball shape — vendor bundle present, no workspace: deps,
+      # resolveInstalledSensingMcpDir() finds vendor/ from compiled dist/lib.
+      - run: pnpm --filter robrain pack:verify
+
       # Retrieval-quality gate — fails below precision/recall thresholds
       # (see packages/eval/README.md)
       - run: pnpm --filter @robrain/eval eval
