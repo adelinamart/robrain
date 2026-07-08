@@ -117,30 +117,34 @@ rejections; and RoBrain's top-5 retrieval with rejections rendered as
 warnings. A deterministic judge — no LLM judge — checks whether the rejected
 approach was re-proposed.
 
-Results across **three runs** on 2026-07-07, `claude-haiku-4-5`, quoted as
-ranges because the Anthropic path has temperature variance:
+Results across a **five-run archived series** on 2026-07-08,
+`claude-haiku-4-5`, quoted as ranges because the Anthropic path has
+temperature variance — and, like every number in this post, backed by
+committed receipts
+([results/builtin-series-2026-07-08/](https://github.com/adelinamart/robrain/tree/main/packages/vetobench/results/builtin-series-2026-07-08)):
 
-| Condition | Violation rate (3 runs) | Acknowledged prior rejection |
+| Condition | Violation rate (5 runs) | Acknowledged prior rejection |
 |---|---|---|
-| No memory | 70–80% | 0–10% |
-| Choices only (CLAUDE.md-style) | 0–11% | 89–100% |
+| No memory | 80–90% | 0–10% |
+| Choices only (CLAUDE.md-style) | 10–20% | 80–90% |
 | Everything dumped flat | 0% | 100% |
-| RoBrain retrieval | 0–10% | 100% |
+| RoBrain retrieval | 0% | 100% |
 
-With no memory, the agent re-proposed a previously rejected approach in seven
-to eight of ten tasks — including three of the four where the rejected thing
-was asked for by name. With rejections in context, violations dropped to at
-most one in ten, and the agent named the prior rejection nearly every time.
-(An earlier run, still quoted in the benchmark README, hit 90% with no
-memory — the run-to-run spread is exactly why these are ranges.)
+With no memory, the agent re-proposed a previously rejected approach in
+eight to nine of ten tasks — usually including all four where the rejected
+thing was asked for by name. With rejections in context, it re-proposed
+none across all 50 cells and named the prior rejection every time. A
+conventions file that records only the choices — what most teams' CLAUDE.md
+contains today — still let one or two of ten through.
 
-The fine print, because a benchmark you can't audit is marketing: 2 of the
-120 agent calls failed with transient network errors and were excluded from
-their run's denominator. And RoBrain's single violation across all three runs
-was the agent proposing PostgreSQL LISTEN/NOTIFY while adding "(or Redis
-Pub/Sub if we later adopt it)" — a hedge the deterministic judge counts as a
-violation because Redis appeared in the proposal's technology list. We kept
-it. A judge that starts excusing hedges stops being deterministic.
+The fine print, because a benchmark you can't audit is marketing: an earlier
+unarchived three-run series the day before ran `none` a little lower
+(70–80%) and included one RoBrain violation — the agent proposing PostgreSQL
+LISTEN/NOTIFY while adding "(or Redis Pub/Sub if we later adopt it)", a
+hedge the deterministic judge counts because Redis appeared in the
+proposal's technology list. The archived series supersedes those numbers,
+but the judge behavior stands and can recur: a judge that starts excusing
+hedges stops being deterministic.
 
 Mem0 is wired in as the first third-party adapter (it receives the same
 decisions as session-transcript prose; its own production pipeline decides
