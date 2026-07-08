@@ -33,6 +33,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -52,6 +53,9 @@ _CONFIG_FILENAME = "config.json"
 _MIN_TURN_CHARS = 20
 # Cap what we send per turn; Perception enforces its own MAX_TURN_TEXT too.
 _MAX_TURN_CHARS = 20_000
+# Shutdown flush window — one POST /signals rides a server-side LLM
+# extraction, so the last turn of a short session needs real time to land.
+_SHUTDOWN_DRAIN_S = 25.0
 
 SEARCH_SCHEMA = {
     "name": "robrain_search",
@@ -122,6 +126,7 @@ class RoBrainProvider(MemoryProvider):
 
         self._write_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue(maxsize=200)
         self._writer: Optional[threading.Thread] = None
+        self._writer_busy = False
 
     # -- config ---------------------------------------------------------------
 
@@ -198,12 +203,31 @@ class RoBrainProvider(MemoryProvider):
         self._degraded = False
 
     def shutdown(self) -> None:
+        """Flush pending turn captures, then stop the writer.
+
+        A single POST /signals waits on Perception's server-side LLM
+        extraction (typically 5–20s), and short-lived sessions (``hermes
+        -z``) reach shutdown with the final turn still in flight — a
+        too-short drain here silently loses exactly the turn that made
+        the session worth remembering. Bounded by _SHUTDOWN_DRAIN_S so a
+        wedged server still can't block exit; the writer is a daemon
+        thread, so anything past the deadline dies with the interpreter.
+        """
+        deadline = time.monotonic() + _SHUTDOWN_DRAIN_S
+        while not self._write_queue.empty() or self._writer_busy:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "robrain: shutdown drain timed out with %d turn(s) unflushed",
+                    self._write_queue.qsize(),
+                )
+                break
+            time.sleep(0.2)
         try:
             self._write_queue.put_nowait(None)
         except queue.Full:
             pass
         if self._writer is not None:
-            self._writer.join(timeout=5)
+            self._writer.join(timeout=max(0.0, deadline - time.monotonic()) + 1.0)
 
     # -- recall ----------------------------------------------------------------
 
@@ -292,10 +316,13 @@ class RoBrainProvider(MemoryProvider):
             item = self._write_queue.get()
             if item is None:
                 return
+            self._writer_busy = True
             try:
                 self._client.post_turn_signal(**item)
             except RoBrainClientError as exc:
                 logger.debug("robrain: turn capture failed (fail-open): %s", exc)
+            finally:
+                self._writer_busy = False
 
     # -- session lifecycle -------------------------------------------------------
 

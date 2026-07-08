@@ -154,6 +154,27 @@ def test_session_switch_reset_clears_sequence_and_cache():
     assert provider._session_id == "session-2"
 
 
+def test_shutdown_drains_pending_captures():
+    import threading as _threading
+    import time as _time
+
+    class SlowClient(StubClient):
+        def post_turn_signal(self, **kwargs):
+            _time.sleep(0.5)  # simulate server-side extraction latency
+            return super().post_turn_signal(**kwargs)
+
+    client = SlowClient()
+    provider = make_provider(client)
+    provider._writer = _threading.Thread(target=provider._writer_loop, daemon=True)
+    provider._writer.start()
+    provider.sync_turn(
+        "we decided to verify webhook signatures with the SDK",
+        "noted: SDK-based verification, not hand-rolled HMAC",
+    )
+    provider.shutdown()
+    assert len(client.posted) == 1  # the in-flight turn landed before exit
+
+
 # -- fail-open ------------------------------------------------------------------
 
 
