@@ -1,10 +1,14 @@
 # RoBrain
 
+[![VetoBench](https://img.shields.io/badge/VetoBench-0%2F50_violations_·_receipts_in--repo-2ea44f)](#vetobench)
+
 **Shared memory across your team and your AI agents — with judgment about what's worth keeping.**
 
 RoBrain isn't just another memory layer — it's the brain that helps you and your agents make better decisions and avoid costly mistakes.
 
 Self-hosted on your own Postgres. Passive capture, structured vetoes, corpus-wide contradiction scans — nothing leaves your machine. Works with Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI.
+
+Measured: without decision memory, a coding agent re-proposes an approach your team already rejected in up to **9 of 10** tasks. Through RoBrain's full pipeline: **0 of 50**, across five archived runs — [VetoBench](#vetobench).
 
 ## What it is
 
@@ -83,7 +87,7 @@ npx robrain export-memory --ledger
 
 ## Compared to other tools
 
-Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs scheduled corpus-wide contradiction scans. [Full comparison →](docs/concepts.md#comparisons)
+Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs scheduled corpus-wide contradiction scans. And we measured what that difference costs: [VetoBench](#vetobench) found Mem0's ingestion dropped the recorded rejection from **38% of retrieved contexts** on identical input. [Full comparison →](docs/concepts.md#comparisons)
 
 ### Self-hosted vs Rory Plans cloud
 
@@ -119,9 +123,18 @@ Self-hosted gives capture, judgment batch jobs, and session-start recall; you pu
 
 Memory benchmarks usually ask "did the right item come back?" [VetoBench](packages/vetobench/README.md) asks what that misses: **given a task that invites an approach the team already rejected, does the agent propose it again?**
 
-Across three runs (claude-haiku-4-5, 2026-07-07, quoted as ranges because runs vary): with no memory, the agent re-proposed a rejected approach in **7–8 of 10** tasks (an earlier run the same day hit 9). With vetoes in context, **at most 1 of 10**, and it named the prior rejection every time. A conventions-style file recording only the choices (no vetoes, no reasons — what most teams have today) still let up to 1 through.
+| Memory condition | Re-proposed a rejected approach | Could cite the prior rejection |
+|---|---|---|
+| No memory | 8–9 of 10 tasks | 0–10% |
+| Conventions file (choices only — what most teams have today) | 1–2 of 10 | 80–90%, but inferred: the reasons aren't there |
+| Mem0 — full pipeline, 5 archived runs | 0–2 of 10 per run | 50–90% |
+| **RoBrain — full pipeline, 5 archived runs** | **0 of 10, every run** | **100%** |
 
-The retrieval layer runs offline with no API key and gates CI (`pnpm --filter @robrain/vetobench bench`); the live agent layer uses your existing `.env` keys. Judging is deterministic — no LLM judge — and any memory system can plug in through one adapter interface; a **Mem0 adapter ships in-tree**. In a five-run archived series (every retrieved context saved as a receipt), the recorded rejection was missing from what Mem0 retrieved in **38% of cells** — and violations concentrated exactly there: 26% when the veto was absent vs 3% when present. The agent avoided Express in all five runs but could never say why; where the axios veto was lost, it outright re-proposed axios in 3 of 5 runs. Losing the *why* at ingestion is exactly what a structured `rejected[]` field prevents — and to keep the comparison fair, a five-run **end-to-end series** ran the byte-identical transcripts through RoBrain's own production extractor: **100/100 vetoes survived extraction, 0/50 violations**, receipts committed alongside Mem0's. PRs adding other tools are welcome, including ones that make us look bad. Methodology, honesty caveats, and fixtures: [packages/vetobench/README.md](packages/vetobench/README.md).
+(claude-haiku-4-5, 2026-07-07/08; every condition measured as a five-run archived series, ranges because runs vary. Mem0 and RoBrain ingested **byte-identical transcripts**, each through its own real production extraction.)
+
+Two findings behind the table. Mem0's ingestion dropped the recorded rejection from **38% of retrieved contexts**, and violations concentrated exactly there — 26% when the veto was absent vs 3% when present: the agent avoided Express in all five runs but could never say why, and where the axios veto was lost it re-proposed axios outright in 3 of 5 runs. RoBrain's production extractor, on the same input, kept **100/100 vetoes** — keeping the veto is the extraction prompt's job, not a side effect of fact summarization.
+
+Every retrieved context, agent reply, and verdict is committed in [packages/vetobench/results/](packages/vetobench/results/) — check the work before quoting it. The retrieval layer runs offline with no API key and gates CI (`pnpm --filter @robrain/vetobench bench`); judging is deterministic — no LLM judge. Any memory system plugs in through one adapter interface; PRs welcome, including ones that make us look bad. Methodology, honesty caveats, and fixtures: [packages/vetobench/README.md](packages/vetobench/README.md).
 
 ## Security
 
@@ -149,6 +162,7 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 - CLI reference (`explain`, install, upgrading, editor setup, full command table) → [docs/cli.md](docs/cli.md)
 - Troubleshooting (silent 401s, Docker rebuilds, stale summaries) → [docs/troubleshooting.md](docs/troubleshooting.md)
 - Memory interchange format (`robrain export`, `robrain-memory/v1` JSONL) → [docs/memory-interchange.md](docs/memory-interchange.md)
+- VetoBench (does memory stop rejected re-proposals? methodology + archived receipts) → [packages/vetobench/README.md](packages/vetobench/README.md)
 
 ## Contributing
 

@@ -65,25 +65,27 @@ pnpm --filter @robrain/vetobench bench:live          # uses repo .env keys
 # --model X · --adapters none,robrain
 ```
 
-Results from 2026-07-07, `claude-haiku-4-5` (the project's default
-classifier model), quoted as min–max across **three runs** (plus one earlier
-run the same day that hit `none` = 90%):
+Results from 2026-07-08, `claude-haiku-4-5` (the project's default
+classifier model), quoted as min–max across a **five-run archived series**
+([results/builtin-series-2026-07-08/](results/builtin-series-2026-07-08/) —
+every retrieved context, agent reply, and verdict committed):
 
-| Condition | Violation rate (3 runs) | Acknowledged prior rejection | Direct traps | Implicit traps |
+| Condition | Violation rate (5 runs) | Acknowledged prior rejection | Direct traps | Implicit traps |
 |---|---|---|---|---|
-| `none` | **70–80%** | 0–10% | 3/4 | 4–5/6 |
-| `conventions` | 0–11% | 89–100% | 0–1/4 | 0/6 |
+| `none` | **80–90%** | 0–10% | 3–4/4 | 4–5/6 |
+| `conventions` | 10–20% | 80–90% | 1/4 | 0–1/6 |
 | `flatfile` | 0% | 100% | 0/4 | 0/6 |
-| `robrain` | **0–10%** | 100% | 0/4 | 0–1/6 |
+| `robrain` | **0%** | 100% | 0/4 | 0/6 |
 
 The headline: **with no memory, the agent re-proposed a previously rejected
-approach in 7–8 of 10 tasks. With vetoes in context it re-proposed at most
-one, and named the prior rejection every time.** Two of the 120 agent calls
-across the three runs failed with transient network errors and are excluded
-from their run's denominator. `robrain`'s single violation across all runs
-was a hedged parenthetical ("or Redis Pub/Sub if we later adopt it") that the
-deterministic judge counts because Redis appeared in `key_technologies` —
-kept as-is; see Violation judging.
+approach in 8–9 of 10 tasks. With vetoes in context (flat dump or RoBrain
+retrieval) it re-proposed none across all 50 cells, and named the prior
+rejection every time.** An earlier unarchived three-run series (2026-07-07)
+ran slightly lower for `none` (70–80%) and included one `robrain` violation —
+a hedged parenthetical ("or Redis Pub/Sub if we later adopt it") that the
+deterministic judge counts because Redis appeared in `key_technologies`; the
+archived series supersedes those numbers, but that judge behavior is
+documented under Violation judging and can recur.
 
 ## Third-party systems: Mem0
 
@@ -206,13 +208,13 @@ undercounted, never overcounted. All judging logic is unit-tested
   five. The behavioral delta RoBrain claims is at *real* corpus sizes
   (hundreds of decisions across months), which this fixture set does not
   reach. What the benchmark does isolate: vetoes-in-context vs not
-  (`conventions` → `flatfile`: 10% → 0% violations, and `conventions`' 90%
+  (`conventions` → `flatfile`: 10–20% → 0% violations, and `conventions`'
   acknowledgements are inferences without recorded reasons), and retrieval
   quality directly (the offline layer).
 - **Run-to-run variance is real.** The Anthropic path runs at default
-  temperature; across four runs on 2026-07-07 we observed `none` between 70%
-  and 90%. Always run at least 3× and quote the range, with the run date and
-  model, for any number you publish.
+  temperature; across nine runs on 2026-07-07/08 we observed `none` between
+  70% and 90%. Always run at least 3× with `--archive` and quote the range,
+  with the run date and model, for any number you publish.
 - **Synthetic fixtures, authored by the RoBrain team.** The scenarios are
   realistic but chosen by us. The antidote is that everything is checked in —
   read the fixtures, dispute them, or add harder ones via PR.
