@@ -291,6 +291,7 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain inject --copy` | Copy output directly to clipboard |
 | `npx robrain inject --all` | Request up to **100** decisions (server cap): all **unreviewed** without `--query`, or a wider semantic pool with `--query` |
 | `npx robrain inject --limit <n>` | Cap how many decisions are returned (default: **5**) |
+| `npx robrain doctor` | Run install diagnostics for editors, MCP wiring, and Perception connectivity |
 | `npx robrain explain <file>` | Answer "why does this code exist?" for any file |
 | `npx robrain explain <file> --why` | Full rationale + rejected alternatives per decision |
 | `npx robrain explain <file> --copy` | Copy explain output to the clipboard |

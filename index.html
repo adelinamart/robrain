@@ -8,6 +8,16 @@
       name="description"
       content="Shared memory with judgment for AI teams — capture decisions and vetoes, scan the corpus for contradictions, surface what matters before the agent acts."
     />
+    <meta property="og:title" content="RoBrain — shared memory with judgment for AI teams" />
+    <meta
+      property="og:description"
+      content="Capture decisions and vetoes, scan for contradictions, and surface what matters before the agent acts."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://github.com/adelinamart/robrain" />
+    <meta property="og:image" content="https://raw.githubusercontent.com/adelinamart/robrain/main/assets/robrain-hero.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -881,17 +891,23 @@
       </section>
 
       <p class="section-bridge">
-        Convinced? Here's the path from zero to first capture — plan on one sitting from a fresh clone (Docker, keys,
-        install, then <code>init-project</code> on your app repo).
+        Convinced? Fastest path is clone-free with <code>robrain up</code>; clone flow is still available for development.
       </p>
 
       <section class="card">
         <h2><span class="icon">⚡</span> Quick start</h2>
         <p class="final-cta-intro">
-          First <code>pnpm docker:up</code> auto-creates <code>.env</code> and fills <code>PERCEPTION_API_KEY</code> /
-          <code>POSTGRES_PASSWORD</code>. Perception still needs your LLM + embedding keys before it stays up.
+          Clone-free setup: bring your API keys, then run <code>robrain up</code> to start Postgres + Perception from GHCR.
         </p>
-        <p class="code-label">One-time — RoBrain repo</p>
+        <p class="code-label">One-time — no clone needed</p>
+        <pre><code>export ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
+npx robrain@latest up
+npx robrain install --self-hosted</code></pre>
+        <p style="margin-top: 0.65rem; font-size: 0.95rem">
+          OpenAI-only: set <code>LLM_PROVIDER=openai</code> and <code>OPENAI_API_KEY</code> instead of Anthropic — see
+          <a href="https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only">Concepts</a>.
+        </p>
+        <p class="code-label">From a clone instead (development)</p>
         <pre><code>git clone https://github.com/adelinamart/robrain
 cd robrain
 pnpm install && pnpm build
@@ -899,10 +915,6 @@ pnpm docker:up                 # first run: creates .env; Perception won't start
 # open .env, add ANTHROPIC_API_KEY + your embedding key (e.g. OPENAI_API_KEY)
 pnpm docker:up                 # second run: Perception now boots
 npx robrain install --self-hosted --repo-root "$(pwd)"</code></pre>
-        <p style="margin-top: 0.65rem; font-size: 0.95rem">
-          OpenAI-only: set <code>LLM_PROVIDER=openai</code> and <code>OPENAI_API_KEY</code> instead of Anthropic — see
-          <a href="https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only">Concepts</a>.
-        </p>
         <p class="code-label">Per application project</p>
         <pre><code>cd /path/to/your/project
 npx robrain init-project</code></pre>
@@ -964,6 +976,9 @@ npx robrain export-memory --ledger
           Overview: <a href="https://github.com/adelinamart/robrain">README on GitHub</a>. Deep dives:
         </p>
         <ul style="margin: 0.75rem 0 0; padding-left: 1.25rem; color: var(--violet-900)">
+          <li style="margin-bottom: 0.45rem">
+            <a href="https://github.com/adelinamart/robrain/tree/main/packages/vetobench">packages/vetobench</a> — benchmark receipts for rejected-approach re-proposals
+          </li>
           <li style="margin-bottom: 0.45rem">
             <a href="https://github.com/adelinamart/robrain/blob/main/docs/concepts.md">docs/concepts.md</a> — pillars, Synthesis, comparisons
           </li>

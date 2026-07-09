@@ -29,7 +29,7 @@ import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 
-const VERSION = '2.3.1'
+const VERSION = '2.3.2'
 
 program
   .name('robrain')

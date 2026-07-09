@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { platform, tmpdir } from 'os'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { ensureSensingMcpBundle, materializeSensingBundle, resolveInstalledSensingMcpDir, sensingBundleReady } from './mcp-bundle.js'
@@ -65,11 +65,11 @@ describe('materializeSensingBundle', () => {
     writeFakePackage(pkgDir, '2.2.0', 'old')
     assert.equal(materializeSensingBundle(pkgDir, mcpDir), true)
 
-    writeFakePackage(pkgDir, '2.3.1', 'new')
+    writeFakePackage(pkgDir, '2.3.2', 'new')
     assert.equal(materializeSensingBundle(pkgDir, mcpDir), true)
     assert.equal(readFileSync(join(mcpDir, 'sensing', 'dist', 'index.js'), 'utf8'), 'new')
     const marker = JSON.parse(readFileSync(join(mcpDir, 'sensing', 'package.json'), 'utf8'))
-    assert.equal(marker.version, '2.3.1')
+    assert.equal(marker.version, '2.3.2')
   })
 
   it('replaces a symlinked destination from a previous --repo-root install', () => {
@@ -84,6 +84,48 @@ describe('materializeSensingBundle', () => {
     assert.equal(readFileSync(join(mcpDir, 'sensing', 'dist', 'index.js'), 'utf8'), 'from-package')
     // The clone the symlink pointed at must be untouched.
     assert.equal(readFileSync(join(cloneDir, 'dist', 'index.js'), 'utf8'), 'from-clone')
+  })
+
+  it('replaces a dangling symlink left by a relative --repo-root install', () => {
+    // Regression: a symlink whose target is the relative string
+    // 'packages/sensing-mcp' resolves against mcpDir and dangles. existsSync
+    // follows it and reports absent, so a guarded rm left it in place and
+    // symlinkSync/cpSync crashed with EEXIST.
+    mkdirSync(mcpDir, { recursive: true })
+    symlinkSync('packages/sensing-mcp', join(mcpDir, 'sensing'), 'dir')
+
+    writeFakePackage(pkgDir, '2.2.0', 'from-package')
+    assert.equal(materializeSensingBundle(pkgDir, mcpDir), true)
+    assert.equal(readFileSync(join(mcpDir, 'sensing', 'dist', 'index.js'), 'utf8'), 'from-package')
+
+    const repoRoot = join(root, 'clone')
+    writeFakePackage(join(repoRoot, 'packages', 'sensing-mcp'), '2.2.0', 'from-clone')
+    rmSync(join(mcpDir, 'sensing'), { recursive: true, force: true })
+    symlinkSync('packages/sensing-mcp', join(mcpDir, 'sensing'), 'dir')
+    ensureSensingMcpBundle(repoRoot, mcpDir)
+    assert.equal(readFileSync(join(mcpDir, 'sensing', 'dist', 'index.js'), 'utf8'), 'from-clone')
+  })
+
+  it('creates an absolute symlink when given a relative repo root', function (t) {
+    // Regression: `robrain install --repo-root .` symlinked the literal
+    // relative path, which dangled once read against ~/.robrain/mcp.
+    if (platform() === 'win32') return t.skip()
+
+    const repoRoot = join(root, 'clone')
+    writeFakePackage(join(repoRoot, 'packages', 'sensing-mcp'), '2.2.0', 'from-clone')
+
+    const prevCwd = process.cwd()
+    process.chdir(repoRoot)
+    try {
+      ensureSensingMcpBundle('.', mcpDir)
+    } finally {
+      process.chdir(prevCwd)
+    }
+
+    const dest = join(mcpDir, 'sensing')
+    assert.ok(lstatSync(dest).isSymbolicLink())
+    assert.ok(isAbsolute(readlinkSync(dest)), 'symlink target must be absolute')
+    assert.equal(readFileSync(join(dest, 'dist', 'index.js'), 'utf8'), 'from-clone')
   })
 
   it('returns false when the package has no built dist', () => {

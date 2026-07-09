@@ -1,9 +1,20 @@
 {
   "name": "robrain",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "type": "module",
   "description": "RoBrain CLI for installation, setup, and memory workflows",
+  "author": "Rory Plans, Inc.",
   "license": "Apache-2.0",
+  "keywords": [
+    "ai",
+    "agent",
+    "memory",
+    "mcp",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "codex"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/adelinamart/robrain.git"
@@ -22,7 +33,9 @@
     "dist",
     "bin",
     "scripts",
-    "vendor"
+    "vendor",
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"

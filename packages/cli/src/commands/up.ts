@@ -198,6 +198,15 @@ function volumeExists(): boolean {
   }
 }
 
+function imagePresentLocally(image: string): boolean {
+  try {
+    execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 function composeArgs(rest: string[]): string[] {
   return ['compose', '--project-directory', STACK_DIR, '-f', join(STACK_DIR, 'docker-compose.yml'), ...rest]
 }
@@ -253,9 +262,16 @@ export async function upCommand(opts: UpOptions): Promise<void> {
   console.log(chalk.dim('  Pulling ') + chalk.cyan(image) + chalk.dim(' …'))
   const pull = spawnSync('docker', ['pull', image], { stdio: 'inherit' })
   if (pull.status !== 0) {
-    console.log(chalk.red(`\n  ✗ Could not pull ${image}.`))
-    console.log(chalk.dim('    If this tag is not published yet, try ') + chalk.cyan('robrain up --tag latest') + '\n')
-    process.exit(1)
+    // A local copy (pre-pulled, --platform override, or locally built via
+    // --image) is still runnable — offline or registry hiccups shouldn't
+    // block a stack whose image is already on disk.
+    if (imagePresentLocally(image)) {
+      console.log(chalk.yellow(`\n  ⚠ Could not pull ${image} — using the local copy already on this machine.`))
+    } else {
+      console.log(chalk.red(`\n  ✗ Could not pull ${image}.`))
+      console.log(chalk.dim('    If this tag is not published yet, try ') + chalk.cyan('robrain up --tag latest') + '\n')
+      process.exit(1)
+    }
   }
   const schema = execFileSync('docker', ['run', '--rm', '--entrypoint', 'cat', image, '/app/schema.sql'])
   writeFileSync(join(STACK_DIR, 'schema.sql'), schema)

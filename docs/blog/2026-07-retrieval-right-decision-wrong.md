@@ -18,7 +18,7 @@ what the feedback loop found, none of them synthetic:
 **1. The architecture PDF.** On May 8 we recorded a decision to keep
 `robrain_architecture.pdf` updated as the reference for the OSS
 implementation. Three days later, commit `8c1c9f1` deleted the PDF — 620
-lines gone, `docs/architecture.md` became the single source of truth. The
+lines gone, `docs/concepts.md` became the single source of truth. The
 decision sat in memory at full relevance for two months. Any retrieval system
 would have served it proudly: semantically on-topic, recently created,
 explicitly recorded. Recording the revert outcome demoted it from 0.50 to

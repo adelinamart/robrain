@@ -1,7 +1,7 @@
 // packages/cli/src/lib/mcp-bundle.ts
 // Copy or symlink built MCP packages into ~/.robrain/mcp so editor configs resolve.
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
 import { platform } from 'os'
 import { dirname, join, resolve } from 'path'
@@ -9,6 +9,23 @@ import { fileURLToPath } from 'url'
 
 export class McpBundleError extends Error {
   override name = 'McpBundleError'
+}
+
+/**
+ * Remove whatever sits at `dest`, including a dangling symlink. Neither
+ * existsSync nor rmSync({force}) handles that case: both stat the link's
+ * *target*, get ENOENT, and conclude there is nothing to remove — leaving the
+ * link to crash the subsequent symlinkSync/mkdirSync with EEXIST.
+ */
+function removeDest(dest: string): void {
+  let stats
+  try {
+    stats = lstatSync(dest)
+  } catch {
+    return
+  }
+  if (stats.isSymbolicLink()) unlinkSync(dest)
+  else rmSync(dest, { recursive: true, force: true })
 }
 
 /**
@@ -94,9 +111,7 @@ export function materializeSensingBundle(pkgDir: string, robrainMcpDir: string):
   }
 
   mkdirSync(robrainMcpDir, { recursive: true })
-  // Unconditional rm: a dangling symlink at dest reads as absent to existsSync
-  // but still blocks the mkdir/copy below.
-  rmSync(dest, { recursive: true, force: true })
+  removeDest(dest)
   mkdirSync(dest, { recursive: true })
   cpSync(join(pkgDir, 'dist'), join(dest, 'dist'), { recursive: true })
   writeFileSync(
@@ -144,9 +159,7 @@ export function ensureSensingMcpBundle(repoRoot: string, robrainMcpDir: string):
   mkdirSync(robrainMcpDir, { recursive: true })
   const dest = join(robrainMcpDir, 'sensing')
 
-  // Unconditional rm: existsSync follows symlinks, so a dangling link reads as
-  // absent, survives a guarded rm, and crashes symlinkSync below with EEXIST.
-  rmSync(dest, { recursive: true, force: true })
+  removeDest(dest)
 
   if (platform() === 'win32') {
     mkdirSync(dest, { recursive: true })

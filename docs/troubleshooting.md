@@ -40,7 +40,7 @@ grep PERCEPTION_API_KEY ~/.claude.json | head       # Claude Code
 grep PERCEPTION_API_KEY ~/.codex/config.toml        # Codex CLI
 ```
 
-If you see `"PERCEPTION_API_KEY": ""`, that's the bug. Versions of `robrain` **< 0.4.0** wrote it as empty even when `.env` had a key. Upgrade and reinstall:
+If you see `"PERCEPTION_API_KEY": ""`, that's the bug. Versions of `robrain` **< 2.3.1** could write it as empty even when `.env` had a key. Upgrade and reinstall:
 
 ```bash
 npm install -g robrain@latest          # global install
@@ -111,7 +111,13 @@ Then rebuild:
 pnpm docker:up:build
 ```
 
-The CLI installer (0.4.0+) reads the **same** `.env`, so client and server stay in sync automatically. Run `pnpm install:self-hosted` (or `robrain install --self-hosted --repo-root /path/to/clone`) to propagate the key into editor MCP configs, then fully restart Cursor / Claude Code.
+The CLI installer (2.3.1+) reads the **same** `.env`, so client and server stay in sync automatically. Run `pnpm install:self-hosted` (or `robrain install --self-hosted --repo-root /path/to/clone`) to propagate the key into editor MCP configs, then fully restart Cursor / Claude Code.
+
+If setup still fails, run:
+
+```bash
+npx robrain doctor
+```
 
 ### Stale Perception Docker image (migrations / schema out of sync)
 
