@@ -140,7 +140,7 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Calibrated extraction prompt (fewer false positives) | — | ✓ |
 | Calibrated 4-way contradiction taxonomy | — | ✓ |
 | Automatic injection at task boundaries | — | ✓ |
-| Pre-task `rejected[]` warning | — | ✓ |
+| Pre-task `rejected[]` warning | Claude Code only, via plugin | ✓ everywhere |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
 | Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
 | Full 5-signal relevance scorer | — | ✓ |
