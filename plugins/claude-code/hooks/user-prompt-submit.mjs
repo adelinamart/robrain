@@ -30,12 +30,15 @@ const data = await perceptionFetch(`/decisions?${params}`, perception, {}, 2500)
 const decisions = Array.isArray(data) ? data : data?.decisions
 if (!Array.isArray(decisions)) exitSilently()
 
-// Veto-first: only decisions with structured rejections, and only when the
-// planning score says they are actually about this task.
-const MIN_SCORE = 0.45
+// Veto-first: only decisions with structured rejections, gated on SIMILARITY,
+// not planning_score — planning_score blends in recency decay, and a rejection
+// must not fade from warnings just because it is old. Similarity answers the
+// only question that matters here: is this decision about the same topic?
+const MIN_SIMILARITY = 0.45
 const vetoes = decisions
   .filter(d => Array.isArray(d.rejected) && d.rejected.length > 0)
-  .filter(d => typeof d.planning_score !== 'number' || d.planning_score >= MIN_SCORE)
+  .filter(d => typeof d.similarity !== 'number' || d.similarity >= MIN_SIMILARITY)
+  .sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0))
   .slice(0, 3)
 
 if (vetoes.length === 0) exitSilently()

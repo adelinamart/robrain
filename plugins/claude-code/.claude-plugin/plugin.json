@@ -6,6 +6,5 @@
   "homepage": "https://github.com/adelinamart/robrain",
   "repository": "https://github.com/adelinamart/robrain",
   "license": "Apache-2.0",
-  "keywords": ["memory", "decisions", "rejected-alternatives", "institutional-memory", "mcp"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["memory", "decisions", "rejected-alternatives", "institutional-memory", "mcp"]
 }

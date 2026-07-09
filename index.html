@@ -702,6 +702,13 @@
           RoBrain is built by <a href="https://roryplans.ai">Rory Plans</a>, an agent orchestration platform; it is the
           memory and judgment layer that keeps multi-agent, multi-developer work coherent over time.
         </p>
+        <blockquote class="callout">
+          <p>
+            Measured: without decision memory, a coding agent re-proposes an approach your team already rejected in up
+            to <strong>9 of 10</strong> tasks. Through RoBrain's full pipeline — <strong>0 of 50</strong>, across five
+            archived runs (<a href="#vetobench">VetoBench</a>).
+          </p>
+        </blockquote>
       </section>
 
       <p class="section-bridge">Whether that's worth the setup depends on your situation.</p>
@@ -804,6 +811,57 @@
       </section>
 
       <section class="card">
+        <h2 id="vetobench"><span class="icon">▤</span> VetoBench — we measured it</h2>
+        <p>
+          Most memory benchmarks ask "did the right item come back?" VetoBench asks what that misses:
+          <strong>given a task that invites an approach the team already rejected, does the agent propose it again?</strong>
+        </p>
+        <div class="table-wrap" role="region" aria-label="VetoBench results">
+          <table class="compare">
+            <thead>
+              <tr>
+                <th>Memory condition</th>
+                <th>Re-proposed a rejected approach</th>
+                <th>Could cite the prior rejection</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>No memory</td>
+                <td>8–9 of 10 tasks</td>
+                <td>0–10%</td>
+              </tr>
+              <tr>
+                <td>Conventions file (choices only — what most teams have today)</td>
+                <td>1–2 of 10</td>
+                <td>80–90%, but inferred — the reasons aren't there</td>
+              </tr>
+              <tr>
+                <td>Mem0 — full pipeline, 5 archived runs</td>
+                <td>0–2 of 10 per run</td>
+                <td>50–90%</td>
+              </tr>
+              <tr>
+                <td><strong>RoBrain — full pipeline, 5 archived runs</strong></td>
+                <td><strong>0 of 10, every run</strong></td>
+                <td><strong>100%</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">
+          claude-haiku-4-5, 2026-07-07/08. Mem0 and RoBrain ingested <strong>byte-identical transcripts</strong>, each
+          through its own real production extraction. Mem0's ingestion dropped the recorded rejection from
+          <strong>38% of retrieved contexts</strong> — and violations concentrated exactly there (26% when the veto was
+          absent vs 3% when present). RoBrain's extractor kept <strong>100/100 vetoes</strong>.
+        </p>
+        <p class="figure-caption">
+          Every retrieved context, agent reply, and verdict is committed in the repo — check the work before quoting it:
+          <a href="https://github.com/adelinamart/robrain/tree/main/packages/vetobench">packages/vetobench</a>.
+        </p>
+      </section>
+
+      <section class="card">
         <h2><span class="icon">⟲</span> Decisions evolve. RoBrain knows that.</h2>
         <p>
           Decisions are <strong>durable context</strong>, not permanent vetoes. When a previously rejected idea makes
@@ -851,42 +909,10 @@
         <div class="arch-block">
           <h3>Cloud-only extras</h3>
           <p>
-            <strong>Planning API</strong> and <strong>Control MCP</strong> add task-boundary relevance scoring and
-            automatic injection on <strong>Rory Plans cloud</strong>.
+            <strong>Planning API</strong> and <strong>Control MCP</strong> add a 5-signal relevance scorer, automatic
+            injection at task boundaries, pre-task rejection warnings, and a pre-commit conflict verdict on
+            <strong>Rory Plans cloud</strong> — full breakdown below.
           </p>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2><span class="icon">⌂</span> Trust &amp; privacy</h2>
-        <p>
-          <strong>Your conversation turns never leave your machine.</strong> The Perception API runs locally in
-          Docker, extraction happens on your hardware, and decisions are stored in your Postgres. Nothing is sent to
-          Rory Plans or any other external service.
-        </p>
-        <p>
-          The <strong>one network dependency</strong>: extraction calls Anthropic’s Haiku API (you provide
-          <code>ANTHROPIC_API_KEY</code>) and embeddings call OpenAI, Voyage, or Cohere. Those are the only outbound
-          calls. You can swap providers or run a local model if you want full air-gapping.
-        </p>
-        <p class="trust-bridge">And here's exactly what gets stored:</p>
-        <div class="grid-2" style="margin-top: 0.35rem">
-          <div class="mini-card">
-            <h3>Captured</h3>
-            <ul>
-              <li>Architectural decisions made during AI coding sessions</li>
-              <li>Rationale and <strong>rejected alternatives</strong></li>
-              <li>Files in scope, timestamps, confidence</li>
-            </ul>
-          </div>
-          <div class="mini-card">
-            <h3>Not captured</h3>
-            <ul>
-              <li>Your source code or file contents</li>
-              <li>Secrets, passwords, or personal data</li>
-              <li>Anything outside your sessions with the agent</li>
-            </ul>
-          </div>
         </div>
       </section>
 
@@ -992,24 +1018,58 @@ claude plugin install robrain@robrain</code></pre>
       </p>
 
       <section class="card cloud-cta">
-        <h2><span class="icon">☁</span> Rory Plans cloud</h2>
-        <p>
-          Self-hosted gives capture, corpus-wide judgment, outcomes feedback, and the
-          <strong class="always-on-summary">always-on summary</strong> at session start. When you need
-          focused context beyond that block, you pull it with <code>inject</code> — same CLI surface as cloud.
+        <h2 id="cloud"><span class="icon">☁</span> Self-hosted vs Rory Plans cloud</h2>
+        <p style="text-align: left">
+          Self-hosted is the complete memory system: passive capture, corpus-wide judgment, outcome feedback from git
+          reverts, and the <strong class="always-on-summary">always-on summary</strong> at session start — you pull
+          focused context with <code>inject</code> when you need it. Cloud adds the <strong>Planning + Control</strong>
+          layer that surfaces vetoes and conflicts <strong>automatically, before the agent acts</strong>, plus team
+          management and a web dashboard.
         </p>
-        <p>
-          Cloud adds Planning + Control — rejection warnings and conflict surfacing <strong>before the agent acts</strong>,
-          plus automatic injection at task boundaries so you don't have to paste. Next: widening outcomes beyond git
-          reverts to incidents and cycle time.
+        <div class="table-wrap table-wrap--matrix" role="region" aria-label="Self-hosted vs cloud">
+          <table class="compare-matrix">
+            <caption>Free / self-hosted vs Rory Plans cloud</caption>
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
+                <th scope="col">Free / self-hosted</th>
+                <th scope="col">Rory Plans cloud</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Passive session capture + structured <code>rejected[]</code></th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Decision lifecycle (active / superseded / invalidated) + graph</th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Cross-tool MCP — Claude Code, Cursor, Copilot, Codex CLI</th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Always-on summary at session start</th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Synthesis — drift, contradictions, entity promotion</th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Provenance on every memory + secrets redaction</th><td>✓</td><td>✓</td></tr>
+              <tr><th scope="row">Outcome linking — git reverts feed memory rank</th><td>✓</td><td>✓ richer signal</td></tr>
+              <tr><th scope="row">Memory interchange export + VetoBench CI gates</th><td>✓</td><td>same scorer</td></tr>
+              <tr><th scope="row">Self-host on your own infrastructure — data stays local</th><td>✓</td><td class="muted">processed remotely</td></tr>
+              <tr><th scope="row">Fully-local mode — LLM + embeddings on Ollama / LM Studio / vLLM</th><td>✓</td><td class="muted">—</td></tr>
+              <tr><th scope="row">Automatic injection at task boundaries</th><td class="muted">manual <code>inject</code></td><td>✓</td></tr>
+              <tr><th scope="row">Pre-task <code>rejected[]</code> warning before the agent acts</th><td class="muted">Claude Code only, via plugin</td><td>✓ everywhere</td></tr>
+              <tr><th scope="row">Pre-commit conflict verdict (<code>/dry-run</code>)</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">Full 5-signal relevance scorer + calibrated extraction</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">Auto-propagated vetoes + write-time supersession detection</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">Conflict auto-resolution + decision lineage timeline</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">Team memory — orgs, API keys, roles, scoped isolation</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">Web dashboard</th><td class="muted">—</td><td>✓</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">
+          <code>robrain outcomes</code> feeds git reverts back into memory quality on <strong>both tiers</strong>; next is
+          widening that signal to incidents and cycle time. Full breakdown:
+          <a href="https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#free--self-hosted-vs-rory-plans-cloud">Concepts — self-hosted vs cloud</a>.
         </p>
         <div class="cta-row">
           <a
             class="btn btn-primary"
             href="https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1"
-            >Join early access</a
+            >Join cloud early access</a
           >
-          <a class="btn btn-ghost" href="https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#free--self-hosted-vs-rory-plans-cloud">Self-hosted vs cloud</a>
+          <a class="btn btn-ghost" href="https://github.com/adelinamart/robrain">View on GitHub</a>
         </div>
       </section>
 
@@ -1028,10 +1088,49 @@ claude plugin install robrain@robrain</code></pre>
           <li style="margin-bottom: 0.45rem">
             <a href="https://github.com/adelinamart/robrain/blob/main/docs/cli.md">docs/cli.md</a> — install, commands, <code>explain</code>
           </li>
-          <li>
+          <li style="margin-bottom: 0.45rem">
             <a href="https://github.com/adelinamart/robrain/blob/main/docs/troubleshooting.md">docs/troubleshooting.md</a> — 401s, Docker, verification
           </li>
+          <li style="margin-bottom: 0.45rem">
+            <a href="https://github.com/adelinamart/robrain/tree/main/plugins/claude-code">plugins/claude-code</a> — hook-based capture + veto warnings
+          </li>
+          <li>
+            <a href="https://github.com/adelinamart/robrain/blob/main/docs/memory-interchange.md">docs/memory-interchange.md</a> — <code>robrain-memory/v1</code> JSONL export format
+          </li>
         </ul>
+      </section>
+
+      <section class="card" id="privacy">
+        <h2><span class="icon">⌂</span> Trust &amp; privacy</h2>
+        <p>
+          <strong>Your conversation turns never leave your machine.</strong> The Perception API runs locally in
+          Docker, extraction happens on your hardware, and decisions are stored in your Postgres. Nothing is sent to
+          Rory Plans or any other external service.
+        </p>
+        <p>
+          The <strong>one network dependency</strong>: extraction calls Anthropic’s Haiku API (you provide
+          <code>ANTHROPIC_API_KEY</code>) and embeddings call OpenAI, Voyage, or Cohere. Those are the only outbound
+          calls. You can swap providers or run a local model if you want full air-gapping.
+        </p>
+        <p class="trust-bridge">And here's exactly what gets stored:</p>
+        <div class="grid-2" style="margin-top: 0.35rem">
+          <div class="mini-card">
+            <h3>Captured</h3>
+            <ul>
+              <li>Architectural decisions made during AI coding sessions</li>
+              <li>Rationale and <strong>rejected alternatives</strong></li>
+              <li>Files in scope, timestamps, confidence</li>
+            </ul>
+          </div>
+          <div class="mini-card">
+            <h3>Not captured</h3>
+            <ul>
+              <li>Your source code or file contents</li>
+              <li>Secrets, passwords, or personal data</li>
+              <li>Anything outside your sessions with the agent</li>
+            </ul>
+          </div>
+        </div>
       </section>
 
       <footer>
