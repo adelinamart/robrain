@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RoBrain — Privacy Policy</title>
+    <meta
+      name="description"
+      content="Privacy policy for the RoBrain Claude Code plugin and self-hosted tooling — what is processed, where it is stored, and which third parties are involved."
+    />
+    <meta property="og:title" content="RoBrain — Privacy Policy" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://robrain.dev/privacy.html" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --violet-950: #1e1033;
+        --violet-900: #2d1f4a;
+        --violet-800: #3d2a63;
+        --violet-700: #5b3d8c;
+        --violet-600: #6d4aa3;
+        --violet-400: #a78bda;
+        --violet-200: #d4c4ef;
+        --violet-100: #e8dff9;
+        --violet-50: #f5f0fc;
+        --cream: #fffefb;
+        --white: #ffffff;
+        --shadow: 0 4px 24px rgba(61, 42, 99, 0.08);
+        --radius: 16px;
+        --radius-sm: 10px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+        font-size: 1.02rem;
+        line-height: 1.65;
+        color: var(--violet-900);
+        background: linear-gradient(165deg, var(--violet-50) 0%, #faf8ff 35%, var(--cream) 70%, var(--violet-100) 100%);
+        background-attachment: fixed;
+        min-height: 100vh;
+      }
+
+      .wrap {
+        max-width: 48rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.35rem 4rem;
+      }
+
+      .back {
+        display: inline-block;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--violet-700);
+        text-decoration: none;
+        margin-bottom: 1.5rem;
+      }
+
+      .back:hover {
+        color: var(--violet-600);
+      }
+
+      h1 {
+        font-family: "Fraunces", Georgia, serif;
+        font-size: clamp(1.9rem, 4.5vw, 2.4rem);
+        font-weight: 700;
+        line-height: 1.15;
+        margin: 0 0 0.4rem;
+        color: var(--violet-950);
+        letter-spacing: -0.02em;
+      }
+
+      .effective {
+        color: var(--violet-700);
+        font-size: 0.95rem;
+        margin: 0 0 1.75rem;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.88);
+        border: 1px solid var(--violet-200);
+        border-radius: var(--radius);
+        padding: 1.5rem 1.65rem;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      h2 {
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--violet-950);
+        margin: 1.75rem 0 0.65rem;
+      }
+
+      h2:first-of-type {
+        margin-top: 0;
+      }
+
+      p {
+        margin: 0 0 0.85rem;
+        color: var(--violet-800);
+      }
+
+      ul {
+        margin: 0 0 0.85rem;
+        padding-left: 1.2rem;
+      }
+
+      li {
+        margin: 0.4rem 0;
+        color: var(--violet-800);
+      }
+
+      li strong,
+      p strong {
+        color: var(--violet-950);
+        font-weight: 600;
+      }
+
+      code {
+        font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+        font-size: 0.88em;
+        background: var(--violet-100);
+        padding: 0.1em 0.38em;
+        border-radius: 5px;
+        color: var(--violet-900);
+        border: 1px solid var(--violet-200);
+      }
+
+      a {
+        color: var(--violet-700);
+        font-weight: 600;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
+      }
+
+      a:hover {
+        color: var(--violet-600);
+      }
+
+      .callout {
+        margin: 0 0 1rem;
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 1.02rem;
+        font-weight: 600;
+        line-height: 1.5;
+        color: var(--violet-950);
+        padding: 0.85rem 1rem;
+        background: linear-gradient(105deg, var(--violet-100) 0%, rgba(232, 223, 249, 0.35) 55%, transparent 100%);
+        border-left: 4px solid var(--violet-600);
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      }
+
+      .callout p {
+        margin: 0;
+      }
+
+      footer {
+        text-align: center;
+        margin-top: 2rem;
+        padding-top: 1.75rem;
+        border-top: 1px solid var(--violet-200);
+        color: var(--violet-700);
+        font-size: 0.9rem;
+      }
+
+      footer a {
+        margin: 0 0.4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← RoBrain</a>
+      <h1>RoBrain Privacy Policy</h1>
+      <p class="effective">Effective July 9, 2026</p>
+
+      <section class="card">
+        <p>
+          This policy explains how the <strong>RoBrain</strong> Claude Code plugin and the open-source, self-hosted
+          RoBrain tooling (together, the &ldquo;Software&rdquo;) handle your data. The Software is published by
+          <strong>Rory Plans, Inc.</strong> (&ldquo;Rory Plans,&rdquo; &ldquo;we&rdquo;) and licensed under Apache 2.0.
+        </p>
+
+        <div class="callout">
+          <p>
+            RoBrain is self-hosted. Your session content and the decisions extracted from it are stored in
+            <strong>your own database</strong> and never sent to Rory Plans. The only outbound network calls are to the
+            third-party LLM and embedding providers <strong>you configure with your own API keys</strong>.
+          </p>
+        </div>
+
+        <h2>1. What the Software processes</h2>
+        <p>
+          When installed in a coding tool (Claude Code, Cursor, GitHub Copilot, or Codex CLI), RoBrain passively
+          captures your session turns and extracts <strong>decisions</strong> from them — for example, an architectural
+          choice and the alternatives your team rejected. Extraction produces structured records (decision text,
+          rationale, rejected alternatives, affected file paths, timestamps, and confidence scores).
+        </p>
+        <p>The Software does <strong>not</strong> capture your source code or file contents, secrets or credentials
+          (these are actively redacted at capture and again at ingest), or anything outside your sessions with the
+          agent.</p>
+
+        <h2>2. Where your data is stored</h2>
+        <p>
+          Extracted decisions are stored in a <strong>PostgreSQL database that you host and control</strong> — by
+          default a Docker container on your own machine or infrastructure. Rory Plans does not receive, store, or have
+          access to this data. Access to the local store is guarded by an API key (<code>PERCEPTION_API_KEY</code>) that
+          the Software generates on your machine.
+        </p>
+
+        <h2>3. What Rory Plans collects</h2>
+        <p>
+          When you use the self-hosted Software, <strong>Rory Plans collects nothing</strong>. The plugin and CLI
+          communicate only with the local Perception service and the third-party providers listed below. We do not
+          operate any telemetry, analytics, or phone-home in the self-hosted Software.
+        </p>
+
+        <h2>4. Third-party providers</h2>
+        <p>
+          To extract and index decisions, the Software calls the model and embedding providers you configure using
+          <strong>your own API keys</strong>. Your session content is sent to these providers solely to perform
+          extraction and generate embeddings, and is subject to their privacy policies:
+        </p>
+        <ul>
+          <li><strong>Anthropic</strong> (default classifier / extraction model) — <a href="https://www.anthropic.com/legal/privacy">Privacy Policy</a></li>
+          <li><strong>OpenAI</strong> (default embeddings, optional classifier) — <a href="https://openai.com/policies/privacy-policy">Privacy Policy</a></li>
+          <li><strong>Voyage AI</strong> (optional embeddings) — <a href="https://www.voyageai.com/privacy">Privacy Policy</a></li>
+          <li><strong>Cohere</strong> (optional embeddings) — <a href="https://cohere.com/privacy">Privacy Policy</a></li>
+        </ul>
+        <p>
+          You choose which providers to use. If you run RoBrain in <strong>fully-local mode</strong> — with the LLM and
+          embeddings served by a local runtime such as Ollama, LM Studio, or vLLM — no session content leaves your
+          machine at all.
+        </p>
+
+        <h2>5. How the data is used</h2>
+        <p>
+          Extracted decisions are used only to provide RoBrain&rsquo;s features: injecting relevant prior decisions at
+          session start, warning you before an agent repeats a previously rejected approach, and running corpus-wide
+          judgment (contradiction and drift scans). The data is not used to train any model.
+        </p>
+
+        <h2>6. Retention and deletion</h2>
+        <p>
+          Because the data lives in your own database, <strong>you control retention</strong>. Decisions persist until
+          you remove them; you can inspect, supersede, or delete records with the RoBrain CLI (e.g.
+          <code>robrain review</code>) or by operating on your PostgreSQL instance directly. Uninstalling the plugin
+          stops further capture; existing records remain in your database until you delete them.
+        </p>
+
+        <h2>7. Security</h2>
+        <p>
+          Requests to the local Perception service require the <code>PERCEPTION_API_KEY</code> bearer token, and
+          secrets are scrubbed from content before it is embedded or stored. See the project
+          <a href="https://github.com/adelinamart/robrain#security">security notes</a> for details.
+        </p>
+
+        <h2>8. Rory Plans cloud</h2>
+        <p>
+          This policy covers the self-hosted Software. If you separately choose to use the optional
+          <strong>Rory Plans cloud</strong> service, your data is processed on Rory Plans infrastructure and the
+          <a href="https://roryplans.ai/privacy-policy">Rory Plans, Inc. Privacy Policy</a> applies to that use.
+        </p>
+
+        <h2>9. Changes to this policy</h2>
+        <p>
+          We may update this policy as the Software evolves. Material changes will be reflected here with a revised
+          effective date, and the version history is available in the project&rsquo;s public repository.
+        </p>
+
+        <h2>10. Contact</h2>
+        <p>
+          Questions about this policy or RoBrain&rsquo;s data handling:
+          <a href="mailto:ade@roryplans.ai">ade@roryplans.ai</a>.
+        </p>
+      </section>
+
+      <footer>
+        <p style="margin: 0 0 0.6rem">Built by <a href="https://roryplans.ai">Rory Plans</a> · Apache 2.0</p>
+        <a href="/">Home</a> · <a href="https://github.com/adelinamart/robrain">GitHub</a>
+      </footer>
+    </div>
+  </body>
+</html>
