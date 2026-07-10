@@ -1,0 +1,26 @@
+# smithery.yaml — RoBrain Sensing MCP (stdio).
+#
+# NOTE: RoBrain's Sensing server requires a user-run Perception backend
+# (`npx robrain up`) — Smithery cannot host that backend, so this lists the
+# server for discovery but users still self-host. See the repo README.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      perceptionApiUrl:
+        type: string
+        default: "http://localhost:3001"
+        description: "Perception API URL (defaults to your local `npx robrain up` stack)."
+      perceptionApiKey:
+        type: string
+        description: "Perception API key from `npx robrain up` (~/.robrain/config.json). Optional if config.json is present."
+  commandFunction: |
+    (config) => ({
+      command: "npx",
+      args: ["-y", "robrain", "mcp"],
+      env: {
+        ...(config.perceptionApiUrl ? { PERCEPTION_API_URL: config.perceptionApiUrl } : {}),
+        ...(config.perceptionApiKey ? { PERCEPTION_API_KEY: config.perceptionApiKey } : {})
+      }
+    })
