@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // CI gate: mimic `pnpm publish` tarball shape without touching the registry.
 // Catches workspace: leaks and resolver paths that miss vendor/sensing-mcp.
-import { execFileSync } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
@@ -70,7 +70,36 @@ try {
     fail(`installHermesPlugin() copy incomplete at ${dest}`)
   }
 
-  console.log(`pack:verify ok — sensing vendor resolves from ${dir}; hermes plugin installs from ${hermesSrc}`)
+  // Smoke-test the server entry robrain mcp execs (no CLI deps needed in the tarball).
+  const mcpEntry = join(extracted, 'vendor', 'sensing-mcp', 'dist', 'index.js')
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [mcpEntry], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PERCEPTION_API_URL: 'http://localhost:39999',
+        PERCEPTION_API_KEY: 'pack-verify',
+      },
+    })
+    let settled = false
+    const done = (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      err ? reject(err) : resolve()
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+      done()
+    }, 800)
+    child.on('exit', (code, signal) => {
+      if (code === 1 && !signal) done(new Error('sensing-mcp entry exited immediately (bundle corrupt or missing deps)'))
+      else done()
+    })
+    child.on('error', (err) => done(err))
+  })
+
+  console.log(`pack:verify ok — sensing vendor resolves from ${dir}; hermes plugin installs from ${hermesSrc}; sensing-mcp entry spawns`)
 } finally {
   rmSync(work, { recursive: true, force: true })
 }

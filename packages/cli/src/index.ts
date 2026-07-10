@@ -28,9 +28,10 @@ import { outcomesScanCommand, outcomesRecordCommand } from './commands/outcomes.
 import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
+import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
 
-const VERSION = '2.3.5'
+const VERSION = '2.3.6'
 
 program
   .name('robrain')
@@ -146,6 +147,15 @@ outcomesCmd
   .option('--evidence <text>',        'Supporting evidence (commit hash, incident link, note)')
   .action(async (decisionId: string, opts: { outcome: string; evidence?: string }) => {
     await outcomesRecordCommand(decisionId, opts)
+  })
+
+// ── mcp — launch the bundled Sensing server (portable stdio config) ──
+
+program
+  .command('mcp')
+  .description('Run the bundled Sensing MCP server over stdio (for mcp.json configs and MCP directories)')
+  .action(async () => {
+    await mcpCommand()
   })
 
 // ── up / down — clone-free self-hosted stack ──────────────────

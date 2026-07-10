@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "type": "module",
   "description": "RoBrain CLI for installation, setup, and memory workflows",
   "author": "Rory Plans, Inc.",
@@ -45,7 +45,7 @@
     "prepublishOnly": "pnpm build && node scripts/vendor-sensing-mcp.mjs && node scripts/vendor-hermes-plugin.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/lib/mcp-bundle.test.js dist/lib/claude-plugin.test.js dist/lib/hermes-plugin.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js dist/commands/up.test.js",
+    "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/lib/mcp-bundle.test.js dist/lib/claude-plugin.test.js dist/lib/hermes-plugin.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js dist/commands/up.test.js dist/commands/mcp.test.js",
     "pack:verify": "node scripts/verify-publish-tarball.mjs",
     "postinstall": "node scripts/chmod-bin.cjs"
   },

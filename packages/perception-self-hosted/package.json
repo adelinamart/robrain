@@ -1,6 +1,6 @@
 {
   "name": "@robrain/perception-self-hosted",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

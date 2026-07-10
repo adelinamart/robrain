@@ -9,7 +9,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
-import { sensingBundleReady } from '../lib/mcp-bundle.js'
+import { sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
 import { detectEditors } from '../lib/editor.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
@@ -57,7 +57,8 @@ export async function doctorCommand(): Promise<void> {
     })
   }
 
-  // 2 — Sensing MCP bundle
+  // 2 — Sensing MCP bundle (install path) + portable launch (robrain mcp)
+  const portableMcpDir = resolveInstalledSensingMcpDir()
   if (sensingBundleReady(ROBRAIN_MCP_DIR)) {
     checks.push({ level: 'pass', label: 'Sensing MCP bundle', detail: join(ROBRAIN_MCP_DIR, 'sensing') })
   } else {
@@ -65,7 +66,21 @@ export async function doctorCommand(): Promise<void> {
       level: 'fail',
       label: 'Sensing MCP bundle',
       detail: `no complete bundle under ${join(ROBRAIN_MCP_DIR, 'sensing')}`,
-      hint:  'From the robrain clone run: pnpm install && pnpm build, then re-run robrain install',
+      hint:  'Run: robrain install --self-hosted. Or use a portable mcp.json with `npx robrain mcp` (see docs/cli.md)',
+    })
+  }
+  if (portableMcpDir) {
+    checks.push({
+      level:  'pass',
+      label:  'Portable MCP launch',
+      detail: '`robrain mcp` — stdio config for MCP directories / hand-written mcp.json',
+    })
+  } else {
+    checks.push({
+      level: 'fail',
+      label: 'Portable MCP launch',
+      detail: 'bundled Sensing server not found in this CLI install',
+      hint:  'Reinstall: npm install -g robrain@latest (or npx robrain@latest mcp from a built clone)',
     })
   }
 

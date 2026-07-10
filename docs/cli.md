@@ -46,6 +46,18 @@ npx robrain down
 
 `robrain install --self-hosted` copies the bundled `@robrain/sensing-mcp` package into `~/.robrain/mcp/sensing` — no clone required. `robrain install --hermes` materializes the bundled Hermes memory-provider plugin into `$HERMES_HOME/plugins/robrain` (default `~/.hermes`) the same way — see [integrations/hermes](../integrations/hermes/robrain/README.md); combine with `--self-hosted` to do both in one run. Pass **`--repo-root`** (or set `ROBRAIN_REPO`) when developing in the monorepo; that **replaces** any package-copied bundle with a symlink into your clone (macOS/Linux) or a fresh copy (Windows).
 
+#### Portable MCP config (`robrain mcp`)
+
+For [MCP directory listings](distribution/mcp-directories.md) or a hand-written `mcp.json`, launch Sensing without running install:
+
+```json
+{ "mcpServers": { "robrain-sensing": {
+    "command": "npx", "args": ["-y", "robrain", "mcp"]
+} } }
+```
+
+After `npx robrain up`, `robrain mcp` reads Perception URL and API key from `~/.robrain/config.json`. Add an `env` block with `PERCEPTION_API_URL` / `PERCEPTION_API_KEY` to override. For full editor wiring (LLM + embedding keys in the MCP env block), use `npx robrain install` instead — it writes editor-specific configs under `~/.cursor/mcp.json`, `~/.claude.json`, etc.
+
 #### From a clone instead (development)
 
 - Docker + Docker Compose
@@ -250,6 +262,7 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain up --tag <tag>` | Perception image tag (default: CLI version) |
 | `npx robrain up --image <image>` | Full image override (wins over `--tag`) |
 | `npx robrain down` | Stop the `robrain up` stack; data volume `robrain_postgres_data` is preserved |
+| `npx robrain mcp` | Run the bundled Sensing MCP server over stdio (portable `mcp.json` / MCP directory configs; reads Perception from `~/.robrain/config.json`) |
 | `pnpm install:self-hosted` | Build everything + run `robrain install --self-hosted --repo-root .` in one shot |
 | `pnpm build` | Compile all workspace packages (`pnpm -r build`) — run after `pnpm install` in the robrain clone |
 | `pnpm docker:up` | Start Postgres + Perception (uses `.env`) |
@@ -259,6 +272,7 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `pnpm synthesis:build` | Compile `@robrain/synthesis` before running it |
 | `pnpm synthesis:dry-run` | Run Synthesis with `SYNTHESIS_DRY_RUN=true` (no DB writes) |
 | `npx robrain install --self-hosted` | Wire Sensing MCP into detected editors (Claude Code, Cursor, Codex, Copilot); then runs **`init-project` in the current directory** by default |
+| `npx robrain install --hermes` | Install the bundled Hermes memory-provider plugin into `$HERMES_HOME/plugins/robrain` (combine with `--self-hosted`) |
 | `npx robrain install --token <token>` | Authenticate against Rory Plans cloud (or set `RORY_TOKEN`) |
 | `npx robrain install --editor <claude-code\|cursor\|copilot\|codex>` | Target a specific editor instead of all detected |
 | `npx robrain install --perception-url <url>` | Override Perception URL for self-hosted (default `http://localhost:3001`) |

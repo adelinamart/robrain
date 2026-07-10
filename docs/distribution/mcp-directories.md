@@ -6,31 +6,35 @@ directories. **Do all of this AFTER `git push`** — every entry points at
 
 ## The one thing to decide first: how do people *connect* the server?
 
-RoBrain's Sensing server is **not** a standalone `npx`-and-go server. It needs a
-running Perception backend (`npx robrain up`) and two env vars
-(`PERCEPTION_URL`, `PERCEPTION_API_KEY`), and today it's vendored inside the CLI
-rather than published as its own npm package — so there is no portable
-`npx @robrain/sensing-mcp` command a directory user can paste.
+RoBrain's Sensing server needs a running Perception backend (`npx robrain up`).
+It ships **inside** the `robrain` CLI (vendored, not a separate npm package), and
+as of **robrain ≥2.3.6** the CLI exposes a portable launch command — **`robrain mcp`** — so
+any directory or hand-written `mcp.json` can use a clean, copy-paste config:
 
-The honest install path we list everywhere is:
+```json
+{ "mcpServers": { "robrain-sensing": {
+    "command": "npx", "args": ["-y", "robrain", "mcp"]
+} } }
+```
+
+`robrain mcp` reads the Perception URL + key from `~/.robrain/config.json`
+(written by `npx robrain up` / `npx robrain install`), so **no `env` block is
+needed** in the mcp.json. To point at a non-default backend, pass them
+explicitly and they win:
+
+```json
+{ "mcpServers": { "robrain-sensing": {
+    "command": "npx", "args": ["-y", "robrain", "mcp"],
+    "env": { "PERCEPTION_API_URL": "http://localhost:3001", "PERCEPTION_API_KEY": "..." }
+} } }
+```
+
+Full setup a first-time user still runs once:
 
 ```bash
 npx robrain@latest up            # start Postgres + Perception (Docker)
-npx robrain install              # wire the Sensing MCP into your editor
+npx robrain install              # (optional) auto-wire editors + write config.json
 ```
-
-> **Recommended code change (small, high-leverage): add `robrain mcp` — a
-> command that execs the vendored Sensing server.** Then every directory can
-> show a clean, portable config:
-> ```json
-> { "mcpServers": { "robrain-sensing": {
->     "command": "npx", "args": ["-y", "robrain", "mcp"],
->     "env": { "PERCEPTION_URL": "http://localhost:3001", "PERCEPTION_API_KEY": "..." }
-> } } }
-> ```
-> Without it, listings must send users to the repo for `robrain install`, which
-> converts worse. This is the single biggest thing that makes RoBrain "listable."
-> Tracked separately from these submissions.
 
 ## Consistent copy (reuse verbatim)
 
@@ -60,11 +64,11 @@ npx robrain install              # wire the Sensing MCP into your editor
 
 | # | Target | Action | Fit | Note |
 |---|--------|--------|-----|------|
-| 1 | **awesome-mcp-servers** | GitHub PR | ✅ strong | Also lands on **Glama** (Glama indexes this list) — 2 directories, 1 PR |
-| 2 | **Official MCP Registry** | `mcp-publisher` CLI / PR | ⚠️ see note | Feeds **PulseMCP** + others; but fits packaged/remote servers best |
+| 1 | **awesome-mcp-servers** | GitHub PR | ✅ strong | Also lands on **Glama** (Glama indexes this list) — 2 directories, 1 PR. No code dep. |
+| 2 | **Official MCP Registry** | `mcp-publisher` CLI | ✅ good | Feeds **PulseMCP** + others; `robrain mcp` makes it a clean npm-package entry |
 | 3 | **mcp.so** | Web form (GitHub URL) | ✅ good | Crawls GitHub; submit URL |
 | 4 | **PulseMCP** | Auto from registry, or email | ✅ good | `hello@pulsemcp.com` for direct/faster |
-| 5 | **Smithery** | `smithery.yaml` + connect repo | ⚠️ weak | Optimized for self-contained/hosted servers; RoBrain's backend requirement fits awkwardly. Lowest priority. |
+| 5 | **Smithery** | `smithery.yaml` + connect repo | ⚠️ weak | Still needs a user-run backend; lowest priority, but `robrain mcp` gives it a valid config |
 
 ---
 
@@ -91,10 +95,9 @@ PR description: paste the longer blurb above + "Apache-2.0, self-hosted, receipt
 The registry is the canonical index many directories ingest. It expects a
 `server.json` describing a **package** (npm/pypi/oci) or a **remote** endpoint.
 
-⚠️ **Fit gap:** RoBrain's server is neither a standalone npm package nor a hosted
-remote today. Cleanest path is to first ship the `robrain mcp` command (above)
-and publish/point the registry at the `robrain` npm package. Draft `server.json`
-assuming that command exists:
+The server runs via the published `robrain` npm package + the `robrain mcp`
+launch command (shipped in robrain ≥2.3.6). Draft `server.json` — set `version`
+fields to match the npm release you publish:
 
 ```json
 {
@@ -102,17 +105,17 @@ assuming that command exists:
   "name": "io.github.adelinamart/robrain",
   "description": "Self-hosted decision memory for AI coding agents — captures decisions and rejected alternatives, warns before an agent re-proposes a rejected approach.",
   "repository": { "url": "https://github.com/adelinamart/robrain", "source": "github" },
-  "version": "2.3.5",
+  "version": "2.3.6",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "robrain",
-      "version": "2.3.5",
+      "version": "2.3.6",
       "transport": { "type": "stdio" },
       "runtimeArguments": [{ "type": "positional", "value": "mcp" }],
       "environmentVariables": [
-        { "name": "PERCEPTION_URL", "description": "Perception API URL", "isRequired": true, "default": "http://localhost:3001" },
-        { "name": "PERCEPTION_API_KEY", "description": "Perception API key (from `npx robrain up`)", "isRequired": true, "isSecret": true }
+        { "name": "PERCEPTION_API_URL", "description": "Perception API URL (or omit — read from ~/.robrain/config.json)", "isRequired": false, "default": "http://localhost:3001" },
+        { "name": "PERCEPTION_API_KEY", "description": "Perception API key (or omit — read from ~/.robrain/config.json after `npx robrain up`)", "isRequired": false, "isSecret": true }
       ]
     }
   ]
@@ -120,7 +123,7 @@ assuming that command exists:
 ```
 
 Publish with the `mcp-publisher` CLI (GitHub-auth namespace `io.github.adelinamart`).
-**Blocked on the `robrain mcp` command** — do not submit a config that doesn't run.
+Ready once a release with `robrain mcp` is on npm (≥2.3.6).
 
 ## 3. mcp.so
 
@@ -132,7 +135,7 @@ Publish with the `mcp-publisher` CLI (GitHub-auth namespace `io.github.adelinama
 ## 4. PulseMCP
 
 - **Passive:** once #2 lands in the Official MCP Registry, PulseMCP ingests it (daily crawl, weekly processing). No separate action.
-- **Active (faster / custom blurb):** email `hello@pulsemcp.com` with the repo URL + longer blurb. Do this if the registry path is delayed by the `robrain mcp` dependency.
+- **Active (faster / custom blurb):** email `hello@pulsemcp.com` with the repo URL + longer blurb if you want a listing before the registry crawl catches up.
 
 ## 5. Smithery (lowest priority)
 
@@ -159,22 +162,21 @@ startCommand:
       command: "npx",
       args: ["-y", "robrain", "mcp"],
       env: {
-        PERCEPTION_URL: config.perceptionUrl || "http://localhost:3001",
+        PERCEPTION_API_URL: config.perceptionUrl || "http://localhost:3001",
         PERCEPTION_API_KEY: config.perceptionApiKey
       }
     })
 ```
 
-  Also depends on the `robrain mcp` command. Skip until the higher-fit
-  directories are done.
+  Uses the same `robrain mcp` command. Skip until the higher-fit directories
+  are done.
 
 ---
 
 ## Suggested execution sequence
 
-1. `git push` (unblocks everything).
-2. Add `robrain mcp` launch command (unblocks portable configs for #2/#3/#5).
-3. **awesome-mcp-servers PR** — highest leverage, no code dependency; also lands on Glama.
-4. **mcp.so form** — quick, crawls the repo.
-5. **Official MCP Registry** `server.json` — feeds PulseMCP automatically.
-6. **Smithery** — only if you want the extra surface; weakest fit.
+1. `git push` + publish the release to npm (the `robrain mcp` command ships in ≥2.3.6). Unblocks every portable config below.
+2. **awesome-mcp-servers PR** — highest leverage, no npm dependency (repo link only); also lands on Glama.
+3. **mcp.so form** — quick, crawls the repo.
+4. **Official MCP Registry** `server.json` — feeds PulseMCP automatically.
+5. **Smithery** — only if you want the extra surface; weakest fit.
