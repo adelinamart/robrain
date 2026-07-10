@@ -666,6 +666,7 @@
               <span class="pill">Cursor</span>
               <span class="pill">Copilot</span>
               <span class="pill">Codex CLI</span>
+              <span class="pill">Hermes</span>
             </div>
             <div class="cta-row hero-cta">
               <a class="btn btn-primary" href="https://github.com/adelinamart/robrain">View on GitHub</a>
@@ -735,9 +736,6 @@
         <h2 id="product-comparison"><span class="icon">⊞</span> What RoBrain does that others don't</h2>
         <div class="table-wrap table-wrap--matrix" role="region" aria-labelledby="product-comparison">
           <table class="compare-matrix">
-            <caption>
-              Feature comparison: RoBrain vs Mem0 vs Cloudflare Agent Memory vs Claude Code Auto-Memory
-            </caption>
             <thead>
               <tr>
                 <th scope="col">Feature</th>
@@ -892,11 +890,13 @@
           </p>
         </div>
         <div class="arch-block">
-          <h3>What starts with one Docker command</h3>
+          <h3>What starts with Docker</h3>
           <p>
-            Run <code>pnpm docker:up</code> and RoBrain brings up <strong>Postgres</strong> (decisions + pgvector for
-            retrieval) and the <strong>Perception API</strong> (extracts and stores decisions from session turns) in
-            the background.
+            From a clone, <code>pnpm docker:up</code> brings up <strong>Postgres</strong> (decisions + pgvector for
+            retrieval) on the first run — it also creates <code>.env</code>. Add your LLM and embedding keys, then run it
+            again and the <strong>Perception API</strong> (extracts and stores decisions from session turns) starts in
+            the background. No clone? <code>npx robrain up</code> does the same with a managed stack under
+            <code>~/.robrain/stack/</code>.
           </p>
         </div>
         <div class="arch-block">
@@ -1015,6 +1015,50 @@ claude plugin install robrain@robrain</code></pre>
       </section>
 
       <p class="section-bridge">
+        Running <a href="https://github.com/NousResearch/hermes-agent">Hermes</a>? RoBrain ships as a memory-provider
+        plugin — same Postgres store, same <code>rejected[]</code> vetoes.
+      </p>
+
+      <section class="card">
+        <h2><span class="icon">⬡</span> Hermes agent</h2>
+        <p>
+          For <a href="https://github.com/NousResearch/hermes-agent">Hermes</a>, RoBrain installs as a standalone
+          memory-provider plugin under <code>~/.hermes/plugins/robrain</code>. Passive capture, semantic prefetch, and
+          veto-aware warnings all go through your self-hosted Perception API — no separate memory stack.
+        </p>
+        <div class="arch-block">
+          <h3>Session start</h3>
+          <p>
+            Injects the <strong class="always-on-summary">always-on summary</strong> into the system prompt — top
+            decisions with their rejected alternatives.
+          </p>
+        </div>
+        <div class="arch-block">
+          <h3>Each turn</h3>
+          <p>
+            Background semantic retrieval surfaces relevant vetoes as <code>REJECTED:</code> warnings; completed turns
+            ship to Perception for server-side extraction.
+          </p>
+        </div>
+        <div class="arch-block">
+          <h3>On demand</h3>
+          <p>
+            The <code>robrain_search</code> tool lets the agent query decisions and ruled-out approaches before
+            committing to a plan.
+          </p>
+        </div>
+        <p class="code-label">Install the plugin (no clone)</p>
+        <pre><code>npx robrain@latest up
+npx robrain install --hermes
+hermes memory setup    # select "robrain"</code></pre>
+        <p style="margin-top: 0.65rem; font-size: 0.95rem">
+          Combine with editor wiring in one run: <code>npx robrain install --self-hosted --hermes</code>. Every hook
+          <strong>fails open</strong> — if Perception is down, Hermes keeps working without blocking. Details:
+          <a href="https://github.com/adelinamart/robrain/blob/main/integrations/hermes/robrain/README.md">integrations/hermes</a>.
+        </p>
+      </section>
+
+      <p class="section-bridge">
         Already running self-hosted, or want the version with less manual lifting?
       </p>
 
@@ -1094,6 +1138,9 @@ claude plugin install robrain@robrain</code></pre>
           </li>
           <li style="margin-bottom: 0.45rem">
             <a href="https://github.com/adelinamart/robrain/tree/main/plugins/claude-code">plugins/claude-code</a> — hook-based capture + veto warnings
+          </li>
+          <li style="margin-bottom: 0.45rem">
+            <a href="https://github.com/adelinamart/robrain/blob/main/integrations/hermes/robrain/README.md">integrations/hermes</a> — Hermes memory-provider plugin
           </li>
           <li>
             <a href="https://github.com/adelinamart/robrain/blob/main/docs/memory-interchange.md">docs/memory-interchange.md</a> — <code>robrain-memory/v1</code> JSONL export format
