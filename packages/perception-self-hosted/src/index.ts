@@ -27,6 +27,7 @@ import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, 
 import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
+import { filterVetoMatches, type VetoScanRow } from './veto-scan.js'
 
 const { Pool } = pg
 
@@ -627,6 +628,54 @@ app.get('/decisions', async (c) => {
     return c.json({ decisions: rows, count: rows.length })
   } catch (err) {
     console.error('[Perception OSS] GET /decisions error:', err)
+    return c.json({ error: 'Internal error' }, 500)
+  }
+})
+
+// ── POST /veto-scan — deterministic rejected-option check ─────
+// The zero-embedding tier of the pre-task veto check: does this text
+// literally name an option an active decision explicitly rejected?
+// No embedding call, no LLM — SQL pre-filters candidates with a broad
+// ILIKE over rejected[] options, then JS verifies word boundaries with
+// the shared matcher. Fast enough for hooks to call on every prompt.
+const VetoScanSchema = z.object({
+  project_id: z.string().max(200),
+  text:       z.string().min(1).max(MAX_DECISION_TEXT),
+})
+
+app.post('/veto-scan', writeRateLimit, async (c) => {
+  let body: z.infer<typeof VetoScanSchema>
+  try {
+    body = VetoScanSchema.parse(await c.req.json())
+  } catch (err) {
+    return c.json({ error: 'Invalid body', detail: String(err) }, 400)
+  }
+
+  const unknownProject = await jsonIfProjectUnknown(body.project_id, c)
+  if (unknownProject) return unknownProject
+
+  try {
+    // Pre-filter in SQL: active decisions with at least one rejected option
+    // (≥ 3 chars — the matcher skips shorter ones anyway) appearing as a
+    // substring of the text. Word boundaries are verified in JS; ILIKE alone
+    // would call "pineconeish" a match.
+    const { rows } = await pool.query<VetoScanRow>(`
+      SELECT d.id, d.decision, d.rejected, d.reviewed_at
+      FROM ${S}.decisions d
+      WHERE d.project_id = $1
+        AND d.invalidated_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(d.rejected) AS r
+          WHERE length(trim(r->>'option')) >= 3
+            AND $2 ILIKE '%' || trim(r->>'option') || '%'
+        )
+      ORDER BY d.created_at DESC
+      LIMIT 20
+    `, [body.project_id, body.text])
+
+    return c.json({ matches: filterVetoMatches(body.text, rows) })
+  } catch (err) {
+    console.error('[Perception OSS] POST /veto-scan error:', err)
     return c.json({ error: 'Internal error' }, 500)
   }
 })
