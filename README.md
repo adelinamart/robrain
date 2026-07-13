@@ -2,11 +2,11 @@
 
 [![VetoBench](https://img.shields.io/badge/VetoBench-0%2F50_violations_·_receipts_in--repo-2ea44f)](#vetobench)
 
-**Shared memory across your team and your AI agents — with judgment about what's worth keeping.**
+**Shared memory across your team and your AI agents — with judgment!**
 
 RoBrain isn't just another memory layer — it's the brain that helps you and your agents make better decisions and avoid costly mistakes.
 
-Self-hosted on your own Postgres. Passive capture, structured vetoes, corpus-wide contradiction scans — nothing leaves your machine. Works with Claude Code, Cursor, GitHub Copilot (VS Code), and Codex CLI.
+Self-hosted on your own Postgres. Passive capture, structured vetoes, corpus-wide contradiction scans — nothing leaves your machine. Works with Claude Code, Cursor, GitHub Copilot (VS Code), Codex CLI, Hermes and more.
 
 Measured: without decision memory, a coding agent re-proposes an approach your team already rejected in up to **9 of 10** tasks. Through RoBrain's full pipeline: **0 of 50**, across five archived runs — [VetoBench](#vetobench).
 
@@ -113,7 +113,7 @@ npx robrain export-memory --ledger
 
 ## Compared to other tools
 
-Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs scheduled corpus-wide contradiction scans. And we measured what that difference costs: [VetoBench](#vetobench) found Mem0's ingestion dropped the recorded rejection from **38% of retrieved contexts** on identical input. [Full comparison →](docs/concepts.md#comparisons)
+Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs corpus-wide contradiction scans (manual or cron). And we measured what that difference costs: [VetoBench](#vetobench) found Mem0's ingestion dropped the recorded rejection from **38% of retrieved contexts** on identical input. [Full comparison →](docs/concepts.md#comparisons)
 
 ### Self-hosted vs Rory Plans cloud
 
@@ -144,7 +144,7 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Pre-task `rejected[]` warning | Claude Code (plugin) + Hermes (provider) | ✓ everywhere |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
 | Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
-| Full 5-signal relevance scorer | — | ✓ |
+| 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
 | Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |

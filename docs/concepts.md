@@ -114,17 +114,6 @@ With this set, **no `ANTHROPIC_API_KEY` is required** — Perception, Sensing, a
 >
 > Synthesis uses Anthropic's ephemeral prompt cache on the default path; the OpenAI path simply skips that (OpenAI caches inputs automatically), so the only difference is cost behavior, not correctness.
 
-### How RoBrain compares
-
-The full product-by-product breakdown is in [the landscape table at the top of this page](#the-memory-landscape-at-a-glance-july-2026). The short version:
-
-- **Claude Code Auto-Memory** captures per-user, per-machine. Bob's machine has no idea what Alice's machine learned.
-- **Mem0** stores facts and resolves contradictions at the moment of insertion. It doesn't periodically scan the whole corpus for contradictions that emerge later.
-- **Cloudflare Agent Memory** offers shared team memory profiles but runs as a managed service on Cloudflare's infrastructure.
-- **RoBrain** captures decisions + rejected alternatives as structured data in your Postgres, runs a scheduled scan over the whole corpus to catch contradictions, and keeps both sides queryable when decisions change.
-
-See [RoBrain vs Claude Code Auto Memory](#robrain-vs-claude-code-auto-memory) and [Comparisons](#comparisons) for the detailed breakdown.
-
 ### How memory gets back into your next session
 
 There are two retrieval paths, and the automatic one is the default:
@@ -414,7 +403,7 @@ The self-hosted version already brings decisions back automatically through the 
 | Pre-task `rejected[]` warning | ✓ Claude Code plugin + Hermes provider | ✓ every tool |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
 | Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
-| Full 5-signal relevance scorer | — | ✓ |
+| 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
 | Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
@@ -430,18 +419,32 @@ The extraction quality difference is real but secondary. Both versions use Claud
 
 ## Comparisons
 
+### How RoBrain compares
+
+The full product-by-product breakdown is in [the landscape table at the top of this page](#the-memory-landscape-at-a-glance-july-2026). The short version:
+
+- **Claude Code Auto-Memory** captures per-user, per-machine. Bob's machine has no idea what Alice's machine learned.
+- **Mem0** stores facts and resolves contradictions at the moment of insertion. It doesn't scan the whole corpus for contradictions that emerge later.
+- **Cloudflare Agent Memory** offers shared team memory profiles, but runs as a managed service on Cloudflare's infrastructure.
+- **Zep / Graphiti** builds a temporal knowledge graph of facts that changed — not options that were never adopted.
+- **RoBrain** captures decisions + rejected alternatives as structured data in your Postgres, runs a corpus-wide contradiction scan (manual or cron), and keeps both sides queryable when decisions change.
+
+The sections below take these one at a time.
+
 ### RoBrain vs Claude Code Auto Memory
 
-**Claude Code Auto memory** is Anthropic’s native persistence: Claude writes notes as it works into machine-local markdown under `~/.claude/projects/…/memory/` ([official docs](https://docs.anthropic.com/en/docs/claude-code/memory)). Roughly the **first ~200 lines or 25 KB** of `MEMORY.md` loads every session; deeper notes live in topic files Claude reads **on demand** with normal file tooling. It ships with **Claude Code v2.1.59+** and needs **no Docker or Postgres**. That makes it the closest competitor to RoBrain’s “capture things without writing MEMORY.md yourself” story — but the **shape of the data** differs.
+**Claude Code Auto memory** is Anthropic’s native persistence: Claude writes notes as it works into machine-local markdown under `~/.claude/projects/…/memory/` ([official docs](https://code.claude.com/docs/en/memory)). Roughly the **first ~200 lines or 25 KB** of `MEMORY.md` loads every session; deeper notes live in topic files Claude reads **on demand** with normal file tooling. It ships on by default in recent Claude Code versions and needs **no Docker or Postgres**. That makes it the closest competitor to RoBrain’s “capture things without writing MEMORY.md yourself” story — but the **shape of the data** differs.
 
 | Capability | Claude auto-memory | RoBrain |
 |---|---|---|
 | Storage | Local markdown files, per-user, per-machine | Postgres, can be team-shared |
-| Capture mechanism | Active — Claude decides what to write | Systematic passive — every turn auto-classified, Claude doesn't decide |
+| Capture mechanism | Active — Claude decides what to write | Passive — every turn auto-classified server-side; hook-deterministic with the Claude Code plugin or Hermes provider |
 | Cross-tool | Claude Code only | Any MCP-capable client (Claude Code, Cursor, etc.) |
 | Recall | Loads `MEMORY.md` index at session start | Always-on summary + semantic search via embeddings |
 | Audit trail | Files only | Full session turn history in DB |
 | New developer joining the project | Sees nothing | Inherits the team's accumulated memory immediately |
+
+This table is about Claude Code's local auto-memory specifically. Anthropic's team-shared, versioned memory stores (Managed Agents, beta) are a different surface — hosted, and not wired into coding editors.
 
 **When Auto memory is enough:** solo dev, single editor (Claude Code), repo younger than ~6 months, and you’re fine curating markdown when notes drift.
 
@@ -454,7 +457,7 @@ The two can coexist: Auto memory for lightweight scratch notes; RoBrain for cano
 Your AI agent resets every session.
 Mem0 stores facts. Zep stores entity relationships and conversation history. Neither exposes rejected alternatives as a first-class, structured field you can query — which means your agent can know "we use Zustand" but not "we considered Redux and ruled it out for a specific reason." The veto gets lost in prose or not captured at all.
 
-RoBrain stores each veto in **`rejected[]`** so the judgment layer can act on it: pre-task warnings (Claude Code plugin hook or cloud Control), semantic inject, contradiction surfacing, and Synthesis clustering — not as an isolated novelty, but as the structured input those features require.
+RoBrain stores each veto in **`rejected[]`** so the judgment layer can act on it: pre-task warnings (Claude Code plugin hook, Hermes provider, the deterministic `POST /veto-scan` endpoint, or cloud Control), semantic inject, contradiction surfacing, and Synthesis clustering — not as an isolated novelty, but as the structured input those features require.
 
 We are not aware of another coding agent memory tool with a first-class rejected alternatives field — but we welcome corrections if that's wrong.
 
@@ -529,19 +532,18 @@ RoBrain and Zep answer different questions and work well together.
 
 **Zep / Graphiti** captures *conversation history and entity relationships* — it stores sessions, extracts facts, builds a temporal knowledge graph, and supports semantic retrieval across all of it. Zep can implicitly capture decisions too — the difference is that RoBrain surfaces rejected alternatives as a structured `rejected[]` field you can query directly, whereas in Zep they would live in conversation prose. For relationship queries — "how does the auth module connect to everything else?" — Zep's multi-strategy retrieval (semantic + graph traversal + BM25) is particularly strong.
 
-A combined setup:
+A combined setup — pull RoBrain's structured decisions with `inject`, query Zep through its SDK, and put both in front of the agent:
 
 ```bash
-# Before a task — get both types of context
-npx robrain inject --query "auth flow" --copy   # structured decisions + rejected alternatives
-zep search "authentication" --project my-app    # conversation history + entity graph
-
-# Paste both into Claude Code
+# Before a task — structured decisions + rejected alternatives
+npx robrain inject --query "auth flow" --copy
+# Then fetch conversation history + entity graph via Zep's SDK
+# (graph.search / memory.get — Zep is API/SDK-driven, not a CLI)
 ```
 
 RoBrain gives structured decision history with vetoes. Zep gives the broader relationship and conversation graph. They are complementary, not competing.
 
-Zep is open source (Apache 2.0): [github.com/getzep/zep](https://github.com/getzep/zep)
+Licensing note: Zep deprecated its self-hosted Community Edition in April 2025 (the [getzep/zep](https://github.com/getzep/zep) repo remains Apache 2.0 but frozen); the product is now Zep Cloud. The actively maintained open-source piece is [Graphiti](https://github.com/getzep/graphiti), the temporal knowledge-graph framework underneath it.
 
 ### Why we don't compete on retrieval benchmarks
 
@@ -579,7 +581,7 @@ Tracked improvements not yet implemented in this repo:
 
 - **Remote MCP for cloud agents (e.g. ChatGPT Codex web agent).** `robrain install` wires a **stdio** MCP server (`command = "node"`, a local bundle path) that talks to Perception at `localhost:3001`. That covers the local Codex CLI and the Codex IDE extension — both share `~/.codex/config.toml` — but **not** the cloud/web Codex agent, which runs in a sandboxed container where neither the local node binary nor a `localhost` Perception exists. Codex supports **remote Streamable-HTTP MCP servers** (`url` + `bearer_token_env_var`), so a hosted Perception/Sensing endpoint behind HTTPS + a token could let cloud agents capture too. That hosted surface is the Rory Plans cloud direction, not the OSS self-hosted path — tracked here so the gap is explicit. (`AGENTS.md` is still read by the cloud agent; only the `sensing_*` tools are unavailable there.)
 
-**Shipped recently:** Perception **404** responses include an actionable **`hint`** (copy tells users to run **`npx robrain init-project`** from the project root). Sensing MCP surfaces **`perception_error`** / **`perception_write_error`** in tool JSON; **`install`** chains **`init-project`** by default (`--skip-init-project` to opt out); **`robrain projects list`** / **`merge`** help repair fragmented installs.
+**Shipped recently:** Perception **404** responses include an actionable **`hint`** (copy tells users to run **`npx robrain init-project`** from the project root). Sensing MCP surfaces registration failures as **`perception_error`** in the `sensing_start_session` response, and write-path failures as **`last_decision_ship_failure`** in the `sensing_get_status` response; **`install`** chains **`init-project`** by default (`--skip-init-project` to opt out); **`robrain projects list`** / **`merge`** help repair fragmented installs.
 
 ---
 
@@ -603,21 +605,24 @@ The alternative — CLAUDE.md maintained manually — has zero false positives b
 
 **Mid-session DB inspection:** Sensing buffers turns in-process ([`packages/sensing-mcp/src/buffer.ts`](https://github.com/adelinamart/robrain/blob/main/packages/sensing-mcp/src/buffer.ts)) and flushes raw rows to Postgres when `sensing_end_session` runs; decisions are written asynchronously on the classifier path—so seeing **0** `session_turns` while decisions already exist is expected, not a bug.
 
-The `decisions` table is the core of RoBrain. Open source, Apache 2.0.
+The `decisions` table is the core of RoBrain. Open source, Apache 2.0. Abridged to the core columns — the real table adds provenance, review, conflict-detection, and feedback-loop columns:
 
 ```sql
 CREATE TABLE context_system.decisions (
   id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,           -- which project owns this decision
+  session_id      TEXT NOT NULL,           -- which session produced this
   decision        TEXT NOT NULL,           -- what was chosen
   rationale       TEXT,                    -- why (max 15 words)
   rejected        JSONB DEFAULT '[]',      -- [{option, reason}] — substrate for warnings + judgment
   files_affected  TEXT[],                  -- files being discussed
-  confidence      FLOAT,                   -- classifier confidence 0–1
-  scope           TEXT,                    -- user/local/team/global
+  confidence      FLOAT DEFAULT 0.8,       -- classifier confidence 0–1
+  scope           TEXT DEFAULT 'team',     -- user/local/team/global
   invalidated_at  TIMESTAMPTZ,             -- null = still valid (never deletes)
   embedding       vector(1536),            -- for semantic search
-  created_at      TIMESTAMPTZ,
-  session_id      TEXT                     -- which session produced this
+  created_at      TIMESTAMPTZ
+  -- ...plus source, supersedes_id, conflict_flag, reviewed_at, and
+  -- provenance/feedback columns — see full schema below
 );
 ```
 

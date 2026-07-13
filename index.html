@@ -962,10 +962,10 @@ claude plugin install robrain@robrain</code></pre>
         <div class="arch-block">
           <h3>Cloud-only extras</h3>
           <p>
-            <strong>Planning API</strong> and <strong>Control MCP</strong> add a 5-signal relevance scorer, automatic
-            injection at task boundaries across every editor, and a pre-commit <code>/dry-run</code> conflict verdict —
-            distinct from OSS <code>POST /veto-scan</code>, which is the deterministic pre-action check for literal
-            rejected-option mentions. Full breakdown below.
+            <strong>Planning API</strong> and <strong>Control MCP</strong> add automatic injection at task boundaries
+            across every editor — applying the same 5-signal relevance scoring OSS exposes on retrieval — plus a
+            pre-commit <code>/dry-run</code> conflict verdict, distinct from OSS <code>POST /veto-scan</code>, which is
+            the deterministic pre-action check for literal rejected-option mentions. Full breakdown below.
           </p>
         </div>
       </section>
@@ -1066,6 +1066,11 @@ claude plugin install robrain@robrain</code></pre>
           plugin installed, the <code>sensing_record_turn</code> block in <code>CLAUDE.md</code> becomes optional, and
           decisions still surface in Cursor, Copilot, and Codex through the same store.
         </p>
+        <p style="margin-top: 0.65rem; font-size: 0.95rem">
+          One install covers the team: <code>npx robrain init-project</code> writes the plugin recommendation into the
+          repo's <code>.claude/settings.json</code>, so every teammate who opens the project in Claude Code is prompted
+          to install it — nobody has to be told the plugin exists (opt out with <code>--skip-claude-plugin</code>).
+        </p>
       </section>
 
       <p class="section-bridge">
@@ -1151,7 +1156,8 @@ hermes memory setup    # select "robrain"</code></pre>
               <tr><th scope="row">Deterministic veto scan (<code>POST /veto-scan</code>)</th><td>✓</td><td class="muted">—</td></tr>
               <tr><th scope="row">Pre-task <code>rejected[]</code> warning before the agent acts</th><td class="muted">Claude Code (plugin) and Hermes (provider)</td><td>✓ everywhere</td></tr>
               <tr><th scope="row">Pre-commit conflict verdict (<code>/dry-run</code>)</th><td class="muted">—</td><td>✓</td></tr>
-              <tr><th scope="row">Full 5-signal relevance scorer + calibrated extraction</th><td class="muted">—</td><td>✓</td></tr>
+              <tr><th scope="row">5-signal relevance scorer</th><td>✓ on retrieval</td><td>✓ applied automatically per task</td></tr>
+              <tr><th scope="row">Calibrated extraction prompt (fewer false positives)</th><td class="muted">—</td><td>✓</td></tr>
               <tr><th scope="row">Auto-propagated vetoes + write-time supersession detection</th><td class="muted">—</td><td>✓</td></tr>
               <tr><th scope="row">Conflict auto-resolution + decision lineage timeline</th><td class="muted">—</td><td>✓</td></tr>
               <tr><th scope="row">Team memory — orgs, API keys, roles, scoped isolation</th><td class="muted">—</td><td>✓</td></tr>
