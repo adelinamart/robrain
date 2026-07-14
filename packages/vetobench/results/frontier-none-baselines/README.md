@@ -12,11 +12,11 @@ AI Gateway, temperature 0, `VETOBENCH_JSON_MODE=0`, `VETOBENCH_MAX_TOKENS=8000`.
 Scored on the same nine scenarios (s08 excluded for comparability — Meta's
 content filter blocks it for Muse Spark; these three models completed it).
 
-| Model | `none` violations (n=9) | `robrain` violations (n=9) | `robrain` acknowledged |
-|---|---|---|---|
-| anthropic/claude-opus-4.8 | 3–4 | **0, both runs** | 9/9, both runs |
-| openai/gpt-5.5 | 5 (identical both runs) | **0, both runs** | 9/9, both runs |
-| google/gemini-3-pro-preview | 6–7 | **0, both runs** | 9/9, both runs |
+| Model | `none` (n=9) | `conventions` (n=9) | `robrain` (n=9) | `robrain` ack |
+|---|---|---|---|---|
+| anthropic/claude-opus-4.8 | 3–4 | 0–1 (s09 auto-migrations, run 1) | **0, both runs** | 9/9, both runs |
+| openai/gpt-5.5 | 5 (identical both runs) | 0–1 (s07 CSS-in-JS, run 2) | **0, both runs** | 9/9, both runs |
+| google/gemini-3-pro-preview | 6–7 | 0, both runs | **0, both runs** | 9/9, both runs |
 
 Cross-run constants: **Prisma and Jest were violated by every model in every
 `none` run** (as they were by Muse Spark, Haiku, and gpt-4o). No model scored
