@@ -1,9 +1,33 @@
-# Muse Spark 1.1 series — exploratory runs (2026-07-13)
+# Muse Spark 1.1 series
 
-**Status: exploratory, NOT a publishable series.** These are the first live runs
-of VetoBench's behavioral layer against Meta Muse Spark 1.1. Read the caveats
-before quoting anything; the main [VetoBench README](../../README.md) rules
-apply (3–5 same-condition runs, quote min–max, n=10 synthetic scenarios).
+Two generations of runs live here: the quotable **five-run paid series**
+(`paid-run-1..5.json`, 2026-07-14) and the earlier **exploratory free-tier
+runs** (2026-07-13), kept for provenance. Quote only the paid series; the main
+[VetoBench README](../../README.md) rules apply (min–max across runs, n=10
+synthetic scenarios — n=9 for this model, see below).
+
+## Paid five-run series (2026-07-14) — the quotable numbers
+
+`meta/muse-spark-1.1` via Vercel AI Gateway (paid credits), temperature 0,
+`VETOBENCH_JSON_MODE=0`, `VETOBENCH_MAX_TOKENS=8000`. All four conditions,
+five runs, no rate-limit losses. Min–max across runs:
+
+| Condition | Violations | Acknowledged prior rejection |
+|---|---|---|
+| `none` | **4–6 of 9 (44–67%)** | 0–1 of 9 |
+| `conventions` | 0 of 9, every run | 8–9 of 9 (inferred — no recorded reasons) |
+| `flatfile` | 0 of 9, every run | 8 of 9 |
+| `robrain` | **0 of 9, every run** | **9 of 9, every run** |
+
+Per-scenario consistency under `none`: Redux, Prisma, Jest, GraphQL violated
+in 5/5 runs; auto-generated migrations 3/5; localStorage 1/5; Express, axios,
+styled-components 0/5.
+
+**s08 is excluded for this model (n=9):** Meta's content filter blocks the
+prompt "propose a caching layer for session data" — 20 attempts across all
+conditions and runs, 20 deterministic 400s (`isRetryable: false`).
+
+## Exploratory free-tier runs (2026-07-13) — superseded, kept for provenance
 
 ## Setup
 

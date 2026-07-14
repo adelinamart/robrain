@@ -166,11 +166,13 @@ Codex users: trust hooks on first run after reinstall.
 
 | Step | When | Action |
 |------|------|--------|
-| Glama | Dockerfile or MCP surface changed | Glama rebuilds from root `Dockerfile`; unpinned `npm install -g robrain` in Glama config auto-tests latest |
+| Glama | check fails, or launch contract changes | Zero-touch normally (see note below); admin config only on failure or if `robrain mcp` / required env / Node floor changes |
 | awesome-mcp-servers | Glama score changes | PR with Glama badge (see [mcp-directories.md](distribution/mcp-directories.md)) |
 | mcp.so | optional | Web form — may auto-ingest registry |
 | Smithery | skip | User-run backend; listing cannot launch |
 | MCP Registry re-login | 401 on publish | `mcp-publisher login github` |
+
+**Glama:** zero-maintenance per release — its build config installs unpinned `npm install -g robrain` (its own config, not the repo `Dockerfile`), so every Glama re-check automatically tests the latest npm release, license/score read from GitHub, and the badge refreshes itself. After publishing, glance at the [score badge](https://glama.ai/mcp/servers/adelinamart/robrain): green means npm install → server start → introspection just re-verified for free; red means a broken release — fix on the npm side, then one **Build & Release** in the Glama admin.
 
 ---
 
