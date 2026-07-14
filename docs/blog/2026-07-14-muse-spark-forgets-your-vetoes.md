@@ -54,20 +54,22 @@ Muse Spark 1.1 via Vercel AI Gateway, 2026-07-14, five archived runs, temperatur
 
 The traps it walked into without memory, by consistency: Redux, Prisma, Jest, GraphQL — five runs out of five; auto-generated migrations — three of five; localStorage — one of five. It avoided Express, axios, and styled-components in all runs.
 
-And this is not a Muse Spark problem — **every frontier model we ran walks into these traps without memory.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks for its own model — the others completed it), no-memory violations per run:
+And this is not a Muse Spark problem — **every frontier model we ran walks into these traps without memory, and most still leak through choices-only memory.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks for its own model — the others completed it), violations per run:
 
-| Model | No-memory violations (n=9) | Runs |
-|---|---|---|
-| claude-opus-4.8 | **3–4** | 2 |
-| **muse-spark-1.1** | **4–6** | 5 |
-| gpt-5.5 | 5 (identical both runs) | 2 |
-| gemini-3-pro-preview | 6–7 | 2 |
-| claude-haiku-4-5 | 7–8 | 5 |
-| gpt-4o | 9 | 1 |
+| Model | No memory | Choices-only memory (conventions file) | RoBrain decision memory |
+|---|---|---|---|
+| claude-opus-4.8 | 3–4 of 9 | 0–1 of 9 (re-proposed auto-generated migrations) | **0** — 18/18 cells |
+| **muse-spark-1.1** | 4–6 of 9 | 0, five runs | **0** — 45/45 cells |
+| gpt-5.5 | 5 of 9 (identical both runs) | 0–1 of 9 (re-proposed CSS-in-JS) | **0** — 18/18 cells |
+| gemini-3-pro-preview | 6–7 of 9 | 0, both runs | **0** — 18/18 cells |
+| claude-haiku-4-5 | 7–8 of 9 | 1–2 of 10 per run | **0** — 50/50 cells |
+| gpt-4o | 9 of 9 | 2 of 10 | **0** — 10/10 cells |
 
-Opus 4.8 posted the best no-memory result; Muse Spark sits in the frontier pack, ahead of Gemini 3 Pro and roughly level with GPT-5.5 — a genuinely strong showing for a week-old model. The structural finding is the column, not the ranking: **no model scored zero, and Prisma and Jest were violated by every model in every run.** Capability moves the rate; it doesn't close the gap.
+(Muse Spark and Haiku are five-run series; the other baselines are two runs — directional, not completed series. Haiku and gpt-4o conventions/robrain cells are n=10; archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
 
-We then ran Opus 4.8, GPT-5.5, and Gemini 3 Pro **with RoBrain decision memory in context** (two runs each): **0 violations in all 54 cells, the prior rejection named in every one** — matching Muse Spark's 0-in-45. Across four vendors: **99 of 99 cells, zero re-proposals.** The gap isn't model-shaped; it's context-shaped. (The two-run baselines are directional, not a completed series — archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
+Three things this table says. **No model scored zero without memory** — Prisma and Jest fell to every model in every no-memory run; Opus 4.8 posted the best baseline, with Muse Spark a strong second for a week-old model. **Choices-only memory gets you close but not safe** — four of six models still re-proposed a rejected approach at least once with the conventions file in context, and its acknowledgments are inferences throughout (7–9 of 9, no recorded reason to cite). **The right-hand column is the only all-zero column: 159 of 159 cells across six models from four vendors, every cell naming the prior rejection.** The gap isn't model-shaped; it's context-shaped.
+
+One more finding you'd expect us to test but can't: **each vendor's own default memory layer.** Three of the four don't have one at the developer API level — Meta's Model API, OpenAI's API, and Google's API ship no persistence at all (their memory features are consumer-app-only). Anthropic's beta memory tool is the sole exception; running it through VetoBench needs a proper tool-use harness and is a follow-up we intend to publish, whatever it shows.
 
 ## Everyone already has a memory layer. Does the rejection survive it?
 
