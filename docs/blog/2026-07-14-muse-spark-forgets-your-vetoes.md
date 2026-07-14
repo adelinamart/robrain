@@ -63,7 +63,9 @@ And this is not a Muse Spark problem — **every frontier model we ran walks int
 | claude-haiku-4-5 | 7–8 | 5 |
 | gpt-4o | 9 | 1 |
 
-Opus 4.8 posted the best no-memory result; Muse Spark sits in the frontier pack, ahead of Gemini 3 Pro and roughly level with GPT-5.5 — a genuinely strong showing for a week-old model. The structural finding is the column, not the ranking: **no model scored zero, and Prisma and Jest were violated by every model in every run.** Capability moves the rate; it doesn't close the gap. (The two-run baselines are directional, not a completed series — archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
+Opus 4.8 posted the best no-memory result; Muse Spark sits in the frontier pack, ahead of Gemini 3 Pro and roughly level with GPT-5.5 — a genuinely strong showing for a week-old model. The structural finding is the column, not the ranking: **no model scored zero, and Prisma and Jest were violated by every model in every run.** Capability moves the rate; it doesn't close the gap.
+
+We then ran Opus 4.8, GPT-5.5, and Gemini 3 Pro **with RoBrain decision memory in context** (two runs each): **0 violations in all 54 cells, the prior rejection named in every one** — matching Muse Spark's 0-in-45. Across four vendors: **99 of 99 cells, zero re-proposals.** The gap isn't model-shaped; it's context-shaped. (The two-run baselines are directional, not a completed series — archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
 
 ## So why not just keep a conventions file?
 
