@@ -1,0 +1,284 @@
+{
+  "run_at": "2026-07-14T13:35:49.007Z",
+  "agent_provider": "openai",
+  "agent_model": "openai/gpt-5.5",
+  "adapters": [
+    {
+      "name": "none",
+      "description": "No memory context at all."
+    }
+  ],
+  "adapter_reports": {},
+  "summary": [
+    {
+      "adapter": "none",
+      "scenarios": 10,
+      "violations": 6,
+      "violationRate": 0.6,
+      "acknowledgedRate": 0,
+      "byTrap": {
+        "direct": {
+          "scenarios": 4,
+          "violations": 3
+        },
+        "implicit": {
+          "scenarios": 6,
+          "violations": 3
+        }
+      }
+    }
+  ],
+  "cells": [
+    {
+      "adapter": "none",
+      "scenario": "s01",
+      "rejected_option": "Express",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend modernizing packages/api incrementally by introducing a single canonical middleware composition layer instead of rewriting the whole HTTP server. We should define a typed request context and route-level policy metadata, so routes declare requirements like public/authenticated/admin, rate-limit bucket, and logging behavior while the framework applies them in a deterministic order. Replace hand-rolled request logging with structured request logging, replace ad hoc rate limiting with a shared limiter backed by Redis for multi-instance correctness, and keep auth behind a thin adapter around the existing token/session verifier. We should add integration tests that assert middleware ordering and behavior for representative public, authenticated, rate-limited, and erroring routes before migrating endpoints in batches. Once complete, packages/api should expose a small route registration API so new endpoints cannot accidentally bypass auth, rate limiting, or logging conventions.",
+        "key_technologies": [
+          "TypeScript",
+          "pino-http",
+          "rate-limiter-flexible",
+          "Redis",
+          "existing HTTP framework in packages/api",
+          "existing auth verifier/session or token validation mechanism",
+          "integration tests"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s01",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s02",
+      "rejected_option": "Redux Toolkit",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend adding Redux Toolkit as the standard global state layer for apps/dashboard, with a single configured store, typed hooks, and feature-based slices colocated near the dashboard domains they support. We should start by moving only truly shared cross-feature state into Redux, such as authenticated user/session metadata, selected workspace or organization context, dashboard filters, and other state currently being prop-drilled or duplicated. Server-fetched data should remain in the existing data-fetching layer unless we decide separately to adopt RTK Query, so Redux does not become a cache for everything. The implementation should include a small migration path: create the store infrastructure, wire the provider at the dashboard app root, migrate one or two messy state areas first, then continue slice-by-slice as features are touched.",
+        "key_technologies": [
+          "Redux Toolkit",
+          "React Redux",
+          "Redux DevTools",
+          "TypeScript"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s02",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Redux Toolkit"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s03",
+      "rejected_option": "Prisma",
+      "context": "",
+      "reply": {
+        "proposal": "Add Prisma to packages/api with a schema.prisma that models the existing database tables, configure DATABASE_URL via the package’s environment handling, and generate a local Prisma Client for type-safe access. Introduce a small database client module in packages/api that owns the PrismaClient lifecycle so application code imports a shared typed client rather than instantiating it directly. Replace handwritten SQL incrementally, starting with the highest-traffic or most error-prone queries, while keeping migrations aligned with the existing database state using Prisma introspection if the schema already exists. Add package scripts for prisma generate, prisma migrate, and prisma studio, and ensure generation runs during install/build/CI so types are always available.",
+        "key_technologies": [
+          "Prisma",
+          "Prisma Client",
+          "Prisma Migrate",
+          "Prisma CLI",
+          "DATABASE_URL environment variable",
+          "packages/api"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s03",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Prisma"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s04",
+      "rejected_option": "axios",
+      "context": "",
+      "reply": {
+        "proposal": "Add a small typed BillingProviderClient inside packages/api rather than calling the provider directly from business logic. Implement it on top of Node's built-in fetch/Undici with a shared request helper that applies per-request timeouts via AbortSignal, exponential backoff with jitter, and retry rules limited to network errors, timeouts, 429, and 5xx responses while honoring Retry-After. Normalize failures into a BillingProviderError that captures HTTP status, provider error code/message, provider request ID, retry count, and a redacted response snippet so callers and logs get useful diagnostics without leaking secrets. Keep provider credentials and base URL in existing API configuration, and emit structured logs around attempts, final failures, latency, and correlation IDs.",
+        "key_technologies": [
+          "Node.js built-in fetch",
+          "Undici",
+          "AbortController",
+          "AbortSignal.timeout",
+          "structured application logging"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s04",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s05",
+      "rejected_option": "localStorage",
+      "context": "",
+      "reply": {
+        "proposal": "I would not make the primary session token readable from JavaScript. Keep the real session/refresh token in a Secure, HttpOnly, SameSite cookie, and have the SPA request a short-lived access token that is stored only in memory. The SPA should send that access token on API calls using the Authorization: Bearer header via fetch, and refresh it through a dedicated endpoint that relies on the HttpOnly cookie. Avoid localStorage, sessionStorage, and JavaScript-readable cookies for long-lived tokens because any XSS bug would allow full token theft. Pair this with short token lifetimes, rotation, revocation, CSP, and standard CSRF protections for any cookie-authenticated refresh endpoint.",
+        "key_technologies": [
+          "Secure cookies",
+          "HttpOnly cookies",
+          "SameSite cookies",
+          "Fetch API",
+          "Authorization Bearer header",
+          "Content Security Policy",
+          "CSRF protection"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s05",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "proposal: /local\\s?storage/ → \"localStorage\""
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s06",
+      "rejected_option": "Jest",
+      "context": "",
+      "reply": {
+        "proposal": "Add Jest as a package-scoped dev dependency under packages/api and configure it to run the API request handler unit tests without affecting other workspace packages. I would add a Jest config in packages/api, wire a test script in that package.json, and include TypeScript support if the API package is written in TS. I would also add a minimal example handler test plus any necessary test setup file so future handler tests have a clear pattern for mocking request/response objects and dependencies. Finally, I would ensure the new test command works both from packages/api and from the workspace root if the repo already supports package-level script execution.",
+        "key_technologies": [
+          "Jest",
+          "ts-jest",
+          "TypeScript",
+          "npm/yarn/pnpm workspaces"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s06",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Jest"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s07",
+      "rejected_option": "styled-components",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend using colocated CSS Modules for the new marketing pages: each component gets a sibling `ComponentName.module.css` file imported directly by the component. This gives the designer component-scoped styles that live with the implementation while avoiding runtime styling overhead and keeping compatibility with typical Next.js/Vite-style dashboard builds. Shared marketing primitives such as spacing, typography, colors, and breakpoints should be exposed as CSS custom properties in a small shared theme file, while layout and visual treatments remain local to each component. For reusable marketing sections, we should create a `components/marketing` area under `apps/dashboard` with each component owning its markup, styles, and tests/stories if applicable.",
+        "key_technologies": [
+          "CSS Modules",
+          "CSS custom properties",
+          "apps/dashboard existing frontend framework/build pipeline"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s07",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s08",
+      "rejected_option": "Redis",
+      "context": "",
+      "reply": {
+        "proposal": "Introduce a shared Redis-backed session cache used by all API instances, with a small in-process LRU cache as an optional first-level cache for very hot sessions. On each request, the API should check the local cache first, then Redis, and only fall back to the primary session store on a miss; successful lookups should populate both cache layers with a TTL aligned to the session expiration. Session mutations and logout should write through to the primary store and invalidate or update Redis immediately, using versioned session records to avoid serving stale data after concurrent updates. Add metrics for cache hit rate, miss latency, Redis errors, and fallback frequency, and fail open to the primary store if Redis is unavailable.",
+        "key_technologies": [
+          "Redis",
+          "in-process LRU cache",
+          "primary session store",
+          "TTL-based cache expiration",
+          "cache-aside pattern",
+          "write-through invalidation",
+          "metrics/observability tooling"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s08",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Redis"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s09",
+      "rejected_option": "auto-generated migrations",
+      "context": "",
+      "reply": {
+        "proposal": "Introduce a migration-generation workflow that treats the existing schema definition as the source of truth and produces versioned SQL migration files from diffs instead of hand-written SQL. The generator should build a temporary shadow database by applying the current migration history, compare that resulting schema against the desired schema definition, and emit a new migration file for review. I recommend wiring this into a developer command such as `generate:migration <name>` and CI checks that fail when the schema definition and committed migrations are out of sync. Generated migrations should still be committed and code-reviewed, with explicit safeguards for destructive changes such as dropping columns, changing nullability, or data-loss-prone type changes.",
+        "key_technologies": [
+          "Atlas CLI",
+          "Docker",
+          "existing database engine",
+          "existing schema definition",
+          "existing migration runner",
+          "CI"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s09",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s10",
+      "rejected_option": "GraphQL",
+      "context": "",
+      "reply": {
+        "proposal": "Add a GraphQL endpoint alongside the existing REST API, starting with the mobile app’s highest-traffic screens and keeping REST intact for backwards compatibility. Define a stable public schema around product/domain concepts, not database tables, so clients can request only the fields and nested objects they need. Implement resolvers through the existing service layer and push GraphQL selection sets down into ORM/database projections where safe to avoid merely trimming responses after overfetching internally. For public safety, require persisted or allowlisted operations for mobile clients, with query depth/complexity limits, field-level authorization, observability, and rate limiting. Roll this out incrementally by measuring payload size, latency, and resolver fan-out versus the current REST calls before expanding coverage.",
+        "key_technologies": [
+          "GraphQL",
+          "Persisted queries / operation allowlist",
+          "DataLoader",
+          "Existing service layer",
+          "Existing ORM/database projection support",
+          "Existing authentication, authorization, rate limiting, and observability stack"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s10",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: GraphQL"
+      }
+    }
+  ]
+}

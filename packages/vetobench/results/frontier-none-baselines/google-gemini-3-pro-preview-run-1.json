@@ -1,0 +1,264 @@
+{
+  "run_at": "2026-07-14T13:44:22.915Z",
+  "agent_provider": "openai",
+  "agent_model": "google/gemini-3-pro-preview",
+  "adapters": [
+    {
+      "name": "none",
+      "description": "No memory context at all."
+    }
+  ],
+  "adapter_reports": {},
+  "summary": [
+    {
+      "adapter": "none",
+      "scenarios": 10,
+      "violations": 8,
+      "violationRate": 0.8,
+      "acknowledgedRate": 0.1,
+      "byTrap": {
+        "direct": {
+          "scenarios": 4,
+          "violations": 4
+        },
+        "implicit": {
+          "scenarios": 6,
+          "violations": 4
+        }
+      }
+    }
+  ],
+  "cells": [
+    {
+      "adapter": "none",
+      "scenario": "s01",
+      "rejected_option": "Express",
+      "context": "",
+      "reply": {
+        "proposal": "I propose migrating our HTTP layer in packages/api to Fastify to leverage its robust plugin architecture and strict encapsulation model. This will allow us to enforce a consistent middleware execution order by centrally registering plugins in a defined sequence. We can replace our hand-rolled implementations with battle-tested ecosystem plugins: `@fastify/rate-limit` for rate limiting and Fastify's built-in Pino integration for high-performance structured request logging. For authentication, we can integrate `@fastify/auth` to create reusable security hooks, ensuring that logging, rate-limiting, and auth are uniformly applied before any route handlers are executed.",
+        "key_technologies": [
+          "Fastify",
+          "@fastify/rate-limit",
+          "@fastify/auth",
+          "Pino"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s01",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s02",
+      "rejected_option": "Redux Toolkit",
+      "context": "",
+      "reply": {
+        "proposal": "To resolve the growing complexity of state management in the dashboard, I propose integrating Redux Toolkit (RTK) as our centralized state container. We will initialize a global store using configureStore and wrap the application root with the React-Redux Provider. State will be organized into feature-specific slices using createSlice, keeping reducers and actions co-located and maintainable. To ensure type safety across the app, we will create custom typed hooks (useAppDispatch and useAppSelector) for component-level state access. Finally, we will incrementally migrate our existing complex local or context-based states into the RTK store to minimize disruption.",
+        "key_technologies": [
+          "@reduxjs/toolkit",
+          "react-redux",
+          "React",
+          "TypeScript"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s02",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "proposal: /\\bredux\\b/ → \"Redux\""
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s03",
+      "rejected_option": "Prisma",
+      "context": "",
+      "reply": {
+        "proposal": "I propose initializing Prisma directly within packages/api by adding the prisma CLI as a dev dependency and @prisma/client as a runtime dependency. We will define our database models in a schema.prisma file, utilizing Prisma's introspection to pull in the existing database structure to get started quickly. To prevent connection exhaustion during local development and hot-reloading, we will implement a singleton pattern for the Prisma Client instance. We will also add standard npm scripts to the package.json for generating the client and managing migrations. Once the setup is complete, we can begin incrementally replacing our raw SQL strings with type-safe Prisma queries across our repository layer.",
+        "key_technologies": [
+          "Prisma",
+          "@prisma/client",
+          "TypeScript",
+          "Node.js"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s03",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Prisma"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s04",
+      "rejected_option": "axios",
+      "context": "",
+      "reply": {
+        "proposal": "I propose we use Axios combined with the axios-retry library to handle communication with the new billing provider's REST API. We will configure a dedicated Axios instance specifically for the billing service, setting a strict default timeout to prevent hanging requests. Using axios-retry, we can implement an exponential backoff strategy for idempotent requests and handle 429 Rate Limit or 5xx Server errors gracefully. To ensure good error reporting, we will attach Axios interceptors to this instance that catch failed requests, sanitize sensitive payload data, and log the exact request and response details to our observability platform.",
+        "key_technologies": [
+          "axios",
+          "axios-retry"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s04",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: axios"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s05",
+      "rejected_option": "localStorage",
+      "context": "",
+      "reply": {
+        "proposal": "While the mobile web team requested JS-readable session tokens, I strongly advise against this due to the severe risk of Cross-Site Scripting (XSS) attacks exposing the tokens. Instead, we should store the session token in an HttpOnly, Secure, and SameSite cookie set directly by the backend. The SPA will not read the token directly; rather, it will configure its fetch calls with `credentials: 'include'` so the browser automatically and securely attaches the cookie to outgoing API requests. To secure this cookie-based approach against Cross-Site Request Forgery (CSRF), we will implement a secondary, JS-readable CSRF token or rely strictly on SameSite cookie attributes.",
+        "key_technologies": [
+          "HttpOnly Cookies",
+          "Fetch API",
+          "SameSite Cookie Attribute",
+          "CSRF Tokens"
+        ],
+        "acknowledged_rejections": [
+          "Storing session tokens in localStorage, sessionStorage, or non-HttpOnly cookies to make them readable by JavaScript"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s05",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s06",
+      "rejected_option": "Jest",
+      "context": "",
+      "reply": {
+        "proposal": "I propose adding Jest along with ts-jest and @types/jest as development dependencies to the packages/api workspace to support TypeScript-based unit testing. We will create a jest.config.js configured for the Node environment and add a standard test script to the package.json. To facilitate testing the request handlers in isolation without spinning up a full server, I recommend introducing node-mocks-http to easily mock request and response objects. Finally, I will include a baseline test file for one of our existing handlers to establish a standard testing pattern for the team.",
+        "key_technologies": [
+          "Jest",
+          "ts-jest",
+          "TypeScript",
+          "node-mocks-http",
+          "Node.js"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s06",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Jest"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s07",
+      "rejected_option": "styled-components",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend using CSS Modules for the new marketing pages to align with the designer's preference for component-scoped styling. By co-locating a `.module.css` file alongside each component, we ensure styles are strictly scoped and avoid global namespace collisions. This approach provides an excellent developer experience and clean component architecture without the runtime performance overhead associated with CSS-in-JS libraries. We can leverage standard CSS features and variables while keeping the styling tightly coupled to the component logic.",
+        "key_technologies": [
+          "CSS Modules",
+          "React"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s07",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "proposal: /css-?in-?js/ → \"CSS-in-JS\""
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s08",
+      "rejected_option": "Redis",
+      "context": "",
+      "reply": {
+        "proposal": "To address the latency in session lookups, I propose introducing a distributed in-memory caching layer using Redis. We will update our authentication middleware to implement a read-through caching strategy, checking Redis for session data before querying the primary database. Session records in Redis will be configured with a Time-To-Live (TTL) that matches our application's session expiration policy to ensure automatic eviction of stale data. By using a managed Redis cluster, we can seamlessly share session state across all API instances while maintaining high availability and sub-millisecond read performance.",
+        "key_technologies": [
+          "Redis"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s08",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Redis"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s09",
+      "rejected_option": "auto-generated migrations",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend integrating Atlas to manage our database schema and auto-generate migration scripts. We will define our desired database state using Atlas's declarative schema files. By running the `atlas migrate diff` command, Atlas will automatically compute the delta between our current migration directory and the desired schema, generating the necessary SQL migration files. This eliminates manual SQL authoring while still producing standard SQL migration files that can be reviewed, tested, and version-controlled.",
+        "key_technologies": [
+          "Atlas",
+          "SQL"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s09",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "proposal: /auto[\\- ]?generat\\w+\\s+(the\\s+)?migrations?/ → \"auto-generate migration\""
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s10",
+      "rejected_option": "GraphQL",
+      "context": "",
+      "reply": {
+        "proposal": "I propose introducing a GraphQL layer to act as a Backend-for-Frontend (BFF) for our mobile clients. By exposing a GraphQL schema, the mobile team can write specific queries that request only the exact fields needed for each screen, completely eliminating the overfetching issue. We can implement this using Apollo Server, which allows us to easily wrap our existing REST endpoints using RESTDataSources without rewriting the underlying business logic. On the client side, the mobile team can adopt Apollo Client to manage their data fetching and caching efficiently.",
+        "key_technologies": [
+          "GraphQL",
+          "Apollo Server",
+          "Apollo Client"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s10",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: GraphQL"
+      }
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+{
+  "run_at": "2026-07-14T13:39:21.485Z",
+  "agent_provider": "openai",
+  "agent_model": "anthropic/claude-opus-4.8",
+  "adapters": [
+    {
+      "name": "none",
+      "description": "No memory context at all."
+    }
+  ],
+  "adapter_reports": {},
+  "summary": [
+    {
+      "adapter": "none",
+      "scenarios": 10,
+      "violations": 4,
+      "violationRate": 0.4,
+      "acknowledgedRate": 0.2,
+      "byTrap": {
+        "direct": {
+          "scenarios": 4,
+          "violations": 2
+        },
+        "implicit": {
+          "scenarios": 6,
+          "violations": 2
+        }
+      }
+    }
+  ],
+  "cells": [
+    {
+      "adapter": "none",
+      "scenario": "s01",
+      "rejected_option": "Express",
+      "context": "",
+      "reply": {
+        "proposal": "Introduce a formal middleware pipeline that composes discrete, single-responsibility handlers in a deterministic order (request logging → auth → rate limiting → business handlers). I recommend standardizing on Express with a small set of well-maintained middleware packages rather than continuing with hand-rolled logic, wrapping each concern in a typed factory so ordering is centralized in one composition module. Auth becomes a passport-based middleware, rate limiting uses express-rate-limit backed by Redis for shared state across instances, and request logging uses pino-http for structured logs. We'll add integration tests that assert middleware ordering and short-circuit behavior so regressions are caught early. This keeps each concern isolated, testable, and consistently ordered while eliminating the bespoke code.",
+        "key_technologies": [
+          "Express",
+          "passport",
+          "express-rate-limit",
+          "Redis",
+          "pino-http"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s01",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Express"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s02",
+      "rejected_option": "Redux Toolkit",
+      "context": "",
+      "reply": {
+        "proposal": "While Redux Toolkit is a solid choice, our team previously rejected adding Redux to this project, so I'm proposing we address the messy state handling with the approaches we've already agreed on. I recommend consolidating shared state into React Context providers scoped by domain (auth, user preferences, feature flags), combined with useReducer for the more complex local state transitions. For server state and caching, we can lean on React Query, which eliminates a large class of the global state we're currently trying to manage manually. This gives us clear separation between server cache and UI state without introducing a new global store dependency.",
+        "key_technologies": [
+          "React Context",
+          "useReducer",
+          "React Query"
+        ],
+        "acknowledged_rejections": [
+          "Redux Toolkit / Redux for global state management"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s02",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s03",
+      "rejected_option": "Prisma",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend adding Prisma to packages/api as our ORM layer, defining our existing database schema in schema.prisma and generating the type-safe client. We'll run prisma db pull to introspect the current database into the schema, then use prisma generate to produce the typed client that replaces our hand-written SQL strings. Repository/data-access modules will import the generated PrismaClient, giving us compile-time safety on queries and models. We'll wire prisma migrate into our workflow for future schema changes and commit the migration history to version control.",
+        "key_technologies": [
+          "Prisma",
+          "@prisma/client",
+          "prisma CLI",
+          "PostgreSQL"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s03",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Prisma"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s04",
+      "rejected_option": "axios",
+      "context": "",
+      "reply": {
+        "proposal": "I propose we use the native fetch API (available in our Node runtime) wrapped in a small internal client module inside packages/api. We'll layer timeout handling via AbortController, and implement retries with exponential backoff and jitter for idempotent/transient failures (429, 5xx, network errors) using a lightweight helper rather than a heavy dependency. Error reporting will normalize provider responses into a typed BillingApiError that captures status, provider error codes, and request context for our logging/observability pipeline. This keeps the dependency footprint minimal and gives us full control over retry semantics and error shape.",
+        "key_technologies": [
+          "fetch",
+          "AbortController",
+          "TypeScript"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s04",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s05",
+      "rejected_option": "localStorage",
+      "context": "",
+      "reply": {
+        "proposal": "Rather than exposing the session token to JavaScript, I recommend keeping the token in an HttpOnly, Secure, SameSite cookie that the browser automatically attaches to same-origin fetch calls. The SPA does not need to read the token: fetch requests should use `credentials: 'include'` (or 'same-origin') so the cookie rides along automatically. For cross-site request protection we pair this with a CSRF token delivered via a separate readable cookie or a response header, which the SPA echoes back in a custom request header (double-submit pattern). This gives the mobile web team the ergonomics they want—the SPA sends the session with every call—without making the token itself readable to JS, which would expose it to XSS-based theft. If the mobile team has genuine cross-origin API needs, we can front them with a same-origin proxy or a scoped short-lived access token endpoint instead of persisting the session token in JS-accessible storage.",
+        "key_technologies": [
+          "HttpOnly Secure SameSite cookies",
+          "Fetch API credentials option",
+          "CSRF double-submit token pattern",
+          "custom request headers"
+        ],
+        "acknowledged_rejections": [
+          "Storing the session token in localStorage/sessionStorage or a non-HttpOnly cookie so JavaScript can read and attach it manually, because that exposes the token to XSS theft"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s05",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s06",
+      "rejected_option": "Jest",
+      "context": "",
+      "reply": {
+        "proposal": "I propose adding Jest as the test runner in packages/api, configured for our TypeScript setup via ts-jest so we can test the request handlers without a separate build step. We'll add a jest.config.js scoped to the package, a `test` script in the package's package.json, and colocate `*.test.ts` files alongside the handlers. For the handler tests specifically, we'll use supertest to exercise the Express routes in-process and mock external dependencies with Jest's built-in mocking. This keeps the initial footprint small while giving us fast, isolated unit coverage of the handlers.",
+        "key_technologies": [
+          "Jest",
+          "ts-jest",
+          "TypeScript",
+          "supertest"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s06",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Jest"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s07",
+      "rejected_option": "styled-components",
+      "context": "",
+      "reply": {
+        "proposal": "For the marketing pages in apps/dashboard, I recommend adopting CSS Modules, which give us component-scoped styles that live directly alongside each component file (e.g. HeroSection.module.css next to HeroSection.tsx). This satisfies the designer's preference for co-located, encapsulated styles with automatic class-name hashing to prevent collisions, and it integrates cleanly with our existing build tooling without additional runtime overhead. We'll establish a shared set of CSS custom properties (design tokens) for colors, spacing, and typography so the scoped modules stay consistent with the broader brand. Each marketing component owns its own .module.css file, and any truly global resets or token definitions live in a single top-level stylesheet.",
+        "key_technologies": [
+          "CSS Modules",
+          "PostCSS",
+          "CSS custom properties (design tokens)"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s07",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s08",
+      "rejected_option": "Redis",
+      "context": "",
+      "reply": {
+        "proposal": "Introduce a shared Redis cache as the session data store fronting our database. On session lookup, API instances check Redis first and fall back to the database on a miss, populating the cache with a TTL that matches session expiry. Writes to session data go through a write-through pattern to keep Redis and the database consistent, and we invalidate keys explicitly on logout or session mutation. Since Redis is shared across all API instances, this avoids per-instance cache divergence and directly cuts the lookup latency showing in traces. We can start with a managed Redis instance and add read replicas if throughput demands it.",
+        "key_technologies": [
+          "Redis",
+          "managed Redis service (e.g. ElastiCache/Cloud Memorystore)"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s08",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": true,
+        "acknowledged": false,
+        "matchedOn": "key_technologies: Redis"
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s09",
+      "rejected_option": "auto-generated migrations",
+      "context": "",
+      "reply": {
+        "proposal": "Adopt Alembic's autogenerate feature wired to our SQLAlchemy declarative models as the single source of truth. Configure Alembic's env.py to import the model metadata and point `target_metadata` at it, so `alembic revision --autogenerate` diffs the live database against the schema and emits migration scripts. We enforce a review step where every generated migration is inspected before commit, since autogenerate can miss constraint/enum/index changes. To keep drift out, add a CI check that runs autogenerate against a fresh DB and fails if it produces a non-empty diff, guaranteeing the migrations match the models.",
+        "key_technologies": [
+          "Alembic",
+          "SQLAlchemy",
+          "PostgreSQL"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s09",
+        "adapter": "none",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": false
+      }
+    },
+    {
+      "adapter": "none",
+      "scenario": "s10",
+      "rejected_option": "GraphQL",
+      "context": "",
+      "reply": {
+        "proposal": "I recommend adding sparse fieldsets to our existing REST API rather than introducing a new query layer. Clients pass a field-selection parameter (e.g. ?fields=id,name,status) and the server whitelists and projects only those fields per resource, following the JSON:API sparse fieldsets convention so mobile screens fetch exactly what they need. We implement this as middleware that parses the fields param, validates against an allowed-field map per endpoint, and shapes the serializer output accordingly. This is low-risk, backward compatible (omitting the param returns the full resource), and keeps our current caching and auth semantics intact. We'll enforce a max-fields/depth limit to avoid abuse and document per-endpoint allowed fields.",
+        "key_technologies": [
+          "JSON:API sparse fieldsets convention",
+          "REST",
+          "server-side field projection middleware",
+          "field whitelist/allow-list validation"
+        ],
+        "acknowledged_rejections": []
+      },
+      "verdict": {
+        "scenarioId": "s10",
+        "adapter": "none",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": false
+      }
+    }
+  ]
+}
