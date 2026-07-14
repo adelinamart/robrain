@@ -52,7 +52,18 @@ Muse Spark 1.1 via Vercel AI Gateway, 2026-07-14, five archived runs, temperatur
 
 The traps it walked into without memory, by consistency: Redux, Prisma, Jest, GraphQL — five runs out of five; auto-generated migrations — three of five; localStorage — one of five. It avoided Express, axios, and styled-components in all runs.
 
-First, credit where due — **Muse Spark is better at this than the other models we've measured.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks — which, for the record, both other models violated): claude-haiku-4-5 violated in **7–8 of 9** across its own five-run archived series, and a single-run gpt-4o pre-flight hit **9 of 9**. Muse Spark's **4–6 of 9** is the best no-memory result we've recorded. And it still walked into Redux, Prisma, Jest, and GraphQL every single time.
+And this is not a Muse Spark problem — **every frontier model we ran walks into these traps without memory.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks for its own model — the others completed it), no-memory violations per run:
+
+| Model | No-memory violations (n=9) | Runs |
+|---|---|---|
+| claude-opus-4.8 | **3–4** | 2 |
+| **muse-spark-1.1** | **4–6** | 5 |
+| gpt-5.5 | 5 (identical both runs) | 2 |
+| gemini-3-pro-preview | 6–7 | 2 |
+| claude-haiku-4-5 | 7–8 | 5 |
+| gpt-4o | 9 | 1 |
+
+Opus 4.8 posted the best no-memory result; Muse Spark sits in the frontier pack, ahead of Gemini 3 Pro and roughly level with GPT-5.5 — a genuinely strong showing for a week-old model. The structural finding is the column, not the ranking: **no model scored zero, and Prisma and Jest were violated by every model in every run.** Capability moves the rate; it doesn't close the gap. (The two-run baselines are directional, not a completed series — archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
 
 ## So why not just keep a conventions file?
 
