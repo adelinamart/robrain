@@ -6,13 +6,13 @@
     "url": "https://github.com/adelinamart/robrain",
     "source": "github"
   },
-  "version": "2.3.7",
+  "version": "2.3.8",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "robrain",
-      "version": "2.3.7",
+      "version": "2.3.8",
       "transport": { "type": "stdio" },
       "packageArguments": [
         { "type": "positional", "value": "mcp" }

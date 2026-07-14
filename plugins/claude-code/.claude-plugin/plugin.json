@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "2.3.7",
+  "version": "2.3.8",
   "description": "Institutional memory for AI coding agents: deterministic decision capture and pre-task warnings about previously REJECTED approaches, backed by your self-hosted RoBrain stack.",
   "author": { "name": "Rory Plans", "url": "https://roryplans.ai" },
   "homepage": "https://github.com/adelinamart/robrain",

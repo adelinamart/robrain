@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { evaluateReleaseGuard, originHasReleaseTag, parseGhcrTagsResponse } from './release-guard.js'
+import { evaluateReleaseGuard, manifestStatusToPublished, originHasReleaseTag } from './release-guard.js'
 
 describe('originHasReleaseTag', () => {
   const lsRemote = [
@@ -28,15 +28,16 @@ describe('originHasReleaseTag', () => {
   })
 })
 
-describe('parseGhcrTagsResponse', () => {
-  it('extracts the tag array', () => {
-    const body = '{"name":"adelinamart/robrain-perception","tags":["2.3.5","2.3","latest"]}'
-    assert.deepEqual(parseGhcrTagsResponse(body), ['2.3.5', '2.3', 'latest'])
+describe('manifestStatusToPublished', () => {
+  it('reads 200 as published and 404 as missing', () => {
+    assert.equal(manifestStatusToPublished(200), true)
+    assert.equal(manifestStatusToPublished(404), false)
   })
 
-  it('throws on error payloads instead of treating them as an empty registry', () => {
-    assert.throws(() => parseGhcrTagsResponse('{"errors":[{"code":"DENIED"}]}'))
-    assert.throws(() => parseGhcrTagsResponse('<html>502</html>'))
+  it('throws on auth errors and outages instead of treating them as a missing image', () => {
+    assert.throws(() => manifestStatusToPublished(401))
+    assert.throws(() => manifestStatusToPublished(429))
+    assert.throws(() => manifestStatusToPublished(502))
   })
 })
 
@@ -47,13 +48,13 @@ describe('evaluateReleaseGuard', () => {
   }
 
   it('passes when the tag is on origin and the image is on GHCR', () => {
-    const result = evaluateReleaseGuard({ ...base, originHasTag: true, ghcrTags: ['2.3.5', '2.3.7', 'latest'] })
+    const result = evaluateReleaseGuard({ ...base, originHasTag: true, imagePublished: true })
     assert.equal(result.ok, true)
     assert.deepEqual(result.problems, [])
   })
 
   it('fails with both problems when tag and image are missing (the 2.3.6/2.3.7 incident)', () => {
-    const result = evaluateReleaseGuard({ ...base, originHasTag: false, ghcrTags: ['2.3.5', 'latest'] })
+    const result = evaluateReleaseGuard({ ...base, originHasTag: false, imagePublished: false })
     assert.equal(result.ok, false)
     assert.equal(result.problems.length, 2)
     assert.match(result.problems[0]!, /git push origin v2\.3\.7/)
@@ -61,7 +62,7 @@ describe('evaluateReleaseGuard', () => {
   })
 
   it('fails on image-only gap when the tag is pushed but the workflow has not finished', () => {
-    const result = evaluateReleaseGuard({ ...base, originHasTag: true, ghcrTags: ['2.3.5', 'latest'] })
+    const result = evaluateReleaseGuard({ ...base, originHasTag: true, imagePublished: false })
     assert.equal(result.ok, false)
     assert.equal(result.problems.length, 1)
     assert.match(result.problems[0]!, /publish-perception-image\.yml/)

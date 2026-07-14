@@ -39,25 +39,37 @@ try {
   fail([`could not query origin tags (git ls-remote failed): ${err.message}`])
 }
 
-// Anonymous pull-scope token, then the standard v2 tags list.
+// Anonymous pull-scope token, then HEAD the version's manifest — per-tag, so
+// immune to tags/list pagination as releases accumulate.
 const ghcrRepo = DEFAULT_IMAGE_REPO.replace(/^ghcr\.io\//, '')
-let ghcrTags
+let imagePublished
 try {
   const tokenRes = await fetch(`https://ghcr.io/token?scope=repository:${ghcrRepo}:pull`)
   const { token } = await tokenRes.json()
-  const tagsRes = await fetch(`https://ghcr.io/v2/${ghcrRepo}/tags/list`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const manifestRes = await fetch(`https://ghcr.io/v2/${ghcrRepo}/manifests/${version}`, {
+    method: 'HEAD',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // The multi-arch index plus single-manifest fallbacks; without these
+      // some registries 404 even for tags that exist.
+      Accept: [
+        'application/vnd.oci.image.index.v1+json',
+        'application/vnd.docker.distribution.manifest.list.v2+json',
+        'application/vnd.oci.image.manifest.v1+json',
+        'application/vnd.docker.distribution.manifest.v2+json',
+      ].join(', '),
+    },
   })
-  ghcrTags = parseGhcrTagsResponse(await tagsRes.text())
+  imagePublished = manifestStatusToPublished(manifestRes.status)
 } catch (err) {
-  fail([`could not list ${DEFAULT_IMAGE_REPO} tags on GHCR: ${err.message}`])
+  fail([`could not check ${DEFAULT_IMAGE_REPO}:${version} on GHCR: ${err.message}`])
 }
 
 const result = evaluateReleaseGuard({
   version,
   imageRepo: DEFAULT_IMAGE_REPO,
   originHasTag: originHasReleaseTag(lsRemote, version),
-  ghcrTags,
+  imagePublished,
 })
 
 if (!result.ok) fail(result.problems)
