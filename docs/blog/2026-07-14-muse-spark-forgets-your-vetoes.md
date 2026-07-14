@@ -6,7 +6,7 @@ Meta launched [Muse Spark 1.1](https://ai.meta.com/blog/introducing-muse-spark-m
 
 We measured the kind of remembering that pitch leaves out: **given an ordinary engineering task where the natural answer is an approach your team already evaluated and rejected, does the agent propose it again?**
 
-Across a five-run archived series: with no memory in context, Muse Spark 1.1 re-proposed the rejected approach in **4 to 6 of 9 tasks per run** — Redux, Prisma, Jest, and GraphQL in **all five runs**. With the team's decision history injected: **0 violations in all 45 cells, and it cited the original rejection — reason and date included — in every single one.**
+Across a five-run archived series: with no memory in context, Muse Spark 1.1 re-proposed the rejected approach in **4 to 6 of 9 tasks per run** — Redux, Prisma, Jest, and GraphQL in **all five runs**. With the team's decision history injected: **0 violations in all 45 cells, and it named the prior rejection it was avoiding in every single one** — at times quoting the recorded reason and date verbatim, as in the exhibit below.
 
 ## The test
 
@@ -46,17 +46,24 @@ Muse Spark 1.1 via Vercel AI Gateway, 2026-07-14, five archived runs, temperatur
 | Memory condition | Re-proposed a rejected approach | Cited the prior rejection |
 |---|---|---|
 | No memory | **4–6 of 9 per run (44–67%)** | 0–1 of 9 |
-| Conventions file (choices only, no rejections) | 0 of 9, every run | 8–9 of 9 — but as inference; the recorded reasons aren't there |
-| Flat dump of all decisions incl. rejections | 0 of 9, every run | 8 of 9 |
-| **RoBrain decision memory** | **0 of 9, every run** | **9 of 9, every run — verbatim, with the recorded reason** |
+| Hand-maintained conventions file (choices only, no rejections) | 0 of 9, every run | 8–9 of 9 — but as inference; the recorded reasons aren't there |
+| Flat dump of every decision incl. rejections (fits at 24 decisions; won't at 400) | 0 of 9, every run | 8 of 9 |
+| **RoBrain decision memory** | **0 of 9, every run** | **9 of 9, every run — grounded in the recorded rejection** |
 
 The traps it walked into without memory, by consistency: Redux, Prisma, Jest, GraphQL — five runs out of five; auto-generated migrations — three of five; localStorage — one of five. It avoided Express, axios, and styled-components in all runs.
 
-Two honest observations about that table, before anyone else makes them for us:
+First, credit where due — **Muse Spark is better at this than the other models we've measured.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks — which, for the record, both other models violated): claude-haiku-4-5 violated in **7–8 of 9** across its own five-run archived series, and a single-run gpt-4o pre-flight hit **9 of 9**. Muse Spark's **4–6 of 9** is the best no-memory result we've recorded. And it still walked into Redux, Prisma, Jest, and GraphQL every single time.
 
-**Muse Spark is better at this than the other models we've measured.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks — which, for the record, both other models violated): claude-haiku-4-5 violated in **7–8 of 9** across its own five-run archived series, and a single-run gpt-4o pre-flight hit **9 of 9**. Muse Spark's **4–6 of 9** is the best no-memory result we've recorded. Credit where due — and it still walked into Redux, Prisma, Jest, and GraphQL every single time.
+## So why not just keep a conventions file?
 
-**For this model, a conventions file was enough to prevent violations — at this corpus size.** That's better than Haiku (1–2 violations with conventions) and gpt-4o (2). The difference RoBrain makes for Muse Spark is in the citation column and in how the file gets there: conventions acknowledgments are inferences ("the team chose REST, so presumably not GraphQL") with no recorded reason to point to; RoBrain's 45/45 acknowledgments quote the actual rejection, reason and date. And a conventions file is hand-maintained — the decisions in RoBrain's condition were captured automatically from session transcripts by the same pipeline we [benchmarked end-to-end against Mem0](../../packages/vetobench/README.md#end-to-end-robrain-e2e). At 24 decisions everything fits in a context window; at hundreds, retrieval decides what's in front of the model, which the offline layer measures separately.
+Fair question — rows 2 and 3 also show zero violations. That's the honest mechanism finding: **for this model, at this corpus size, any decision context in the prompt prevents violations.** The middle rows aren't embarrassing to us; they're the point — vetoes-in-context is the mechanism, and we're not pretending 24 decisions need a retrieval system.
+
+The differences are everything the violation column can't see:
+
+1. **The citation column.** A conventions file lists choices, so the model *guesses* the rejections: "the team chose REST, so presumably not GraphQL." An inference like that can be argued back out — "sure, but GraphQL has matured, let's revisit" — because there's no recorded reason to stand on. In RoBrain's condition the recorded reason sits in context: all 45 acknowledgments name the actual rejection, and when the model elaborates it quotes the record verbatim — *"resolver N+1s and cache invalidation complexity… evaluated 2026-05 with the mobile team present."* One of these ends the debate; the other reopens it.
+2. **Somebody has to write the file.** The conventions row assumes a hand-maintained document that's complete and current — which is exactly the thing teams don't have. The decisions in RoBrain's row were captured automatically from session transcripts by the same production pipeline we [benchmarked end-to-end against Mem0](../../packages/vetobench/README.md#end-to-end-robrain-e2e); Mem0's ingestion, on identical input, lost the rejection from 38% of retrieved contexts. Capture is where vetoes die, and a file nobody updates is the row-1 condition wearing a row-2 costume.
+3. **It only held for this model.** With the same conventions file, Haiku violated 1–2 tasks per run and gpt-4o violated 2. The choices-only shortcut is model-dependent; the structured rejection wasn't leaked through by any model we tested.
+4. **24 decisions fit in a prompt. Your corpus won't.** At hundreds of decisions, retrieval decides what's in front of the model, and that's measured separately by the offline layer (veto recall@5 = 1.00 with file scope known / 0.70 without).
 
 ## Why a bigger context window doesn't fix this
 
