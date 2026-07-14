@@ -122,7 +122,11 @@ registry and queryable. For future releases, the flow is:
    (the registry's ownership check reads it from the **published** npm package).
 2. Set both `version` fields in `server.json` to the npm release you publish.
    Keep `description` ≤ **100 chars** (the API rejects longer).
-3. `pnpm --filter robrain publish`, then `mcp-publisher login github` +
+3. Tag and push the release: `git tag v<version> && git push origin v<version>`,
+   then wait for the `publish-perception-image` workflow to go green — `robrain up`
+   defaults to the GHCR image matching the CLI version, so the image must exist
+   before npm does. (The `prepublishOnly` release guard blocks publishing until it does.)
+4. `pnpm --filter robrain publish`, then `mcp-publisher login github` +
    `mcp-publisher publish` from the repo root.
 
 PulseMCP ingests registry entries automatically (§4).
