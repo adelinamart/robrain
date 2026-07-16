@@ -10,10 +10,14 @@
 // Also rewrites DATABASE_URL to include POSTGRES_PASSWORD when the URL still
 // carries the placeholder `CHANGE_ME` from .env.example.
 //
+// Finally, refuses to hand off to compose when our container names are held by
+// a different compose project (see checkForeignStack below).
+//
 // Idempotent. Existing non-empty values are never overwritten.
 // ─────────────────────────────────────────────────────────────
 
 import { randomBytes } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -78,3 +82,55 @@ if (next !== original) {
     console.log(`[prepare-env] generated ${k}=${display}`)
   }
 }
+
+// ── Foreign-stack preflight ──────────────────────────────────
+// `robrain up` (packages/cli/src/commands/up.ts) already refuses to run when
+// our container names belong to another compose project. `pnpm docker:up` is a
+// raw `docker compose up` and had no such guard, so a clone started before the
+// project name was pinned (project "docker") hit Docker's bare
+// "container name is already in use" and stopped there — with no hint that the
+// fix is one command and that the data volume is safe. Worse, the obvious
+// reflex (recreate just one service) half-migrates the stack: Postgres stays on
+// the old network, Perception lands on the new one, and Perception then dies on
+// `ENOTFOUND postgres` while the database is actually fine.
+//
+// Project and container names are read from the compose file rather than
+// re-declared here — that file is the source of truth, so a rename can't leave
+// this check quietly asserting yesterday's names.
+function checkForeignStack() {
+  const composePath = resolve(repoRoot, 'docker', 'docker-compose.yml')
+  if (!existsSync(composePath)) return
+  const compose = readFileSync(composePath, 'utf8')
+
+  const project = compose.match(/^name:\s*(\S+)/m)?.[1]
+  const containers = [...compose.matchAll(/^\s*container_name:\s*(\S+)/gm)].map(m => m[1])
+  if (!project || containers.length === 0) return
+
+  const foreign = []
+  for (const container of containers) {
+    let owner
+    try {
+      owner = execFileSync(
+        'docker',
+        ['inspect', container, '--format', '{{index .Config.Labels "com.docker.compose.project"}}'],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      ).toString().trim()
+    } catch {
+      continue   // container absent, or docker unavailable — nothing to warn about
+    }
+    if (owner && owner !== project) foreign.push({ container, owner })
+  }
+  if (foreign.length === 0) return
+
+  const names = foreign.map(f => f.container).join(' ')
+  const owners = [...new Set(foreign.map(f => f.owner))]
+  console.error(`\n[prepare-env] ✗ ${names} already exist under compose project "${owners.join('", "')}", not "${project}".`)
+  console.error('              Compose cannot adopt containers across projects, so the next `up` would fail.')
+  console.error('\n              Your data is safe — the volume is named, not project-scoped. To migrate:')
+  for (const owner of owners) console.error(`                docker compose -p ${owner} down`)
+  console.error('                pnpm docker:up')
+  console.error('\n              (Removing containers does NOT delete the database. Never pass -v.)\n')
+  process.exit(1)
+}
+
+checkForeignStack()

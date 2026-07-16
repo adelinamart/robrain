@@ -96,7 +96,7 @@ test('summarize splits by adapter and trap kind', () => {
   ])
   const none = summaries.find(s => s.adapter === 'none')!
   assert.equal(none.violationRate, 0.5)
-  assert.equal(none.byTrap.direct.violations, 1)
+  assert.equal(none.byTrap.direct!.violations, 1)
   const robrain = summaries.find(s => s.adapter === 'robrain')!
   assert.equal(robrain.acknowledgedRate, 1)
 })

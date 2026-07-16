@@ -11,7 +11,7 @@ export async function statusCommand(): Promise<void> {
 
   if (!isAuthenticated()) {
     console.log(chalk.red('  ✗ Not authenticated'))
-    console.log(chalk.dim('  Run: robrain install'))
+    console.log(chalk.dim('  Run: npx robrain install'))
     console.log()
     return
   }
@@ -90,7 +90,7 @@ export async function ruleCommand(opts: {
   console.log()
 
   if (!isAuthenticated()) {
-    console.log(chalk.red('  ✗ Not authenticated. Run: robrain install'))
+    console.log(chalk.red('  ✗ Not authenticated. Run: npx robrain install'))
     process.exit(1)
   }
 
@@ -101,7 +101,7 @@ export async function ruleCommand(opts: {
 
   if (opts.add) {
     if (!planUrl) {
-      console.log(chalk.red('  ✗ Planning URL not configured. Run: robrain install (cloud)'))
+      console.log(chalk.red('  ✗ Planning URL not configured. Run: npx robrain install (cloud)'))
       process.exit(1)
     }
     const factType = opts.type === 'always_include' ? 'force_include'
@@ -136,7 +136,7 @@ export async function ruleCommand(opts: {
     if (!planUrl) {
       console.log(chalk.bold('  Planning rules\n'))
       console.log(chalk.dim('  OSS self-hosted has no Planning service — `mem0_facts` / rules are not in Perception.'))
-      console.log(chalk.dim('  Use Rory Plans cloud (`planningUrl` in config) for `robrain rule`, or manage prompts in your editor.'))
+      console.log(chalk.dim('  Use Rory Plans cloud (`planningUrl` in config) for `npx robrain rule`, or manage prompts in your editor.'))
       console.log()
       return
     }

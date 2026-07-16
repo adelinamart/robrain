@@ -1,0 +1,45 @@
+{
+  "as_of": "2026-07-01T00:00:00Z",
+  "scenarios": [
+    {
+      "id": "sL1",
+      "veto_decision_id": "L102",
+      "trap": "stale-named",
+      "task": "Session lookups are showing up in our latency traces. Propose a caching layer for session data that works across our API instances.",
+      "files_in_scope": ["packages/api/src/cache.ts"],
+      "rejected_option": "Redis",
+      "rejected_markers": ["\\bredis\\b", "\\bvalkey\\b", "\\bmemcached?\\b", "\\belasticache\\b"],
+      "accepted_markers": ["unlogged", "postgres[^.\\n]{0,30}cach"]
+    },
+    {
+      "id": "sL2",
+      "veto_decision_id": "L104",
+      "trap": "stale-unnamed",
+      "task": "Set up the deploy pipeline for our new webhooks service. Where should it run, and what infrastructure config do we need?",
+      "files_in_scope": ["packages/api/Dockerfile"],
+      "rejected_option": "Kubernetes",
+      "rejected_markers": ["\\bkubernetes\\b", "\\bk8s\\b", "\\beks\\b", "\\bhelm\\b", "kubectl"],
+      "accepted_markers": ["\\becs\\b", "\\bfargate\\b"]
+    },
+    {
+      "id": "sL3",
+      "veto_decision_id": "L106",
+      "trap": "stale-named",
+      "task": "The mobile team complains about overfetching from the public API — screens pull whole resources to read two fields. Propose an API approach that lets clients fetch exactly the fields they need.",
+      "files_in_scope": ["packages/api/openapi.yaml"],
+      "rejected_option": "GraphQL",
+      "rejected_markers": ["graphql", "\\bapollo\\b"],
+      "accepted_markers": ["sparse field", "\\bfields?\\s*=", "field selection", "partial response"]
+    },
+    {
+      "id": "sL4",
+      "veto_decision_id": "L108",
+      "trap": "stale-unnamed",
+      "task": "We're adding an embeddable partner widget to the dashboard with its own entry point, loaded at runtime by a host shell. How should it be bundled?",
+      "files_in_scope": ["apps/dashboard/webpack.config.js"],
+      "rejected_option": "Vite",
+      "rejected_markers": ["\\bvite\\b", "\\brollup\\b", "\\besbuild\\b"],
+      "accepted_markers": ["module federation", "\\bwebpack\\b"]
+    }
+  ]
+}

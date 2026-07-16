@@ -913,7 +913,7 @@ async function main(): Promise<void> {
           warn(`export-memory failed: ${String(e)}`)
         }
       } else if (config.exportMemory && !config.dryRun && wroteCompiled && !p.working_directory) {
-        warn('SYNTHESIS_EXPORT_MEMORY set but project has no working_directory — run `robrain init-project` from that repo to record it')
+        warn('SYNTHESIS_EXPORT_MEMORY set but project has no working_directory — run `npx robrain init-project` from that repo to record it')
       }
     } catch (err) {
       warn(`error for ${p.name}: ${String(err)}`)

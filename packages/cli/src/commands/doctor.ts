@@ -53,7 +53,7 @@ export async function doctorCommand(): Promise<void> {
       level: 'fail',
       label: 'Install config',
       detail: '~/.robrain/config.json missing or incomplete',
-      hint:  'Run: robrain install (cloud) or robrain install --self-hosted --repo-root <robrain-clone>',
+      hint:  'Run: npx robrain install (cloud) or npx robrain install --self-hosted --repo-root <robrain-clone>',
     })
   }
 
@@ -66,7 +66,7 @@ export async function doctorCommand(): Promise<void> {
       level: 'fail',
       label: 'Sensing MCP bundle',
       detail: `no complete bundle under ${join(ROBRAIN_MCP_DIR, 'sensing')}`,
-      hint:  'Run: robrain install --self-hosted. Or use a portable mcp.json with `npx robrain mcp` (see docs/cli.md)',
+      hint:  'Run: npx robrain install --self-hosted. Or use a portable mcp.json with `npx robrain mcp` (see docs/cli.md)',
     })
   }
   if (portableMcpDir) {
@@ -106,7 +106,7 @@ export async function doctorCommand(): Promise<void> {
       detail: editors.length > 0
         ? `detected ${editors.map(e => e.label).join(', ')} but none reference robrain-sensing`
         : 'no supported editor detected',
-      hint:  'Run: robrain install (add --editor claude-code | cursor | copilot | codex to target one)',
+      hint:  'Run: npx robrain install (add --editor claude-code | cursor | copilot | codex to target one)',
     })
   }
 
@@ -131,7 +131,7 @@ export async function doctorCommand(): Promise<void> {
         level: 'warn',
         label: 'Embedding key',
         detail: 'no embedding provider key found (topic-shift and semantic search need one)',
-        hint:  'Set OPENAI_API_KEY (or VOYAGE_API_KEY / COHERE_API_KEY) and re-run robrain install',
+        hint:  'Set OPENAI_API_KEY (or VOYAGE_API_KEY / COHERE_API_KEY) and re-run npx robrain install',
       })
 
   // 5 — Perception health. A dead Perception is the classic silent failure:
@@ -144,7 +144,7 @@ export async function doctorCommand(): Promise<void> {
       level: 'fail',
       label: 'Perception API',
       detail: 'no URL configured (config.json perceptionUrl / PERCEPTION_API_URL)',
-      hint:  'Run: robrain install (cloud) or pnpm docker:up + robrain install --self-hosted',
+      hint:  'Run: npx robrain install (cloud) or pnpm docker:up + npx robrain install --self-hosted',
     })
   } else {
     try {
@@ -188,7 +188,7 @@ export async function doctorCommand(): Promise<void> {
               level: 'warn',
               label: 'Project registered',
               detail: `${info.id} not found in Perception (signals from this repo would be rejected)`,
-              hint:  'Run: robrain init-project in this directory',
+              hint:  'Run: npx robrain init-project in this directory',
             })
       } else {
         checks.push({

@@ -1,0 +1,176 @@
+[
+  {
+    "id": "L101",
+    "decision": "Cache session lookups in Redis",
+    "rationale": "Standard choice for a low-latency session cache; sub-millisecond reads",
+    "rejected": [
+      { "option": "in-process memory cache", "reason": "Breaks under multiple API instances" }
+    ],
+    "files_affected": ["packages/api/src/cache.ts"],
+    "created_at": "2026-01-15T10:00:00Z",
+    "reviewed_at": "2026-01-16T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "superseded",
+    "superseded_by": "L102"
+  },
+  {
+    "id": "L102",
+    "decision": "Move the session cache from Redis to a Postgres UNLOGGED table",
+    "rationale": "UNLOGGED benchmarked within 15% of Redis for our read pattern, and drops a second datastore to provision, monitor, back up and secure",
+    "rejected": [
+      { "option": "staying on Redis", "reason": "A second datastore's ops and on-call burden for a 15% read win we don't need" }
+    ],
+    "files_affected": ["packages/api/src/cache.ts"],
+    "created_at": "2026-06-05T10:00:00Z",
+    "reviewed_at": "2026-06-06T09:00:00Z",
+    "historical_relevance": 0.85,
+    "status": "active"
+  },
+  {
+    "id": "L103",
+    "decision": "Run the API on Kubernetes (EKS)",
+    "rationale": "Industry-standard orchestration; room to grow into multi-service",
+    "rejected": [
+      { "option": "plain EC2 with systemd", "reason": "No rolling deploys or self-healing" }
+    ],
+    "files_affected": ["infra/k8s/api-deployment.yaml"],
+    "created_at": "2026-01-22T10:00:00Z",
+    "reviewed_at": "2026-01-23T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "superseded",
+    "superseded_by": "L104"
+  },
+  {
+    "id": "L104",
+    "decision": "Run all backend services on ECS Fargate",
+    "rationale": "Two engineers cannot carry cluster upgrades, CNI debugging and node pools; Fargate covers every workload we actually run",
+    "rejected": [
+      { "option": "self-managed control plane", "reason": "Operational surface far beyond what this team can staff" }
+    ],
+    "files_affected": ["infra/ecs/service.tf", "packages/api/Dockerfile"],
+    "created_at": "2026-05-18T10:00:00Z",
+    "reviewed_at": "2026-05-19T09:00:00Z",
+    "historical_relevance": 0.9,
+    "status": "active"
+  },
+  {
+    "id": "L105",
+    "decision": "Expose the public API as GraphQL",
+    "rationale": "Clients pick their own fields; one endpoint for every screen",
+    "rejected": [
+      { "option": "REST with fixed payloads", "reason": "Mobile screens overfetch whole resources to read two fields" }
+    ],
+    "files_affected": ["packages/api/src/graphql/schema.ts"],
+    "created_at": "2026-02-12T10:00:00Z",
+    "reviewed_at": "2026-02-13T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "superseded",
+    "superseded_by": "L106"
+  },
+  {
+    "id": "L106",
+    "decision": "Migrate the public API from GraphQL back to REST with sparse fieldsets",
+    "rationale": "Resolver N+1s and cache invalidation cost more than the flexibility bought us; ?fields= covers the overfetching complaint at a fraction of the complexity",
+    "rejected": [
+      { "option": "staying on GraphQL", "reason": "Resolver N+1s, no HTTP caching, and a schema only two people could safely change" }
+    ],
+    "files_affected": ["packages/api/openapi.yaml"],
+    "created_at": "2026-06-20T10:00:00Z",
+    "reviewed_at": "2026-06-21T09:00:00Z",
+    "historical_relevance": 0.9,
+    "status": "active"
+  },
+  {
+    "id": "L107",
+    "decision": "Bundle the dashboard with Vite",
+    "rationale": "Sub-second cold starts and a simpler config than the alternatives",
+    "rejected": [
+      { "option": "Parcel", "reason": "Smaller plugin ecosystem for our needs" }
+    ],
+    "files_affected": ["apps/dashboard/vite.config.ts"],
+    "created_at": "2026-02-02T10:00:00Z",
+    "reviewed_at": "2026-02-03T09:00:00Z",
+    "historical_relevance": 0.45,
+    "status": "superseded",
+    "superseded_by": "L108"
+  },
+  {
+    "id": "L108",
+    "decision": "Bundle the dashboard with Webpack, using Module Federation for embedded entry points",
+    "rationale": "The partner-facing shell requires Module Federation at runtime; the Vite federation plugin was not production-ready when we needed it",
+    "rejected": [
+      { "option": "Vite federation plugin", "reason": "Experimental; broke shared-dependency versioning in the spike" }
+    ],
+    "files_affected": ["apps/dashboard/webpack.config.js"],
+    "created_at": "2026-06-15T10:00:00Z",
+    "reviewed_at": "2026-06-16T09:00:00Z",
+    "historical_relevance": 0.8,
+    "status": "active"
+  },
+  {
+    "id": "L201",
+    "decision": "Structured logging with pino, one JSON line per request",
+    "rationale": "Fast, structured, and the ops dashboards parse JSON lines natively",
+    "rejected": [],
+    "files_affected": ["packages/api/src/logger.ts"],
+    "created_at": "2026-02-05T10:00:00Z",
+    "reviewed_at": "2026-02-06T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "active"
+  },
+  {
+    "id": "L202",
+    "decision": "All API errors use the problem+json envelope",
+    "rationale": "RFC 7807 gives clients one error shape; internal codes map to documented types",
+    "rejected": [],
+    "files_affected": ["packages/api/src/errors.ts"],
+    "created_at": "2026-03-10T10:00:00Z",
+    "reviewed_at": "2026-03-11T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "active"
+  },
+  {
+    "id": "L203",
+    "decision": "Zod schemas validate every API input at the boundary",
+    "rationale": "One schema per endpoint doubles as the OpenAPI source of truth",
+    "rejected": [],
+    "files_affected": ["packages/api/src/schemas.ts"],
+    "created_at": "2026-03-15T10:00:00Z",
+    "reviewed_at": "2026-03-16T09:00:00Z",
+    "historical_relevance": 0.6,
+    "status": "active"
+  },
+  {
+    "id": "L204",
+    "decision": "OpenTelemetry traces exported to the collector, sampled at 10%",
+    "rationale": "Vendor-neutral instrumentation; sampling keeps ingest costs flat",
+    "rejected": [],
+    "files_affected": ["packages/api/src/telemetry.ts"],
+    "created_at": "2026-05-12T10:00:00Z",
+    "reviewed_at": "2026-05-13T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "active"
+  },
+  {
+    "id": "L205",
+    "decision": "pnpm workspace for the monorepo",
+    "rationale": "Strict node_modules layout catches phantom dependencies",
+    "rejected": [],
+    "files_affected": ["pnpm-workspace.yaml"],
+    "created_at": "2026-02-01T10:00:00Z",
+    "reviewed_at": "2026-02-02T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "active"
+  },
+  {
+    "id": "L206",
+    "decision": "User file uploads go to S3-compatible object storage, never the database",
+    "rationale": "Keeps the database small and backups fast; presigned URLs offload transfer",
+    "rejected": [],
+    "files_affected": ["packages/api/src/uploads.ts"],
+    "created_at": "2026-04-25T10:00:00Z",
+    "reviewed_at": "2026-04-26T09:00:00Z",
+    "historical_relevance": 0.5,
+    "status": "active"
+  }
+]

@@ -205,7 +205,7 @@ program
       console.log(`✔ Hermes memory-provider plugin installed → ${dest}`)
       console.log('\nNext steps:')
       console.log('  1. hermes memory setup          # select "robrain"')
-      console.log('  2. PERCEPTION_API_KEY lives in ~/.robrain/stack/.env (after `robrain up`)')
+      console.log('  2. PERCEPTION_API_KEY lives in ~/.robrain/stack/.env (after `npx robrain up`)')
       console.log('     or your repo .env (clone path)')
       console.log(`\nHermes home: ${resolveHermesHome()} (override with HERMES_HOME)`)
       // --hermes alone is a complete install; editor wiring only runs when

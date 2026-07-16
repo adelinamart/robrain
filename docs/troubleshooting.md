@@ -91,6 +91,23 @@ curl -s -X POST -H "Authorization: Bearer <PERCEPTION_API_KEY>" \
 
 Then start a **new** Claude Code / Cursor session so `sensing_start_session` pulls the regenerated summary.
 
+### `Conflict. The container name "/robrain-postgres" is already in use`
+
+Upgrading a clone that ran before the compose project name was pinned. Those containers belong to project `docker`; the stack now uses `robrain`, and Compose cannot adopt containers across projects.
+
+**Your data is not at risk.** The database lives in the named volume `robrain_postgres_data`, which is not project-scoped — removing containers does not touch it.
+
+```bash
+docker compose -p docker down   # containers only; the volume is preserved
+pnpm docker:up
+```
+
+`pnpm docker:up` and `npx robrain up` both refuse to run when they find this and print the same fix, so you should see guidance rather than the raw Docker error. If you hit the bare error, you're on an older CLI — the commands above still apply.
+
+**Do not** recreate a single service to "get around" it. Recreating only Perception leaves Postgres on the old network and Perception on the new one, and Perception then dies with `getaddrinfo ENOTFOUND postgres` — a healthy database that merely looks broken. Migrate the whole stack with the two commands above.
+
+**Never add `-v`** to `docker compose down` here — that deletes the volume, which is the one thing that isn't recoverable.
+
 ### Perception container unhealthy or refusing to start
 
 ```bash
