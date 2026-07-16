@@ -31,7 +31,7 @@ import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
 
-const VERSION = '2.3.8'
+const VERSION = '2.3.9'
 
 program
   .name('robrain')

@@ -6,27 +6,32 @@
     "url": "https://github.com/adelinamart/robrain",
     "source": "github"
   },
-  "version": "2.3.8",
+  "version": "2.3.9",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "robrain",
-      "version": "2.3.8",
-      "transport": { "type": "stdio" },
+      "version": "2.3.9",
+      "transport": {
+        "type": "stdio"
+      },
       "packageArguments": [
-        { "type": "positional", "value": "mcp" }
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
       ],
       "environmentVariables": [
         {
           "name": "PERCEPTION_API_URL",
-          "description": "Perception API URL. Optional — read from ~/.robrain/config.json after `npx robrain up`.",
+          "description": "Perception API URL. Optional \u2014 read from ~/.robrain/config.json after `npx robrain up`.",
           "isRequired": false,
           "default": "http://localhost:3001"
         },
         {
           "name": "PERCEPTION_API_KEY",
-          "description": "Perception API key. Optional — read from ~/.robrain/config.json after `npx robrain up`.",
+          "description": "Perception API key. Optional \u2014 read from ~/.robrain/config.json after `npx robrain up`.",
           "isRequired": false,
           "isSecret": true
         }

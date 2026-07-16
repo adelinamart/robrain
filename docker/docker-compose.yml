@@ -9,6 +9,12 @@
 #   docker compose -f docker/docker-compose.yml logs -f perception
 # ─────────────────────────────────────────────────────────────
 
+# Pinned so this flow and the no-clone `robrain up` stack are one compose
+# project. Stacks started before the pin belong to project "docker" and hit a
+# container-name conflict on the next up — run `docker compose -p docker down`
+# once (data volume is preserved), then `pnpm docker:up` as usual.
+name: robrain
+
 services:
 
   postgres:

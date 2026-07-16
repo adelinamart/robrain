@@ -1,8 +1,8 @@
 {
   "name": "@robrain/sensing-mcp",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "type": "module",
-  "description": "RoBrain Sensing MCP server — passive decision capture for AI coding agents",
+  "description": "RoBrain Sensing MCP server \u2014 passive decision capture for AI coding agents",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

@@ -8,8 +8,11 @@
 //   schema.sql          managed — extracted from the Perception image
 //   .env                user-owned — secrets auto-generated once, never overwritten
 //
-// The repo-clone flow (`pnpm docker:up`) is unchanged; both drive the same
-// container names and data volume, so they are the same logical stack.
+// The repo-clone flow (`pnpm docker:up`) and this command share one compose
+// project (`name: robrain`), container names, and data volume — Compose treats
+// them as the same stack. Containers left behind by pre-2.3.9 stacks belong to
+// other compose projects ("docker" / "stack") and cannot be adopted; the
+// pre-flight check below catches that state before anything is pulled.
 // ─────────────────────────────────────────────────────────────
 
 import { execFileSync, spawnSync } from 'child_process'
@@ -21,6 +24,8 @@ import chalk from 'chalk'
 import { mergeConfig } from '../lib/config.js'
 
 export const DEFAULT_IMAGE_REPO = 'ghcr.io/adelinamart/robrain-perception'
+export const COMPOSE_PROJECT = 'robrain'
+export const CONTAINER_NAMES = ['robrain-postgres', 'robrain-perception'] as const
 const STACK_DIR = join(homedir(), '.robrain', 'stack')
 const VOLUME_NAME = 'robrain_postgres_data'
 
@@ -34,6 +39,12 @@ const VOLUME_NAME = 'robrain_postgres_data'
 export function renderStackCompose(image: string): string {
   return `# Managed by \`robrain up\` — regenerated on every run; do not edit.
 # Configuration belongs in the .env file next to this compose file.
+
+# Pinned so the repo-clone flow and \`robrain up\` are one compose project —
+# without it Compose derives the project from the directory name and refuses
+# to reuse containers created by the other flow.
+name: ${COMPOSE_PROJECT}
+
 services:
 
   postgres:
@@ -198,6 +209,47 @@ function volumeExists(): boolean {
   }
 }
 
+/**
+ * Compose project label of an existing container: the project name for
+ * compose-managed containers, '' for plain `docker run` ones, null when the
+ * container does not exist (or docker inspect fails — fail open, compose up
+ * will surface its own error).
+ */
+function containerComposeProject(container: string): string | null {
+  try {
+    return execFileSync(
+      'docker',
+      ['container', 'inspect', '--format', '{{ index .Config.Labels "com.docker.compose.project" }}', container],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    ).toString().trim()
+  } catch {
+    return null
+  }
+}
+
+export interface ForeignContainer {
+  container: string
+  /** Owning compose project; '' when created outside compose. */
+  project: string
+}
+
+/**
+ * Containers carrying our names but owned by something other than the
+ * `robrain` compose project — a repo clone started before the project name was
+ * pinned (project "docker"), a pre-2.3.9 CLI stack (project "stack"), or plain
+ * `docker run`. Compose cannot adopt these; `up` must stop before pulling.
+ */
+export function findForeignContainers(
+  projectOf: (container: string) => string | null,
+): ForeignContainer[] {
+  const foreign: ForeignContainer[] = []
+  for (const container of CONTAINER_NAMES) {
+    const project = projectOf(container)
+    if (project !== null && project !== COMPOSE_PROJECT) foreign.push({ container, project })
+  }
+  return foreign
+}
+
 function imagePresentLocally(image: string): boolean {
   try {
     execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' })
@@ -244,6 +296,25 @@ export async function upCommand(opts: UpOptions): Promise<void> {
     const value = readEnvValue(envContent, key)
     const display = value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
     console.log(chalk.dim(`  generated ${key}=${display}`))
+  }
+
+  // Containers from another compose project make `compose up` die mid-run
+  // with a raw name-conflict error from the daemon — catch it here, before
+  // pulling anything, with instructions that actually work for that state
+  // (`robrain down` only owns the `robrain` project, so it cannot remove them).
+  const foreign = findForeignContainers(containerComposeProject)
+  if (foreign.length > 0) {
+    const names = foreign.map(f => f.container).join(' ')
+    const downCommands = [...new Set(foreign.map(f => f.project))].map(project =>
+      project ? `docker compose -p ${project} down` : `docker rm -f ${names}`)
+    console.log(chalk.red(`\n  ✗ Found existing container(s) ${names} from an older RoBrain stack`) + chalk.dim(' (repo clone or a previous CLI version).'))
+    console.log(chalk.dim('    Docker Compose cannot reuse containers across projects, so they must be removed first.'))
+    console.log(chalk.dim('    To keep your data — remove the old containers (the data volume is preserved):'))
+    for (const cmd of downCommands) console.log('      ' + chalk.cyan(cmd))
+    console.log(chalk.dim('    then copy POSTGRES_PASSWORD + PERCEPTION_API_KEY from the old stack\'s .env into ') + chalk.cyan(envPath))
+    console.log(chalk.dim('    and re-run ') + chalk.cyan('robrain up') + chalk.dim(' — it will start against the existing database.'))
+    console.log(chalk.dim('    To start fresh instead: ') + chalk.cyan(`docker rm -f ${names} && docker volume rm ${VOLUME_NAME}`) + chalk.dim(' then re-run ') + chalk.cyan('robrain up') + '\n')
+    process.exit(1)
   }
 
   // Existing data volume + freshly generated password = the new credentials

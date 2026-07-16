@@ -42,7 +42,7 @@ Stop the stack (data volume preserved):
 npx robrain down
 ```
 
-`robrain up` and the repo-clone flow (`pnpm docker:up`) use the **same container names and Postgres volume** (`robrain_postgres_data`), so you can switch paths without losing data — copy `POSTGRES_PASSWORD` and `PERCEPTION_API_KEY` from your existing `.env` into `~/.robrain/stack/.env` if you migrate.
+`robrain up` and the repo-clone flow (`pnpm docker:up`) are the **same compose project** (`robrain`) with the same container names and Postgres volume (`robrain_postgres_data`), so you can switch paths without losing data — copy `POSTGRES_PASSWORD` and `PERCEPTION_API_KEY` from your existing `.env` into `~/.robrain/stack/.env` if you migrate. Stacks started before v2.3.9 belong to a different compose project; `robrain up` detects their containers and prints the one-time removal command (the data volume is preserved).
 
 `robrain install --self-hosted` copies the bundled `@robrain/sensing-mcp` package into `~/.robrain/mcp/sensing` — no clone required. `robrain install --hermes` materializes the bundled Hermes memory-provider plugin into `$HERMES_HOME/plugins/robrain` (default `~/.hermes`) the same way — see [integrations/hermes](../integrations/hermes/robrain/README.md); combine with `--self-hosted` to do both in one run. Pass **`--repo-root`** (or set `ROBRAIN_REPO`) when developing in the monorepo; that **replaces** any package-copied bundle with a symlink into your clone (macOS/Linux) or a fresh copy (Windows).
 

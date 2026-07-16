@@ -1,12 +1,23 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { ensureStackEnvContent, readEnvValue, renderStackCompose, DEFAULT_IMAGE_REPO } from './up.js'
+import {
+  ensureStackEnvContent,
+  findForeignContainers,
+  readEnvValue,
+  renderStackCompose,
+  COMPOSE_PROJECT,
+  DEFAULT_IMAGE_REPO,
+} from './up.js'
 
 describe('renderStackCompose', () => {
-  const compose = renderStackCompose(`${DEFAULT_IMAGE_REPO}:2.3.8`)
+  const compose = renderStackCompose(`${DEFAULT_IMAGE_REPO}:2.3.9`)
+
+  it('pins the compose project name shared with the repo-clone flow', () => {
+    assert.match(compose, new RegExp(`^name: ${COMPOSE_PROJECT}$`, 'm'))
+  })
 
   it('runs Perception from the published image with an env override hook', () => {
-    assert.match(compose, /image: \$\{PERCEPTION_IMAGE:-ghcr\.io\/adelinamart\/robrain-perception:2\.3\.8\}/)
+    assert.match(compose, /image: \$\{PERCEPTION_IMAGE:-ghcr\.io\/adelinamart\/robrain-perception:2\.3\.9\}/)
     assert.doesNotMatch(compose, /build:/)
   })
 
@@ -77,5 +88,26 @@ describe('ensureStackEnvContent', () => {
     assert.match(readEnvValue(content, 'POSTGRES_PASSWORD'), /^[0-9a-f]{64}$/)
     assert.match(readEnvValue(content, 'PERCEPTION_API_KEY'), /^[0-9a-f]{64}$/)
     assert.ok(generated.includes('POSTGRES_PASSWORD'))
+  })
+})
+
+describe('findForeignContainers', () => {
+  it('passes when containers are absent or already owned by the robrain project', () => {
+    assert.deepEqual(findForeignContainers(() => null), [])
+    assert.deepEqual(findForeignContainers(() => COMPOSE_PROJECT), [])
+  })
+
+  it('flags containers owned by another compose project (pre-2.3.9 clone or CLI stack)', () => {
+    const conflicts = findForeignContainers(name => (name === 'robrain-postgres' ? 'docker' : null))
+    assert.deepEqual(conflicts, [{ container: 'robrain-postgres', project: 'docker' }])
+  })
+
+  it('flags containers created outside compose (empty project label)', () => {
+    const conflicts = findForeignContainers(() => '')
+    assert.deepEqual(
+      conflicts.map(c => c.container).sort(),
+      ['robrain-perception', 'robrain-postgres'],
+    )
+    assert.ok(conflicts.every(c => c.project === ''))
   })
 })

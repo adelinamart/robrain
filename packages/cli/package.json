@@ -1,6 +1,6 @@
 {
   "name": "robrain",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "type": "module",
   "description": "RoBrain CLI for installation, setup, and memory workflows",
   "author": "Rory Plans, Inc.",

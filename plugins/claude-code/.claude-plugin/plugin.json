@@ -1,10 +1,19 @@
 {
   "name": "robrain",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "description": "Institutional memory for AI coding agents: deterministic decision capture and pre-task warnings about previously REJECTED approaches, backed by your self-hosted RoBrain stack.",
-  "author": { "name": "Rory Plans", "url": "https://roryplans.ai" },
+  "author": {
+    "name": "Rory Plans",
+    "url": "https://roryplans.ai"
+  },
   "homepage": "https://github.com/adelinamart/robrain",
   "repository": "https://github.com/adelinamart/robrain",
   "license": "Apache-2.0",
-  "keywords": ["memory", "decisions", "rejected-alternatives", "institutional-memory", "mcp"]
+  "keywords": [
+    "memory",
+    "decisions",
+    "rejected-alternatives",
+    "institutional-memory",
+    "mcp"
+  ]
 }
