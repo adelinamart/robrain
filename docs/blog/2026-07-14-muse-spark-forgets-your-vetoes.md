@@ -56,7 +56,7 @@ The traps it walked into without memory, by consistency: Redux, Prisma, Jest, Gr
 
 And this is not a Muse Spark problem — **every frontier model we ran walks into these traps without memory, and most still leak through choices-only memory.** Like-for-like on the same nine scenarios (excluding the one Meta's filter blocks for its own model — the others completed it), violations per run:
 
-| Model | No memory | Choices-only memory (conventions file) | RoBrain decision memory |
+| Model | No memory | Choices-only file **we supplied** (no model here has native API memory) | RoBrain decision memory |
 |---|---|---|---|
 | claude-opus-4.8 | 3–4 of 9 | 0–1 of 9 (re-proposed auto-generated migrations) | **0** — 18/18 cells |
 | **muse-spark-1.1** | 4–6 of 9 | 0, five runs | **0** — 45/45 cells |
@@ -68,6 +68,8 @@ And this is not a Muse Spark problem — **every frontier model we ran walks int
 (Muse Spark and Haiku are five-run series; the other baselines are two runs — directional, not completed series. Haiku and gpt-4o conventions/robrain cells are n=10; archives in [results/frontier-none-baselines/](../../packages/vetobench/results/frontier-none-baselines/).)
 
 Three things this table says. **No model scored zero without memory** — Prisma and Jest fell to every model in every no-memory run; Opus 4.8 posted the best baseline, with Muse Spark a strong second for a week-old model. **Choices-only memory gets you close but not safe** — four of six models still re-proposed a rejected approach at least once with the conventions file in context, and its acknowledgments are inferences throughout (7–9 of 9, no recorded reason to cite). **The right-hand column is the only all-zero column: 159 of 159 cells across six models from four vendors, every cell naming the prior rejection.** The gap isn't model-shaped; it's context-shaped.
+
+Two misreadings to head off. A 0 in a two-run middle-column cell means *didn't leak in two runs*, not *won't leak* — Opus and GPT-5.5 each leaked in exactly one of their two; a clean 0 at this sample size is within the noise. And a genuine 0 in that column still wouldn't mean the model "has good memory": the middle column presumes a complete, current, hand-maintained file — the artifact teams famously don't keep — read by a model that can't cite why anything on it was rejected. It's a score for the document, not the model.
 
 One more finding you'd expect us to test but can't: **each vendor's own default memory layer.** Three of the four don't have one at the developer API level — Meta's Model API, OpenAI's API, and Google's API ship no persistence at all (their memory features are consumer-app-only). Anthropic's beta memory tool is the sole exception; running it through VetoBench needs a proper tool-use harness and is a follow-up we intend to publish, whatever it shows.
 
