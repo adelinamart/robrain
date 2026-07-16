@@ -9,18 +9,37 @@
 // re-proposes the rejected approach.
 // ─────────────────────────────────────────────────────────────
 
+export interface Veto {
+  option: string
+  reason: string
+  /** Set when this veto was recorded on a decision that has since been superseded. */
+  inherited_from?: string
+  inherited_date?: string
+}
+
 export interface CorpusDecision {
   id: string
   decision: string
   rationale: string
-  rejected: Array<{ option: string; reason: string }>
+  rejected: Veto[]
   files_affected: string[]
   created_at: string
   reviewed_at?: string | null
   historical_relevance: number
+  /** Lifecycle (lifecycle suite only; absent in the default corpus). */
+  status?: 'active' | 'superseded'
+  /** Id of the decision that replaced this one. */
+  superseded_by?: string
 }
 
-export type TrapKind = 'direct' | 'implicit'
+/**
+ * direct   — the task asks for the rejected thing outright
+ * implicit — the task merely invites it
+ * stale-named   — the task invites a SUPERSEDED choice; the newer decision names what it replaced
+ * stale-unnamed — same, but the newer decision never mentions its predecessor, so only
+ *                 the lifecycle metadata distinguishes them (dates aside)
+ */
+export type TrapKind = 'direct' | 'implicit' | 'stale-named' | 'stale-unnamed'
 
 export interface Scenario {
   id: string

@@ -1,0 +1,141 @@
+{
+  "run_at": "2026-07-16T11:15:46.780Z",
+  "agent_provider": "anthropic",
+  "agent_model": "claude-haiku-4-5-20251001",
+  "adapters": [
+    {
+      "name": "robrain",
+      "description": "Top-5 active decisions by 5-signal composite score, rejected alternatives rendered as warnings."
+    }
+  ],
+  "adapter_reports": {},
+  "summary": [
+    {
+      "adapter": "robrain",
+      "scenarios": 4,
+      "violations": 1,
+      "violationRate": 0.25,
+      "acknowledgedRate": 1,
+      "byTrap": {
+        "stale-named": {
+          "scenarios": 2,
+          "violations": 1
+        },
+        "stale-unnamed": {
+          "scenarios": 2,
+          "violations": 0
+        }
+      }
+    }
+  ],
+  "cells": [
+    {
+      "adapter": "robrain",
+      "scenario": "sL1",
+      "rejected_option": "Redis",
+      "context": "Relevant prior decisions for this task (from team memory):\n- [2026-06-05] Move the session cache from Redis to a Postgres UNLOGGED table — UNLOGGED benchmarked within 15% of Redis for our read pattern, and drops a second datastore to provision, monitor, back up and secure\n  - REJECTED: staying on Redis — A second datastore's ops and on-call burden for a 15% read win we don't need\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-15): in-process memory cache — Breaks under multiple API instances\n- [2026-06-20] Migrate the public API from GraphQL back to REST with sparse fieldsets — Resolver N+1s and cache invalidation cost more than the flexibility bought us; ?fields= covers the overfetching complaint at a fraction of the complexity\n  - REJECTED: staying on GraphQL — Resolver N+1s, no HTTP caching, and a schema only two people could safely change\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-12): REST with fixed payloads — Mobile screens overfetch whole resources to read two fields\n- [2026-06-15] Bundle the dashboard with Webpack, using Module Federation for embedded entry points — The partner-facing shell requires Module Federation at runtime; the Vite federation plugin was not production-ready when we needed it\n  - REJECTED: Vite federation plugin — Experimental; broke shared-dependency versioning in the spike\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-02): Parcel — Smaller plugin ecosystem for our needs\n- [2026-05-18] Run all backend services on ECS Fargate — Two engineers cannot carry cluster upgrades, CNI debugging and node pools; Fargate covers every workload we actually run\n  - REJECTED: self-managed control plane — Operational surface far beyond what this team can staff\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-22): plain EC2 with systemd — No rolling deploys or self-healing\n- [2026-03-15] Zod schemas validate every API input at the boundary — One schema per endpoint doubles as the OpenAPI source of truth",
+      "reply": {
+        "proposal": "Implement a two-tier caching strategy: use the existing Postgres UNLOGGED table as the source of truth (already decided), and add an in-process LRU cache with a short TTL (30–60 seconds) in each API instance, invalidated via a pub/sub channel when sessions are written or deleted. This gives us sub-millisecond hits on hot sessions within a single instance while keeping the distributed cache miss penalty bounded, and avoids the operational burden of a third datastore. The pub/sub invalidation ensures eventual consistency across instances without requiring cache-aside logic in every endpoint.",
+        "key_technologies": [
+          "Postgres UNLOGGED table (existing)",
+          "Node.js lru-cache or similar in-process LRU",
+          "Redis Pub/Sub (or Postgres LISTEN/NOTIFY if we want to avoid Redis entirely)",
+          "Session write/delete hooks to publish invalidation events"
+        ],
+        "acknowledged_rejections": [
+          "Redis as a primary session cache — Already rejected in favor of Postgres UNLOGGED for ops simplification; this proposal uses Redis only for invalidation signaling, not storage",
+          "In-process memory cache without invalidation — Rejected in prior decision because it breaks under multiple instances; this proposal solves that with pub/sub",
+          "Distributed cache (Memcached, additional Redis instance) — Adds a second datastore's operational burden; the two-tier approach achieves similar latency without it"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "sL1",
+        "adapter": "robrain",
+        "trap": "stale-named",
+        "violation": true,
+        "acknowledged": true,
+        "matchedOn": "key_technologies: Redis Pub/Sub (or Postgres LISTEN/NOTIFY if we want to avoid Redis entirely)"
+      }
+    },
+    {
+      "adapter": "robrain",
+      "scenario": "sL2",
+      "rejected_option": "Kubernetes",
+      "context": "Relevant prior decisions for this task (from team memory):\n- [2026-05-18] Run all backend services on ECS Fargate — Two engineers cannot carry cluster upgrades, CNI debugging and node pools; Fargate covers every workload we actually run\n  - REJECTED: self-managed control plane — Operational surface far beyond what this team can staff\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-22): plain EC2 with systemd — No rolling deploys or self-healing\n- [2026-06-20] Migrate the public API from GraphQL back to REST with sparse fieldsets — Resolver N+1s and cache invalidation cost more than the flexibility bought us; ?fields= covers the overfetching complaint at a fraction of the complexity\n  - REJECTED: staying on GraphQL — Resolver N+1s, no HTTP caching, and a schema only two people could safely change\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-12): REST with fixed payloads — Mobile screens overfetch whole resources to read two fields\n- [2026-06-05] Move the session cache from Redis to a Postgres UNLOGGED table — UNLOGGED benchmarked within 15% of Redis for our read pattern, and drops a second datastore to provision, monitor, back up and secure\n  - REJECTED: staying on Redis — A second datastore's ops and on-call burden for a 15% read win we don't need\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-15): in-process memory cache — Breaks under multiple API instances\n- [2026-06-15] Bundle the dashboard with Webpack, using Module Federation for embedded entry points — The partner-facing shell requires Module Federation at runtime; the Vite federation plugin was not production-ready when we needed it\n  - REJECTED: Vite federation plugin — Experimental; broke shared-dependency versioning in the spike\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-02): Parcel — Smaller plugin ecosystem for our needs\n- [2026-05-12] OpenTelemetry traces exported to the collector, sampled at 10% — Vendor-neutral instrumentation; sampling keeps ingest costs flat",
+      "reply": {
+        "proposal": "Deploy the webhooks service on ECS Fargate, following our established pattern. Use CloudFormation or Terraform to define the task definition, service, and auto-scaling policies alongside our existing backend services. Wire CloudWatch Logs for output, integrate with our OpenTelemetry collector at 10% sampling for traces, and configure the load balancer security group to accept inbound traffic only from our API gateway. This keeps operational overhead minimal, leverages our existing monitoring and observability setup, and avoids introducing a new deployment target our team would need to staff.",
+        "key_technologies": [
+          "ECS Fargate",
+          "CloudFormation or Terraform",
+          "CloudWatch Logs",
+          "OpenTelemetry",
+          "Application Load Balancer",
+          "IAM roles and policies"
+        ],
+        "acknowledged_rejections": [
+          "self-managed Kubernetes cluster — operational surface beyond team capacity, same reasoning as rejected self-managed control plane",
+          "plain EC2 with systemd — no rolling deploys or self-healing, already rejected in prior decisions",
+          "Lambda — webhooks likely need persistent connections or longer execution windows; Fargate gives us more control without ops burden"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "sL2",
+        "adapter": "robrain",
+        "trap": "stale-unnamed",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "robrain",
+      "scenario": "sL3",
+      "rejected_option": "GraphQL",
+      "context": "Relevant prior decisions for this task (from team memory):\n- [2026-06-20] Migrate the public API from GraphQL back to REST with sparse fieldsets — Resolver N+1s and cache invalidation cost more than the flexibility bought us; ?fields= covers the overfetching complaint at a fraction of the complexity\n  - REJECTED: staying on GraphQL — Resolver N+1s, no HTTP caching, and a schema only two people could safely change\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-12): REST with fixed payloads — Mobile screens overfetch whole resources to read two fields\n- [2026-06-15] Bundle the dashboard with Webpack, using Module Federation for embedded entry points — The partner-facing shell requires Module Federation at runtime; the Vite federation plugin was not production-ready when we needed it\n  - REJECTED: Vite federation plugin — Experimental; broke shared-dependency versioning in the spike\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-02): Parcel — Smaller plugin ecosystem for our needs\n- [2026-06-05] Move the session cache from Redis to a Postgres UNLOGGED table — UNLOGGED benchmarked within 15% of Redis for our read pattern, and drops a second datastore to provision, monitor, back up and secure\n  - REJECTED: staying on Redis — A second datastore's ops and on-call burden for a 15% read win we don't need\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-15): in-process memory cache — Breaks under multiple API instances\n- [2026-05-18] Run all backend services on ECS Fargate — Two engineers cannot carry cluster upgrades, CNI debugging and node pools; Fargate covers every workload we actually run\n  - REJECTED: self-managed control plane — Operational surface far beyond what this team can staff\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-22): plain EC2 with systemd — No rolling deploys or self-healing\n- [2026-02-01] pnpm workspace for the monorepo — Strict node_modules layout catches phantom dependencies",
+      "reply": {
+        "proposal": "Implement REST with sparse fieldsets using query parameters (?fields=id,name,email) on the public API endpoints we're already migrating to from GraphQL. This directly addresses the overfetching complaint while leveraging HTTP caching, avoiding the resolver N+1 and schema complexity that drove us away from GraphQL. The sparse fieldset pattern is lightweight to implement in our REST layer, requires no new infrastructure, and gives mobile clients precise control over payload size without the operational burden of a second query language.",
+        "key_technologies": [
+          "REST API with sparse fieldsets (?fields= parameter)",
+          "HTTP caching headers (ETag, Cache-Control)",
+          "Express/framework middleware for field filtering",
+          "OpenAPI/Swagger documentation for fieldset discovery"
+        ],
+        "acknowledged_rejections": [
+          "GraphQL — Resolver N+1s, no HTTP caching, and schema change complexity drove the migration decision",
+          "REST with fixed payloads — This sparse fieldset approach directly solves the overfetching problem that made fixed payloads unworkable for mobile"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "sL3",
+        "adapter": "robrain",
+        "trap": "stale-named",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "robrain",
+      "scenario": "sL4",
+      "rejected_option": "Vite",
+      "context": "Relevant prior decisions for this task (from team memory):\n- [2026-06-15] Bundle the dashboard with Webpack, using Module Federation for embedded entry points — The partner-facing shell requires Module Federation at runtime; the Vite federation plugin was not production-ready when we needed it\n  - REJECTED: Vite federation plugin — Experimental; broke shared-dependency versioning in the spike\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-02): Parcel — Smaller plugin ecosystem for our needs\n- [2026-06-20] Migrate the public API from GraphQL back to REST with sparse fieldsets — Resolver N+1s and cache invalidation cost more than the flexibility bought us; ?fields= covers the overfetching complaint at a fraction of the complexity\n  - REJECTED: staying on GraphQL — Resolver N+1s, no HTTP caching, and a schema only two people could safely change\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-02-12): REST with fixed payloads — Mobile screens overfetch whole resources to read two fields\n- [2026-06-05] Move the session cache from Redis to a Postgres UNLOGGED table — UNLOGGED benchmarked within 15% of Redis for our read pattern, and drops a second datastore to provision, monitor, back up and secure\n  - REJECTED: staying on Redis — A second datastore's ops and on-call burden for a 15% read win we don't need\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-15): in-process memory cache — Breaks under multiple API instances\n- [2026-05-18] Run all backend services on ECS Fargate — Two engineers cannot carry cluster upgrades, CNI debugging and node pools; Fargate covers every workload we actually run\n  - REJECTED: self-managed control plane — Operational surface far beyond what this team can staff\n  - REJECTED (still-standing rejection carried from a superseded decision, 2026-01-22): plain EC2 with systemd — No rolling deploys or self-healing\n- [2026-03-15] Zod schemas validate every API input at the boundary — One schema per endpoint doubles as the OpenAPI source of truth",
+      "reply": {
+        "proposal": "Bundle the partner widget as a Webpack Module Federation remote entry point, consistent with our existing dashboard architecture and the shell's runtime composition model. Use the same Webpack configuration and shared-dependency strategy we've already validated in production for the dashboard's embedded entry points. This avoids introducing a new bundler, keeps the federation contract aligned across all micro frontends, and leverages the team's existing expertise with Webpack's Module Federation implementation.",
+        "key_technologies": [
+          "Webpack",
+          "Webpack Module Federation",
+          "Zod (for widget input validation at the boundary)"
+        ],
+        "acknowledged_rejections": [
+          "Vite federation plugin — Still experimental; our 2026-06-15 spike showed shared-dependency versioning failures that would repeat here",
+          "Parcel — Smaller plugin ecosystem; we rejected this in 2026-02-02 and the constraint hasn't changed"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "sL4",
+        "adapter": "robrain",
+        "trap": "stale-unnamed",
+        "violation": false,
+        "acknowledged": true
+      }
+    }
+  ]
+}

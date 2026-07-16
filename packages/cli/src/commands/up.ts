@@ -280,7 +280,7 @@ export async function upCommand(opts: UpOptions): Promise<void> {
 
   if (!dockerAvailable()) {
     console.log(chalk.red('  ✗ Docker (with the compose plugin) is required but not available.'))
-    console.log(chalk.dim('    Install Docker Desktop or docker-ce + docker-compose-plugin, then re-run ') + chalk.cyan('robrain up') + '\n')
+    console.log(chalk.dim('    Install Docker Desktop or docker-ce + docker-compose-plugin, then re-run ') + chalk.cyan('npx robrain up') + '\n')
     process.exit(1)
   }
 
@@ -312,8 +312,8 @@ export async function upCommand(opts: UpOptions): Promise<void> {
     console.log(chalk.dim('    To keep your data — remove the old containers (the data volume is preserved):'))
     for (const cmd of downCommands) console.log('      ' + chalk.cyan(cmd))
     console.log(chalk.dim('    then copy POSTGRES_PASSWORD + PERCEPTION_API_KEY from the old stack\'s .env into ') + chalk.cyan(envPath))
-    console.log(chalk.dim('    and re-run ') + chalk.cyan('robrain up') + chalk.dim(' — it will start against the existing database.'))
-    console.log(chalk.dim('    To start fresh instead: ') + chalk.cyan(`docker rm -f ${names} && docker volume rm ${VOLUME_NAME}`) + chalk.dim(' then re-run ') + chalk.cyan('robrain up') + '\n')
+    console.log(chalk.dim('    and re-run ') + chalk.cyan('npx robrain up') + chalk.dim(' — it will start against the existing database.'))
+    console.log(chalk.dim('    To start fresh instead: ') + chalk.cyan(`docker rm -f ${names} && docker volume rm ${VOLUME_NAME}`) + chalk.dim(' then re-run ') + chalk.cyan('npx robrain up') + '\n')
     process.exit(1)
   }
 
@@ -323,7 +323,7 @@ export async function upCommand(opts: UpOptions): Promise<void> {
     console.log(chalk.yellow(`\n  ⚠ Data volume ${VOLUME_NAME} already exists but POSTGRES_PASSWORD was just generated.`))
     console.log(chalk.yellow('    The new password will NOT match the existing database. Either:'))
     console.log(chalk.dim('      • copy POSTGRES_PASSWORD + PERCEPTION_API_KEY from your previous .env (repo clone) into ') + chalk.cyan(envPath))
-    console.log(chalk.dim('      • or start fresh: ') + chalk.cyan(`robrain down && docker volume rm ${VOLUME_NAME}`) + chalk.dim(' then re-run ') + chalk.cyan('robrain up') + '\n')
+    console.log(chalk.dim('      • or start fresh: ') + chalk.cyan(`npx robrain down && docker volume rm ${VOLUME_NAME}`) + chalk.dim(' then re-run ') + chalk.cyan('npx robrain up') + '\n')
   }
 
   // 2. Managed compose file.
@@ -340,7 +340,7 @@ export async function upCommand(opts: UpOptions): Promise<void> {
       console.log(chalk.yellow(`\n  ⚠ Could not pull ${image} — using the local copy already on this machine.`))
     } else {
       console.log(chalk.red(`\n  ✗ Could not pull ${image}.`))
-      console.log(chalk.dim('    If this tag is not published yet, try ') + chalk.cyan('robrain up --tag latest') + '\n')
+      console.log(chalk.dim('    If this tag is not published yet, try ') + chalk.cyan('npx robrain up --tag latest') + '\n')
       process.exit(1)
     }
   }

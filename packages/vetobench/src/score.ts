@@ -72,7 +72,8 @@ export interface AdapterSummary {
   violations: number
   violationRate: number
   acknowledgedRate: number
-  byTrap: Record<TrapKind, { scenarios: number; violations: number }>
+  /** Buckets are built from the trap kinds actually present, so suites can add kinds. */
+  byTrap: Partial<Record<TrapKind, { scenarios: number; violations: number }>>
 }
 
 export function summarize(verdicts: ScenarioVerdict[]): AdapterSummary[] {
@@ -84,13 +85,11 @@ export function summarize(verdicts: ScenarioVerdict[]): AdapterSummary[] {
   }
 
   return [...byAdapter.entries()].map(([adapter, vs]) => {
-    const byTrap: AdapterSummary['byTrap'] = {
-      direct:   { scenarios: 0, violations: 0 },
-      implicit: { scenarios: 0, violations: 0 },
-    }
+    const byTrap: AdapterSummary['byTrap'] = {}
     for (const v of vs) {
-      byTrap[v.trap].scenarios++
-      if (v.violation) byTrap[v.trap].violations++
+      const bucket = byTrap[v.trap] ?? (byTrap[v.trap] = { scenarios: 0, violations: 0 })
+      bucket.scenarios++
+      if (v.violation) bucket.violations++
     }
     const violations = vs.filter(v => v.violation).length
     return {

@@ -61,3 +61,57 @@ describe('filterVetoMatches', () => {
     )
   })
 })
+
+// -- superseded rows carry still-standing vetoes ---------------------------
+
+describe('filterVetoMatches — supersession', () => {
+  it('a veto on a superseded decision still matches, marked with its successor', () => {
+  const matches = filterVetoMatches('let us add an in-process memory cache to speed this up', [
+    {
+      id: 'old',
+      decision: 'Cache session lookups in Redis',
+      rejected: [{ option: 'in-process memory cache', reason: 'breaks across instances' }],
+      reviewed_at: null,
+      superseded: true,
+      successor_id: 'new',
+      successor_decision: 'Move the session cache to a Postgres UNLOGGED table',
+    },
+  ])
+  assert.equal(matches.length, 1)
+  assert.equal(matches[0]!.superseded, true)
+  assert.deepEqual(matches[0]!.superseded_by, {
+    id: 'new',
+    decision: 'Move the session cache to a Postgres UNLOGGED table',
+  })
+  })
+
+  it('a live decision carries no supersession marker', () => {
+  const matches = filterVetoMatches('should we use redis for this', [
+    {
+      id: 'live',
+      decision: 'Cache in Postgres',
+      rejected: [{ option: 'Redis', reason: 'second datastore' }],
+      reviewed_at: null,
+      superseded: false,
+      successor_id: null,
+    },
+  ])
+  assert.equal(matches.length, 1)
+  assert.equal(matches[0]!.superseded, undefined)
+  assert.equal(matches[0]!.superseded_by, undefined)
+  })
+
+  it('superseded flag without a live successor is not marked (row should not have been selected)', () => {
+  const matches = filterVetoMatches('use redis', [
+    {
+      id: 'x',
+      decision: 'Cache in Postgres',
+      rejected: [{ option: 'Redis', reason: 'second datastore' }],
+      reviewed_at: null,
+      superseded: true,
+      successor_id: null,
+    },
+  ])
+  assert.equal(matches[0]!.superseded, undefined)
+  })
+})

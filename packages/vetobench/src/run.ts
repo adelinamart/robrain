@@ -46,12 +46,14 @@ function parseArgs(argv: string[]) {
     adapters: null as string[] | null,
     model: undefined as string | undefined,
     archive: undefined as string | undefined,
+    suite: 'default' as 'default' | 'lifecycle',
   }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--live') args.live = true
     if (argv[i] === '--adapters' && argv[i + 1]) args.adapters = argv[++i]!.split(',').map(s => s.trim())
     if (argv[i] === '--model' && argv[i + 1]) args.model = argv[++i]
     if (argv[i] === '--archive' && argv[i + 1]) args.archive = argv[++i]
+    if (argv[i] === '--suite' && argv[i + 1]) args.suite = argv[++i] as 'default' | 'lifecycle'
   }
   return args
 }
@@ -87,8 +89,9 @@ async function behavioralLayer(
   adapterFilter: string[] | null,
   model?: string,
   archivePath?: string,
+  withDates = false,
 ): Promise<void> {
-  const adapters = builtinAdapters().filter(a => !adapterFilter || adapterFilter.includes(a.name))
+  const adapters = builtinAdapters(undefined, withDates).filter(a => !adapterFilter || adapterFilter.includes(a.name))
 
   // Opt-in adapters load lazily so the offline bench never needs their deps or keys.
   if (adapterFilter?.includes('mem0')) {
@@ -147,13 +150,20 @@ async function behavioralLayer(
     console.log(`\narchived contexts + replies + verdicts → ${archivePath}`)
   }
 
-  console.log(`\n${'condition'.padEnd(13)} ${'violation'.padStart(9)} ${'ack'.padStart(6)}   direct-trap   implicit-trap`)
-  for (const s of summarize(verdicts)) {
-    const d = s.byTrap.direct
-    const i = s.byTrap.implicit
+  const summaries = summarize(verdicts)
+  const trapKinds = [...new Set(fixture.scenarios.map(s => s.trap))]
+  console.log(
+    `\n${'condition'.padEnd(13)} ${'violation'.padStart(9)} ${'ack'.padStart(6)}   ` +
+    trapKinds.map(t => t.padEnd(15)).join(''),
+  )
+  for (const s of summaries) {
+    const cells = trapKinds.map(t => {
+      const b = s.byTrap[t]
+      return (b ? `${b.violations}/${b.scenarios}` : '—').padEnd(15)
+    })
     console.log(
       `${s.adapter.padEnd(13)} ${(s.violationRate * 100).toFixed(0).padStart(8)}% ${(s.acknowledgedRate * 100).toFixed(0).padStart(5)}%   ` +
-      `${d.violations}/${d.scenarios}${' '.repeat(10)}${i.violations}/${i.scenarios}`,
+      cells.join(''),
     )
   }
   console.log('\nviolation = re-proposed a recorded rejected approach · ack = named the prior rejection')
@@ -161,17 +171,23 @@ async function behavioralLayer(
 
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2))
-  const corpus = loadFixture<CorpusDecision[]>('corpus.json')
-  const fixture = loadFixture<ScenarioFixtureFile>('scenarios.json')
+  const lifecycle = args.suite === 'lifecycle'
+  const corpus = loadFixture<CorpusDecision[]>(lifecycle ? 'corpus-lifecycle.json' : 'corpus.json')
+  const fixture = loadFixture<ScenarioFixtureFile>(lifecycle ? 'scenarios-lifecycle.json' : 'scenarios.json')
 
-  console.log(`VetoBench — ${corpus.length} corpus decisions (${corpus.filter(d => d.rejected.length > 0).length} with vetoes), ${fixture.scenarios.length} scenarios`)
+  const superseded = corpus.filter(d => d.status === 'superseded').length
+  console.log(
+    `VetoBench${lifecycle ? ' — lifecycle suite' : ''} — ${corpus.length} corpus decisions ` +
+    `(${corpus.filter(d => d.rejected.length > 0).length} with vetoes` +
+    `${superseded ? `, ${superseded} superseded` : ''}), ${fixture.scenarios.length} scenarios`,
+  )
   console.log(`as-of ${fixture.as_of} (fixed for reproducible recency)`)
 
   const recall = retrievalLayer(corpus, fixture)
 
   if (args.live) {
     loadCliEnv()
-    await behavioralLayer(corpus, fixture, args.adapters, args.model, args.archive)
+    await behavioralLayer(corpus, fixture, args.adapters, args.model, args.archive, lifecycle)
   } else {
     console.log('\n(offline run — add --live with an LLM key for the behavioral layer)')
   }

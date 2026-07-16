@@ -135,7 +135,7 @@ const PROJECT_REGISTER_HINT =
 function projectNotRegisteredJson(projectId: string) {
   return {
     error:   'project_not_registered' as const,
-    message: `project_id ${projectId} not registered — did you run robrain init-project?`,
+    message: `project_id ${projectId} not registered — did you run npx robrain init-project?`,
     hint:    PROJECT_REGISTER_HINT,
   }
 }
@@ -492,6 +492,32 @@ app.get('/decisions', async (c) => {
       LIMIT 1
     ) AS conflict_counterpart_id`
 
+    // Vetoes recorded on the decision this row replaced. A decision's *choice*
+    // and its *rejections* have different lifetimes: "cache sessions in Redis"
+    // can be superseded while "an in-process cache breaks across instances"
+    // stays true. Retrieval filters invalidated_at, so those rejections used to
+    // vanish the moment the decision carrying them was revisited.
+    //
+    // Additive on purpose — `rejected` keeps meaning "vetoes recorded on THIS
+    // decision", so the robrain-memory/v1 export (which emits superseded rows
+    // in full via history=true) neither double-counts them nor changes shape.
+    // Consumers that build agent context opt in; consumers that mirror rows
+    // ignore it.
+    //
+    // One hop: A→B→C surfaces B's vetoes on A, not C's. Chains that deep are
+    // rare, and a recursive walk would need cycle guards for little gain.
+    const inheritedRejectedSql = `COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'option',           r->>'option',
+        'reason',           r->>'reason',
+        'from_decision_id', anc.id,
+        'from_created_at',  anc.created_at
+      ))
+      FROM ${S}.decisions anc
+      CROSS JOIN LATERAL jsonb_array_elements(anc.rejected) AS r
+      WHERE anc.id = d.supersedes_id
+    ), '[]'::jsonb) AS inherited_rejected`
+
     // `robrain review` filters out user-approved decisions so the feed shows
     // only what still needs attention. `robrain review --history` and
     // `robrain inject` (semantic search) both ignore reviewed_at because they
@@ -522,6 +548,7 @@ app.get('/decisions', async (c) => {
                    d.historical_relevance, d.source_turn_sequence,
                    d.source_excerpt, d.injected_count, d.used_count,
                    ${conflictCounterpartSql},
+                   ${inheritedRejectedSql},
                    1 - (d.embedding <=> $1::vector) AS similarity,
                    POWER(0.5, LEAST(3650, EXTRACT(EPOCH FROM (NOW() - d.created_at)) / 86400.0) / ${hl}) AS recency_score,
                    ${fileOverlapExpr} AS file_overlap_score
@@ -563,7 +590,8 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               ${conflictCounterpartSql}
+               ${conflictCounterpartSql},
+               ${inheritedRejectedSql}
         FROM ${S}.decisions d
         WHERE d.session_id = $1
           AND d.invalidated_at IS NULL
@@ -580,7 +608,8 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               ${conflictCounterpartSql}
+               ${conflictCounterpartSql},
+               ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
@@ -598,7 +627,8 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               ${conflictCounterpartSql}
+               ${conflictCounterpartSql},
+               ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
@@ -614,7 +644,8 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               ${conflictCounterpartSql}
+               ${conflictCounterpartSql},
+               ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
@@ -655,15 +686,39 @@ app.post('/veto-scan', writeRateLimit, async (c) => {
   if (unknownProject) return unknownProject
 
   try {
-    // Pre-filter in SQL: active decisions with at least one rejected option
-    // (≥ 3 chars — the matcher skips shorter ones anyway) appearing as a
-    // substring of the text. Word boundaries are verified in JS; ILIKE alone
-    // would call "pineconeish" a match.
+    // Pre-filter in SQL: decisions with at least one rejected option (≥ 3 chars
+    // — the matcher skips shorter ones anyway) appearing as a substring of the
+    // text. Word boundaries are verified in JS; ILIKE alone would call
+    // "pineconeish" a match.
+    //
+    // Rows are live OR superseded-with-a-live-successor. A decision's *choice*
+    // and its *rejections* have different lifetimes: "cache sessions in Redis"
+    // can be superseded by "cache in a Postgres UNLOGGED table" while its
+    // rejection ("an in-process cache breaks across instances") stays true
+    // forever. Filtering on invalidated_at alone dropped those vetoes, so the
+    // pre-task warning went silent on exactly the rejections a team had
+    // re-confirmed by revisiting the decision.
+    //
+    // invalidated_at is overloaded — it means "superseded" OR "thrown out in
+    // review" — so we condition on a live successor (supersedes_id) rather than
+    // on invalidated_at. A decision a human rejected as bogus has no successor,
+    // and its vetoes stay dead, which is what the reviewer meant.
     const { rows } = await pool.query<VetoScanRow>(`
-      SELECT d.id, d.decision, d.rejected, d.reviewed_at
+      SELECT d.id, d.decision, d.rejected, d.reviewed_at,
+             (d.invalidated_at IS NOT NULL) AS superseded,
+             succ.id   AS successor_id,
+             succ.decision AS successor_decision
       FROM ${S}.decisions d
+      LEFT JOIN LATERAL (
+        SELECT s.id, s.decision
+        FROM ${S}.decisions s
+        WHERE s.supersedes_id = d.id
+          AND s.invalidated_at IS NULL
+        ORDER BY s.created_at DESC
+        LIMIT 1
+      ) succ ON TRUE
       WHERE d.project_id = $1
-        AND d.invalidated_at IS NULL
+        AND (d.invalidated_at IS NULL OR succ.id IS NOT NULL)
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(d.rejected) AS r
           WHERE length(trim(r->>'option')) >= 3
@@ -847,6 +902,8 @@ app.post('/corrections', async (c) => {
     decision_id:               string
     corrected_decision?:       string
     corrected_rationale?:      string
+    /** Replace the carried-forward rejected[] on a correction. Omit to keep the original's; [] to clear. */
+    corrected_rejected?:       Array<{ option: string; reason: string }>
     invalidate?:               boolean
     approve?:                  boolean
     /** From robrain review "keep this decision" conflict resolution — clears flag + marks reviewed. */
@@ -928,8 +985,11 @@ app.post('/corrections', async (c) => {
       scope: string
       source_turn_sequence: number | null
       source_excerpt: string | null
+      rejected: Array<{ option: string; reason: string }>
+      files_affected: string[]
     }>(
-      `SELECT session_id, scope, source_turn_sequence, source_excerpt FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
+      `SELECT session_id, scope, source_turn_sequence, source_excerpt, rejected, files_affected
+       FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
       [body.decision_id],
     )
     const src = srcRows[0]
@@ -948,12 +1008,21 @@ app.post('/corrections', async (c) => {
 
     // Carry provenance from the superseded row — corrections rewrite the text,
     // not where the decision came from.
+    //
+    // rejected[] and files_affected ride along for the same reason. A correction
+    // rewrites *how the decision reads*; it does not un-reject the alternatives
+    // the team ruled out or un-touch the files it covers. These used to be
+    // hardcoded to '[]'/'{}' here, which silently destroyed every veto on the
+    // row the moment anyone edited its text in `robrain review` — and the veto
+    // is the whole point of the record. Callers that genuinely want to drop them
+    // can pass corrected_rejected: [].
+    const carriedRejected = body.corrected_rejected ?? (Array.isArray(src.rejected) ? src.rejected : [])
     await pool.query(`
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
         supersedes_id, embedding, source_turn_sequence, source_excerpt
-      ) VALUES ($1,$2,$3,$4,'[]'::jsonb,'{}'::text[],1.0,$5,$6,$7,$8::vector,$9,$10)
+      ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10)
     `, [
       projectId,
       src.session_id,
@@ -965,6 +1034,8 @@ app.post('/corrections', async (c) => {
       JSON.stringify(embedding),
       src.source_turn_sequence,
       src.source_excerpt,
+      JSON.stringify(carriedRejected),
+      Array.isArray(src.files_affected) ? src.files_affected : [],
     ])
 
     // New row enters high_signal / recent_fill; regen again so the summary

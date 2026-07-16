@@ -62,7 +62,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   console.log()
 
   if (!isAuthenticated()) {
-    console.log(chalk.red('  ✗ Not authenticated. Run: robrain install'))
+    console.log(chalk.red('  ✗ Not authenticated. Run: npx robrain install'))
     process.exit(1)
   }
 
@@ -72,7 +72,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   const percKey = config.perceptionKey ?? ''
 
   if (!percUrl) {
-    console.log(chalk.red('  ✗ Perception URL not configured. Run: robrain install'))
+    console.log(chalk.red('  ✗ Perception URL not configured. Run: npx robrain install'))
     process.exit(1)
   }
 

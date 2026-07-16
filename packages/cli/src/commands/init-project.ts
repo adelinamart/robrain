@@ -38,7 +38,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
 
   // ── Auth check ─────────────────────────────────────────────
   if (!isAuthenticated()) {
-    console.log(chalk.red('  ✗ Not authenticated. Run: robrain install'))
+    console.log(chalk.red('  ✗ Not authenticated. Run: npx robrain install'))
     process.exit(1)
   }
 
@@ -46,7 +46,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   const instructionMode: RoBrainInstructionMode = config.selfHosted ? 'sensing-only' : 'sensing+control'
 
   if (!config.perceptionUrl) {
-    console.log(chalk.red('  ✗ Perception URL not configured. Run: robrain install'))
+    console.log(chalk.red('  ✗ Perception URL not configured. Run: npx robrain install'))
     process.exit(1)
   }
 

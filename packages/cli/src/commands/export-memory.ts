@@ -201,8 +201,8 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
       console.log(chalk.dim(`  All ${totalFetched} captured decisions are invalidated/superseded.\n`))
     } else {
       console.log(chalk.dim(`  ${active.length} active decision${active.length === 1 ? '' : 's'} found, but none are approved yet.`))
-      console.log(chalk.dim('  Approve them first: ') + chalk.cyan('robrain review') + chalk.dim('\n'))
-      console.log(chalk.dim('  Or include unreviewed (not recommended): ') + chalk.cyan('robrain export-memory --include-unreviewed\n'))
+      console.log(chalk.dim('  Approve them first: ') + chalk.cyan('npx robrain review') + chalk.dim('\n'))
+      console.log(chalk.dim('  Or include unreviewed (not recommended): ') + chalk.cyan('npx robrain export-memory --include-unreviewed\n'))
     }
     return
   }
@@ -554,7 +554,7 @@ function renderLedger(
   L.push('## Approved — in effect')
   L.push('')
   if (approved.length === 0) {
-    L.push('_None approved yet. Run `robrain review` to approve captured decisions._')
+    L.push('_None approved yet. Run `npx robrain review` to approve captured decisions._')
     L.push('')
   } else {
     const clusters = clusterByFileOverlap(approved)

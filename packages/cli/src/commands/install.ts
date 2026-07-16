@@ -118,7 +118,7 @@ function prepareMcpBundles(opts: InstallOptions): void {
   console.log(chalk.dim('    Expected: ') + join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'))
   console.log(chalk.dim('\n    Fix: run ') + chalk.cyan('npx robrain@latest install') + chalk.dim(' (bundles the Sensing server),'))
   console.log(chalk.dim('    or from a robrain clone run ') + chalk.cyan('pnpm install') + chalk.dim(' + ') + chalk.cyan('pnpm build') + chalk.dim(', then'))
-  console.log(chalk.dim('    reinstall with ') + chalk.cyan('robrain install --repo-root /path/to/robrain') + chalk.dim(' (or set ') + chalk.cyan('ROBRAIN_REPO') + chalk.dim(')\n'))
+  console.log(chalk.dim('    reinstall with ') + chalk.cyan('npx robrain install --repo-root /path/to/robrain') + chalk.dim(' (or set ') + chalk.cyan('ROBRAIN_REPO') + chalk.dim(')\n'))
   process.exit(1)
 }
 
@@ -458,7 +458,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   console.log(chalk.dim('  Perception: ') + chalk.cyan(perceptionUrl))
   console.log(chalk.dim('  Planning + Control injection: ') + chalk.yellow('not available in self-hosted OSS'))
   console.log()
-  console.log(chalk.dim('  Context retrieval: use ') + chalk.cyan('robrain inject') + chalk.dim(' to get context for manual paste'))
+  console.log(chalk.dim('  Context retrieval: use ') + chalk.cyan('npx robrain inject') + chalk.dim(' to get context for manual paste'))
   console.log()
 
   await chainInitAfterInstall(opts)

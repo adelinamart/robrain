@@ -143,7 +143,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
   console.log()
 
   if (!isAuthenticated()) {
-    console.log(chalk.red('  ✗ Not authenticated. Run: robrain install'))
+    console.log(chalk.red('  ✗ Not authenticated. Run: npx robrain install'))
     process.exit(1)
   }
 
@@ -264,7 +264,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
   if (opts.dryRun) {
     console.log(chalk.dim('  Dry run — nothing recorded. Drop --dry-run to apply.\n'))
   } else {
-    console.log(chalk.dim('  Reverted decisions are flagged — resolve them with: robrain review\n'))
+    console.log(chalk.dim('  Reverted decisions are flagged — resolve them with: npx robrain review\n'))
   }
 }
 
@@ -282,7 +282,7 @@ export async function outcomesRecordCommand(decisionId: string, opts: OutcomesRe
   console.log()
 
   if (!isAuthenticated()) {
-    console.log(chalk.red('  ✗ Not authenticated. Run: robrain install'))
+    console.log(chalk.red('  ✗ Not authenticated. Run: npx robrain install'))
     process.exit(1)
   }
 
@@ -320,7 +320,7 @@ export async function outcomesRecordCommand(decisionId: string, opts: OutcomesRe
       console.log()
     } else if (res.status === 404) {
       spinner.fail(`Decision ${decisionId} not found for this project`)
-      console.log(chalk.dim('  Find decision ids with: robrain review --history\n'))
+      console.log(chalk.dim('  Find decision ids with: npx robrain review --history\n'))
       process.exit(1)
     } else {
       spinner.fail(`Could not record outcome (${res.status})`)
