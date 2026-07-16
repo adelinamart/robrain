@@ -10,14 +10,14 @@ import {
 } from './up.js'
 
 describe('renderStackCompose', () => {
-  const compose = renderStackCompose(`${DEFAULT_IMAGE_REPO}:2.3.9`)
+  const compose = renderStackCompose(`${DEFAULT_IMAGE_REPO}:2.4.0`)
 
   it('pins the compose project name shared with the repo-clone flow', () => {
     assert.match(compose, new RegExp(`^name: ${COMPOSE_PROJECT}$`, 'm'))
   })
 
   it('runs Perception from the published image with an env override hook', () => {
-    assert.match(compose, /image: \$\{PERCEPTION_IMAGE:-ghcr\.io\/adelinamart\/robrain-perception:2\.3\.9\}/)
+    assert.match(compose, /image: \$\{PERCEPTION_IMAGE:-ghcr\.io\/adelinamart\/robrain-perception:2\.4\.0\}/)
     assert.doesNotMatch(compose, /build:/)
   })
 
