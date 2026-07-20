@@ -47,6 +47,10 @@ interface StoredDecision {
   source_excerpt?:       string | null   // provenance: ≤300-char user-message excerpt
   injected_count?:       number          // quality: times injected into context
   used_count?:           number          // quality: times judged used in the reply
+  trust_score?:          number | string | null  // trust: 0 safe → 1 hostile (NUMERIC arrives as string)
+  trust_flags?:          Array<{ type: string; evidence: string }> | null
+  quarantined_at?:       string | null   // trust: held out of all injection surfaces until approved
+  quarantine_released_at?: string | null // trust: when a human released it (via Accept)
 }
 
 /** Mirrors Perception's demotion gate (packages/perception-self-hosted/src/scoring.ts DEMOTION). */
@@ -102,6 +106,31 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
 
     const data = await res.json() as { decisions: StoredDecision[] }
     decisions  = data.decisions ?? []
+
+    // Quarantined rows (write-time trust screening) are excluded from the
+    // recent/all feeds server-side — they are injection feeds. Fetch them
+    // separately so review remains the human release path. --history already
+    // includes them inline; a session-scoped view stays session-scoped.
+    if (!opts.history && (!opts.session || opts.session === 'last')) {
+      try {
+        const qParams = new URLSearchParams({
+          project_id: info.id,
+          quarantined: 'true',
+          limit:      String(limit),
+        })
+        const qRes = await fetch(`${percUrl}/decisions?${qParams}`, {
+          headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
+        })
+        if (qRes.ok) {
+          const qData = await qRes.json() as { decisions: StoredDecision[] }
+          const seen  = new Set(decisions.map(d => d.id))
+          decisions.push(...(qData.decisions ?? []).filter(d => !seen.has(d.id)))
+        }
+      } catch {
+        // Older Perception without the quarantine surface — nothing to merge.
+      }
+    }
+
     // Newest decisions first (matches Perception ORDER BY created_at DESC; belt-and-suspenders).
     if (!opts.history) {
       decisions.sort(
@@ -127,7 +156,15 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   }
 
   if (opts.approveAll) {
-    const reviewable = decisions.filter(d => !d.invalidated_at && !d.reviewed_at)
+    // Quarantined rows are excluded from bulk approval on purpose: releasing
+    // one from trust quarantine must be an individual, eyes-on decision.
+    const quarantinedCount = decisions.filter(d => d.quarantined_at).length
+    if (quarantinedCount > 0) {
+      console.log(chalk.yellow(
+        `  🛡 ${quarantinedCount} quarantined decision${quarantinedCount === 1 ? '' : 's'} skipped — review individually to release.`,
+      ))
+    }
+    const reviewable = decisions.filter(d => !d.invalidated_at && !d.reviewed_at && !d.quarantined_at)
     if (reviewable.length === 0) {
       console.log(chalk.green(`  ✓ No reviewable decisions to approve for ${chalk.bold(info.name)}.\n`))
       return
@@ -168,13 +205,16 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
                 : chalk.red('low')
 
     // Lifecycle state
-    const isSuperseded = !!d.invalidated_at
-    const isApproved   = !isSuperseded && !!d.reviewed_at
+    const isSuperseded   = !!d.invalidated_at
+    const isApproved     = !isSuperseded && !!d.reviewed_at
+    const isQuarantined  = !!d.quarantined_at
     const reviewedDate = isApproved && d.reviewed_at
       ? new Date(d.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : null
 
-    const statusLabel  = isSuperseded
+    const statusLabel  = isQuarantined
+      ? chalk.red('  🛡 QUARANTINED (trust) — excluded from injection until accepted')
+      : isSuperseded
       ? chalk.dim('  ↩ SUPERSEDED')
       : isApproved
       ? chalk.green(`  ✓ APPROVED — ${reviewedDate}`)
@@ -183,6 +223,12 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
       : null
 
     if (statusLabel) console.log(statusLabel)
+    if (isQuarantined && d.trust_flags?.length) {
+      const score = d.trust_score != null ? ` (trust ${Number(d.trust_score).toFixed(2)})` : ''
+      console.log(chalk.red(`     flags:    `) + chalk.dim(
+        d.trust_flags.map(f => `${f.type}: ${f.evidence}`).join(' · '),
+      ) + chalk.dim(score))
+    }
 
     // Decision text — dim if superseded
     const decisionText = isSuperseded
@@ -250,7 +296,12 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
       choices: [
         ...(!isApproved
           ? [
-              { title: '✔  Accept — looks correct',    value: 'accept' },
+              {
+                title: isQuarantined
+                  ? '✔  Accept — release from quarantine'
+                  : '✔  Accept — looks correct',
+                value: 'accept',
+              },
             ]
           : [
               { title: '✓  Already approved (no change)', value: 'noop_approved' },

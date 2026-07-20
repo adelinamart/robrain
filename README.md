@@ -148,7 +148,7 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
 | 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
-| Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
+| Vetoes survive supersession — rejection history follows the newest decision | ✓ | ✓ full history merge |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
 | Decision lineage timeline (API + dashboard) | — | ✓ |
 | Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |

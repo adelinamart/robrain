@@ -87,6 +87,8 @@ interface Decision {
   reviewed_at?:   string | null
   invalidated_at?: string | null
   supersedes_id?: string | null
+  /** Trust quarantine (write-time scoring) — never export while set. */
+  quarantined_at?: string | null
 }
 
 interface Cluster {
@@ -149,8 +151,11 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
   spinner.stop()
 
   // ── 2. Filter ───────────────────────────────────────────────
+  // Quarantined rows (write-time trust screening) never reach exported
+  // memory — not even with --include-unreviewed. Release them first in
+  // `robrain review`.
   const totalFetched = decisions.length
-  const active       = decisions.filter(d => !d.invalidated_at)
+  const active       = decisions.filter(d => !d.invalidated_at && !d.quarantined_at)
   const exportable   = opts.includeUnreviewed
     ? active
     : active.filter(d => !!d.reviewed_at)
