@@ -23,7 +23,7 @@ import { bodyLimit }         from 'hono/body-limit'
 import { serve }             from '@hono/node-server'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, attachPoolErrorHandler } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
@@ -354,17 +354,37 @@ app.post('/signals', writeRateLimit, async (c) => {
       console.warn(`[Perception OSS] POST /signals redacted secrets before storage: ${detail}`)
     }
 
+    // Write-time trust screening (memory-poisoning defense, OWASP ASI06):
+    // score every field that will later be injected into agent prompts.
+    // Suspicious rows are stored but QUARANTINED — excluded from all
+    // injection surfaces until a human approves them in `robrain review`.
+    // Quarantine, never silently drop.
+    const trust = scoreMemoryTrust([
+      extracted.decision,
+      ...(extracted.rationale ? [extracted.rationale] : []),
+      ...extracted.rejected.flatMap(r => [r.option, r.reason]),
+    ])
+    const quarantine = trust.score >= QUARANTINE_THRESHOLD
+    if (quarantine) {
+      console.error(
+        `[Perception OSS] QUARANTINED incoming decision (project ${projectId}, trust_score=${trust.score}): ` +
+        trust.flags.map(f => `${f.type} [${f.evidence}]`).join(' | '),
+      )
+    }
+
     // Embed the decision
     const embedding = await embed(`${extracted.decision}. ${extracted.rationale ?? ''}`)
 
     // Near-duplicate: skip INSERT if an active same-scope decision is already this close in embedding space.
     // Same-session turns (e.g. same user_message, different claude_reply) can phrase the decision slightly
     // differently — use a lower cosine floor than cross-session so we don't double-insert.
+    // Quarantine candidates skip dedup entirely: poison must neither merge into
+    // a healthy row nor be swallowed by one — it gets its own quarantined row.
     const dedupCross = THRESHOLDS.DECISION_DEDUP_SIMILARITY
     const dedupSameSession = THRESHOLDS.DECISION_DEDUP_SIMILARITY_SAME_SESSION
     const currentSessionId = signal.turn.session_id
 
-    const { rows: nearest } = await pool.query<{
+    const { rows: nearest } = quarantine ? { rows: [] } : await pool.query<{
       id: string
       session_id: string
       decision: string
@@ -378,6 +398,7 @@ app.post('/signals', writeRateLimit, async (c) => {
         -- Same-scope only: 'team' and 'user' decisions are intentional partitions, never dedup across.
         AND d.scope = $3
         AND d.invalidated_at IS NULL
+        AND d.quarantined_at IS NULL
         AND d.embedding IS NOT NULL
       ORDER BY d.embedding <=> $1::vector
       LIMIT 5
@@ -422,8 +443,10 @@ app.post('/signals', writeRateLimit, async (c) => {
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source, embedding,
-        source_turn_sequence, source_excerpt
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector, $11, $12)
+        source_turn_sequence, source_excerpt,
+        trust_score, trust_flags, quarantined_at
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector, $11, $12,
+                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END)
       RETURNING id
     `, [
       projectId,
@@ -438,7 +461,22 @@ app.post('/signals', writeRateLimit, async (c) => {
       JSON.stringify(embedding),
       sourceTurnSequence,
       sourceExcerpt,
+      trust.score,
+      JSON.stringify(trust.flags),
+      quarantine,
     ])
+
+    if (quarantine) {
+      // No summary regen: quarantined rows are excluded from the always-on
+      // summary anyway. The row is visible in `robrain review` for release.
+      return c.json({
+        accepted:    true,
+        action:      'quarantined',
+        decision_id: rows[0]?.id,
+        trust_score: trust.score,
+        trust_flags: trust.flags,
+      })
+    }
 
     scheduleRegenerateSummary(projectId)
     return c.json({ accepted: true, action: 'written', decision_id: rows[0]?.id })
@@ -463,6 +501,10 @@ app.get('/decisions', async (c) => {
   const all        = c.req.query('all') === 'true'
   const recent     = c.req.query('recent') === 'true'
   const history    = c.req.query('history') === 'true'
+  // Trust review surface: only rows currently held in quarantine. Every other
+  // non-history branch EXCLUDES quarantined rows (they are injection feeds);
+  // history keeps them visible with the quarantined_at/trust_flags markers.
+  const quarantinedOnly = c.req.query('quarantined') === 'true'
   const query_text   = c.req.query('query')   // for robrain inject semantic search
   const boostFilesRaw = c.req.query('boost_files') // comma paths — F1 file_overlap in planning_score
   const limitRaw   = c.req.query('limit') ?? '20'
@@ -547,6 +589,7 @@ app.get('/decisions', async (c) => {
                    d.supersedes_id, d.invalidated_at, d.reviewed_at,
                    d.historical_relevance, d.source_turn_sequence,
                    d.source_excerpt, d.injected_count, d.used_count,
+                   d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
                    ${conflictCounterpartSql},
                    ${inheritedRejectedSql},
                    1 - (d.embedding <=> $1::vector) AS similarity,
@@ -556,6 +599,7 @@ app.get('/decisions', async (c) => {
             JOIN ${S}.sessions s ON s.id = d.session_id
             WHERE s.project_id = $2
               AND d.invalidated_at IS NULL
+              AND d.quarantined_at IS NULL
               AND d.embedding IS NOT NULL
             ORDER BY d.embedding <=> $1::vector
             LIMIT 120`
@@ -582,6 +626,29 @@ app.get('/decisions', async (c) => {
         `, [JSON.stringify(embedding), projectId, limit, boostPaths])
 
       rows = result.rows
+    } else if (quarantinedOnly) {
+      // Trust review surface — rows held in quarantine, newest first, with
+      // the trust markers so `robrain review` / the dashboard can show WHY.
+      // Invalidated rows drop out: rejecting a quarantined decision in
+      // review resolves it without a release.
+      const result = await pool.query(`
+        SELECT d.id, d.decision, d.rationale, d.rejected,
+               d.files_affected, d.confidence, d.scope,
+               d.created_at, d.session_id, d.conflict_flag,
+               d.supersedes_id, d.invalidated_at, d.reviewed_at,
+               d.historical_relevance, d.source_turn_sequence,
+               d.source_excerpt, d.injected_count, d.used_count,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               ${conflictCounterpartSql},
+               ${inheritedRejectedSql}
+        FROM ${S}.decisions d
+        JOIN ${S}.sessions s ON s.id = d.session_id
+        WHERE s.project_id = $1
+          AND d.quarantined_at IS NOT NULL
+          AND d.invalidated_at IS NULL
+        ORDER BY d.created_at DESC LIMIT $2
+      `, [projectId, limit])
+      rows = result.rows
     } else if (sessionId) {
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
@@ -590,17 +657,21 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
         WHERE d.session_id = $1
           AND d.invalidated_at IS NULL
+          AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [sessionId, limit])
       rows = result.rows
     } else if ((all || recent) && !history) {
-      // `all` (review --all) or `recent` (default review): unreviewed + active, newest first
+      // `all` (review --all) or `recent` (default review): unreviewed + active, newest first.
+      // Quarantined rows are excluded — consumers (robrain inject --all, hooks)
+      // treat these branches as injection feeds; review fetches ?quarantined=true.
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
@@ -608,18 +679,22 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
           AND d.invalidated_at IS NULL
+          AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
     } else if (history) {
-      // --history (with or without --all): full lifecycle for the project
+      // --history (with or without --all): full lifecycle for the project.
+      // Quarantined rows stay visible here WITH their markers — history is a
+      // human review/audit surface, and consumers filter on quarantined_at.
       const result = await pool.query(`
         SELECT d.id, d.decision, d.rationale, d.rejected,
                d.files_affected, d.confidence, d.scope,
@@ -627,6 +702,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -644,12 +720,14 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
           AND d.invalidated_at IS NULL
+          AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
@@ -714,10 +792,13 @@ app.post('/veto-scan', writeRateLimit, async (c) => {
         FROM ${S}.decisions s
         WHERE s.supersedes_id = d.id
           AND s.invalidated_at IS NULL
+          AND s.quarantined_at IS NULL
         ORDER BY s.created_at DESC
         LIMIT 1
       ) succ ON TRUE
       WHERE d.project_id = $1
+        -- Quarantined rows never feed the pre-task veto warning (trust gate).
+        AND d.quarantined_at IS NULL
         AND (d.invalidated_at IS NULL OR succ.id IS NOT NULL)
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(d.rejected) AS r
@@ -915,11 +996,16 @@ app.post('/corrections', async (c) => {
 
   // Approval is exclusive of invalidation/edit; once a user explicitly
   // approves a decision it disappears from the default review feed.
+  // Approving is also the human release path out of trust quarantine:
+  // quarantine_released_at is stamped and quarantined_at cleared, so the
+  // row re-enters every injection surface.
   if (body.approve) {
     const result = await pool.query<{ project_id: string }>(`
       UPDATE ${S}.decisions
       SET reviewed_at = now(),
           conflict_flag = false,
+          quarantine_released_at = CASE WHEN quarantined_at IS NOT NULL THEN now() ELSE quarantine_released_at END,
+          quarantined_at = NULL,
           updated_at = now()
       WHERE id = $1
       RETURNING project_id
@@ -1004,6 +1090,23 @@ app.post('/corrections', async (c) => {
       ? null
       : redactSecrets(body.corrected_rationale).text
 
+    // Trust-screen the corrected text like /signals ingest — an edit is just
+    // another write path into the injected corpus. Vetoes carried over from
+    // the source row are NOT re-screened (they already passed ingest or were
+    // human-released); only caller-supplied replacements are.
+    const trust = scoreMemoryTrust([
+      correctedDecision,
+      ...(correctedRationale ? [correctedRationale] : []),
+      ...(body.corrected_rejected ?? []).flatMap(r => [r.option, r.reason]),
+    ])
+    const quarantine = trust.score >= QUARANTINE_THRESHOLD
+    if (quarantine) {
+      console.error(
+        `[Perception OSS] QUARANTINED corrected decision (source ${body.decision_id}, trust_score=${trust.score}): ` +
+        trust.flags.map(f => `${f.type} [${f.evidence}]`).join(' | '),
+      )
+    }
+
     const embedding = await embed(`${correctedDecision}. ${correctedRationale ?? ''}`)
 
     // Carry provenance from the superseded row — corrections rewrite the text,
@@ -1021,8 +1124,10 @@ app.post('/corrections', async (c) => {
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
-        supersedes_id, embedding, source_turn_sequence, source_excerpt
-      ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10)
+        supersedes_id, embedding, source_turn_sequence, source_excerpt,
+        trust_score, trust_flags, quarantined_at
+      ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10,
+                $13,$14::jsonb,CASE WHEN $15::boolean THEN now() END)
     `, [
       projectId,
       src.session_id,
@@ -1036,7 +1141,20 @@ app.post('/corrections', async (c) => {
       src.source_excerpt,
       JSON.stringify(carriedRejected),
       Array.isArray(src.files_affected) ? src.files_affected : [],
+      trust.score,
+      JSON.stringify(trust.flags),
+      quarantine,
     ])
+
+    if (quarantine) {
+      // Excluded from the summary anyway — no regen; surface the verdict.
+      return c.json({
+        accepted:    true,
+        action:      'quarantined',
+        trust_score: trust.score,
+        trust_flags: trust.flags,
+      })
+    }
 
     // New row enters high_signal / recent_fill; regen again so the summary
     // includes it (debounce coalesces with invalidate's schedule above).
@@ -1258,6 +1376,8 @@ async function regenerateSummary(projectId: string): Promise<void> {
       JOIN ${S}.sessions s ON s.id = d.session_id
       WHERE s.project_id = $1
         AND d.invalidated_at IS NULL
+        -- Trust gate: quarantined rows never reach the always-on summary.
+        AND d.quarantined_at IS NULL
         AND ( d.reviewed_at IS NOT NULL
            OR jsonb_array_length(d.rejected) > 0
            OR d.scope = 'global' )
@@ -1274,6 +1394,7 @@ async function regenerateSummary(projectId: string): Promise<void> {
       JOIN ${S}.sessions s ON s.id = d.session_id
       WHERE s.project_id = $1
         AND d.invalidated_at IS NULL
+        AND d.quarantined_at IS NULL
         AND d.id NOT IN (SELECT id FROM high_signal)
       ORDER BY d.created_at DESC
       LIMIT 5

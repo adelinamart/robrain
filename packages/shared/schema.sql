@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   injected_count      INTEGER NOT NULL DEFAULT 0,
   used_count          INTEGER NOT NULL DEFAULT 0,
 
+  -- Write-time trust scoring (memory-poisoning defense, OWASP ASI06).
+  -- trust_score 0.00 safe → 1.00 hostile; trust_flags = [{type, evidence}].
+  -- Rows scoring ≥ QUARANTINE_THRESHOLD are stored with quarantined_at set
+  -- and excluded from EVERY injection surface until a human approves them
+  -- in `robrain review` (sets quarantine_released_at, clears quarantined_at).
+  -- Quarantine, never silently drop.
+  trust_score         NUMERIC(3,2),
+  trust_flags         JSONB,
+  quarantined_at      TIMESTAMPTZ,
+  quarantine_released_at TIMESTAMPTZ,
+
   -- Set when decision is no longer valid — never hard-deleted
   -- History is always preserved and queryable
   invalidated_at      TIMESTAMPTZ,
@@ -108,12 +119,23 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Additive upgrade guard: databases whose decisions table predates the trust
+-- columns (CREATE TABLE IF NOT EXISTS no-ops there) get them here so the
+-- partial index below always has its column. Mirrors migration 003; fresh
+-- installs already created them above — idempotent either way.
+ALTER TABLE context_system.decisions
+  ADD COLUMN IF NOT EXISTS trust_score            NUMERIC(3,2),
+  ADD COLUMN IF NOT EXISTS trust_flags            JSONB,
+  ADD COLUMN IF NOT EXISTS quarantined_at         TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_decisions_project     ON context_system.decisions(project_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decisions(session_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_created      ON context_system.decisions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_decisions_conflict     ON context_system.decisions(conflict_flag) WHERE conflict_flag = true;
 CREATE INDEX IF NOT EXISTS idx_decisions_active       ON context_system.decisions(project_id) WHERE invalidated_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_unreviewed   ON context_system.decisions(project_id) WHERE invalidated_at IS NULL AND reviewed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_decisions_quarantined  ON context_system.decisions(project_id) WHERE quarantined_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_embedding    ON context_system.decisions USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 
@@ -228,6 +250,7 @@ BEGIN
   JOIN context_system.sessions s ON s.id = d.session_id
   WHERE s.project_id = p_project_id
     AND d.invalidated_at IS NULL
+    AND d.quarantined_at IS NULL
     AND d.embedding IS NOT NULL
     AND 1 - (d.embedding <=> query_embedding) >= p_min_similarity
   ORDER BY d.embedding <=> query_embedding

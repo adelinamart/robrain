@@ -515,6 +515,7 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
     JOIN ${S}.sessions s ON s.id = d.session_id
     WHERE s.project_id = $1
       AND d.invalidated_at IS NULL
+      AND d.quarantined_at IS NULL
       ${lookbackSql}
     ORDER BY d.created_at ASC
   `, [projectId])
@@ -666,6 +667,7 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
       AND s2.project_id = $1
       AND d1.scope = d2.scope
       AND d1.invalidated_at IS NULL AND d2.invalidated_at IS NULL
+      AND d1.quarantined_at IS NULL AND d2.quarantined_at IS NULL
       AND d1.embedding IS NOT NULL AND d2.embedding IS NOT NULL
       AND NOT (d1.reviewed_at IS NOT NULL AND d2.reviewed_at IS NOT NULL)
       AND 1 - (d1.embedding <=> d2.embedding) > $2
@@ -774,7 +776,7 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
     SELECT d.decision, d.rationale, d.rejected
     FROM ${S}.decisions d
     JOIN ${S}.sessions s ON s.id = d.session_id
-    WHERE s.project_id = $1 AND d.invalidated_at IS NULL
+    WHERE s.project_id = $1 AND d.invalidated_at IS NULL AND d.quarantined_at IS NULL
     ORDER BY d.created_at DESC LIMIT 200
   `,
     [projectId],
@@ -875,7 +877,7 @@ async function main(): Promise<void> {
     FROM ${S}.projects p
     WHERE EXISTS (
       SELECT 1 FROM ${S}.decisions d JOIN ${S}.sessions s ON s.id = d.session_id
-      WHERE s.project_id = p.id AND d.invalidated_at IS NULL
+      WHERE s.project_id = p.id AND d.invalidated_at IS NULL AND d.quarantined_at IS NULL
     )
     ORDER BY p.name
   `,
