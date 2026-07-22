@@ -14,11 +14,12 @@ import chalk    from 'chalk'
 import ora      from 'ora'
 import prompts  from 'prompts'
 import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
-import { validateToken, fetchProvisionedConfig }                from '../lib/auth.js'
+import { validateToken, fetchProvisionedConfig, type ProvisionedConfig } from '../lib/auth.js'
 import {
   resolveEditorsForInstall,
   resolveLlmProviderFromEnv,
   writeMcpConfig,
+  type McpWriteOptions,
 } from '../lib/editor.js'
 import {
   ensureSensingMcpBundle,
@@ -177,42 +178,11 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   spinner.succeed('API endpoints configured')
 
-  // ── Step 4: Embedding provider ─────────────────────────────
-  let embeddingProvider = provisioned.embeddingProvider
-  let embeddingKey      = ''
-
-  if (!embeddingProvider) {
-    console.log()
-    const { provider } = await prompts({
-      type:    'select',
-      name:    'provider',
-      message: 'Choose embedding provider (for semantic search):',
-      choices: [
-        { title: 'OpenAI  text-embedding-3-small (~$0.00002/1k tokens)', value: 'openai' },
-        { title: 'Voyage  voyage-3-lite (fast, cheap alternative)',       value: 'voyage' },
-        { title: 'Cohere  embed-english-v3.0 (higher quality)',           value: 'cohere' },
-      ],
-    })
-    embeddingProvider = provider as string
-
-    const keyName = {
-      openai: 'OPENAI_API_KEY',
-      voyage: 'VOYAGE_API_KEY',
-      cohere: 'COHERE_API_KEY',
-    }[embeddingProvider] ?? 'EMBEDDING_API_KEY'
-
-    embeddingKey = process.env[keyName] ?? ''
-    if (embeddingKey) {
-      console.log(chalk.dim(`  Using ${keyName} from environment`))
-    } else {
-      const { key } = await prompts({
-        type:    'password',
-        name:    'key',
-        message: `${keyName}:`,
-      })
-      embeddingKey = key as string
-    }
-  }
+  // ── Step 4: Embedding provider — none needed (cloud thin client) ─
+  // Cloud Sensing runs as a thin client: raw turns ship to Perception with
+  // needs_classification=true and server-side calibrated re-extraction
+  // classifies them. No embedding or LLM key is prompted for or stored;
+  // provisioned.embeddingProvider is kept for display only.
 
   // ── Step 5: Detect / select editors ───────────────────────
   let editorsToConfig = resolveEditorsForInstall(opts)
@@ -237,22 +207,10 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   const includeControl = controlBundleReady(ROBRAIN_MCP_DIR)
 
-  const llmProvider = resolveLlmProviderFromEnv()
-  const mcpOpts = {
-    sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
-    controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
-    anthropicKey:      process.env.ANTHROPIC_API_KEY ?? '',
-    perceptionUrl:     provisioned.perceptionUrl,
-    perceptionKey:     provisioned.perceptionKey,
-    planningUrl:       provisioned.planningUrl,
-    planningKey:       provisioned.planningKey,
-    embeddingProvider: embeddingProvider ?? 'openai',
-    embeddingKey,
-    llmProvider,
-    openaiKey:         process.env.OPENAI_API_KEY ?? '',
+  const mcpOpts = buildCloudMcpOptions(provisioned, {
     includeControl,
-    codexHooksDir:     resolveCodexHooksForInstall(editorsToConfig),
-  }
+    codexHooksDir: resolveCodexHooksForInstall(editorsToConfig),
+  })
 
   for (const editor of editorsToConfig) {
     writeMcpConfig(editor.configPath, mcpOpts)
@@ -270,11 +228,13 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   writeConfig({
     token,
     email:             authResult.email,
+    thin:              true,
     perceptionUrl:     provisioned.perceptionUrl,
     perceptionKey:     provisioned.perceptionKey,
     planningUrl:       provisioned.planningUrl,
     planningKey:       provisioned.planningKey,
-    embeddingProvider: embeddingProvider ?? 'openai',
+    // Display only (status) — the thin client never embeds locally.
+    ...(provisioned.embeddingProvider ? { embeddingProvider: provisioned.embeddingProvider } : {}),
     installedAt:       new Date().toISOString(),
     version:           '2.4.0',
   })
@@ -285,15 +245,34 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   console.log()
   console.log(chalk.green('  ✓ RoBrain installed successfully\n'))
   console.log(chalk.dim('  Configured for: ') + editorsToConfig.map(e => e.label).join(', '))
+  console.log(chalk.dim('  Cloud thin client: classification runs server-side — no local API keys needed.'))
   console.log()
 
   await chainInitAfterInstall(opts)
+}
 
-  // Check if ANTHROPIC_API_KEY is set — needed by Sensing
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log(chalk.yellow('  ⚠ ANTHROPIC_API_KEY not found in environment.'))
-    console.log(chalk.dim('  Add it to repo-root `.env`, your shell profile, or the MCP config env block, then re-run install if needed.'))
-    console.log()
+/** @internal Exported for unit tests.
+ * Cloud (Rory Plans) installs wire Sensing as a thin client: raw turns ship
+ * to Perception with needs_classification=true and classification runs
+ * server-side, so no embedding/LLM keys are collected, read from env, or
+ * written into editor configs (see buildSensingMcpEnv thin mode). */
+export function buildCloudMcpOptions(
+  provisioned: ProvisionedConfig,
+  extras: { includeControl: boolean; codexHooksDir?: string },
+): McpWriteOptions {
+  return {
+    sensingMcpPath:    join(ROBRAIN_MCP_DIR, 'sensing', 'dist', 'index.js'),
+    controlMcpPath:    join(ROBRAIN_MCP_DIR, 'control', 'dist', 'index.js'),
+    anthropicKey:      '',                                      // ignored in thin mode
+    perceptionUrl:     provisioned.perceptionUrl,
+    perceptionKey:     provisioned.perceptionKey,
+    planningUrl:       provisioned.planningUrl,
+    planningKey:       provisioned.planningKey,
+    embeddingProvider: provisioned.embeddingProvider ?? '',     // display only
+    embeddingKey:      '',
+    thin:              true,
+    includeControl:    extras.includeControl,
+    codexHooksDir:     extras.codexHooksDir,
   }
 }
 

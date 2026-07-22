@@ -23,7 +23,7 @@ import {
   routeReplyScore,
   routeFlushTurns,
 } from './router.js'
-import { config } from './config.js'
+import { config, isThinMode } from './config.js'
 import { SessionRegistry } from './session-registry.js'
 
 // ── Active session registry (survives restarts via file mirror) ──
@@ -182,9 +182,23 @@ export function buildServer(): McpServer {
       }
 
       // ── Layer B: decision classifier + Perception (background — do not block MCP) ──
+      // Thin mode (cloud): no local classifier — ship the raw turn immediately
+      // with needs_classification=true (same signal shape as flush-on-close);
+      // server-side calibrated re-extraction classifies it. Failed ships stay
+      // unclassified so the end_session flush retries them.
       const projectId = session.project_id
       setImmediate(async () => {
         try {
+          if (isThinMode()) {
+            const errors = await routeFlushTurns([turn], projectId)
+            if (errors.length === 0) {
+              lastDecisionShipFailure = null
+              streamBuffer.markClassified(session_id, sequence)
+            } else {
+              lastDecisionShipFailure = `${session_id} seq ${sequence}: ${errors.join('; ')}`
+            }
+            return
+          }
           const decisionSignal = await classifyDecision(turn, projectId)
           if (decisionSignal) {
             const outcome = await routeDecisionSignal(decisionSignal, projectId)
@@ -314,6 +328,8 @@ export function buildServer(): McpServer {
         content: [{
           type: 'text',
           text: JSON.stringify({
+            // Only surfaced in thin mode so full-mode status output stays byte-identical.
+            ...(isThinMode() ? { mode: 'cloud-thin' } : {}),
             session_found:    !!session,
             project_id:       session?.project_id,
             started_at:       session?.started_at,

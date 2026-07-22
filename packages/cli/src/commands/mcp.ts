@@ -28,11 +28,13 @@ import { existsSync } from 'fs'
  */
 export function mergeServerEnv(
   base: NodeJS.ProcessEnv,
-  cfg: { perceptionUrl?: string; perceptionKey?: string },
+  cfg: { perceptionUrl?: string; perceptionKey?: string; thin?: boolean },
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base }
   if (!env.PERCEPTION_API_URL && cfg.perceptionUrl) env.PERCEPTION_API_URL = cfg.perceptionUrl
   if (!env.PERCEPTION_API_KEY && cfg.perceptionKey) env.PERCEPTION_API_KEY = cfg.perceptionKey
+  // Cloud thin-client installs stay thin through portable `robrain mcp` launches too.
+  if (!env.ROBRAIN_MODE && cfg.thin) env.ROBRAIN_MODE = 'cloud'
   return env
 }
 

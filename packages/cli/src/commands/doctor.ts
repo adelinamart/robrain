@@ -112,27 +112,34 @@ export async function doctorCommand(): Promise<void> {
 
   // 4 — API keys. Warn-only: editor configs carry their own env block, so a
   // missing shell key does not necessarily break Sensing inside the editor.
-  const llmKey = process.env.LLM_PROVIDER === 'openai'
-    ? process.env.OPENAI_API_KEY
-    : process.env.ANTHROPIC_API_KEY
-  checks.push(llmKey
-    ? { level: 'pass', label: 'Reasoning LLM key', detail: process.env.LLM_PROVIDER === 'openai' ? 'OPENAI_API_KEY set' : 'ANTHROPIC_API_KEY set' }
-    : {
-        level: 'warn',
-        label: 'Reasoning LLM key',
-        detail: 'not found in shell env / .env (decision extraction is skipped without it)',
-        hint:  'Set ANTHROPIC_API_KEY (or LLM_PROVIDER=openai + OPENAI_API_KEY) in the repo .env',
-      })
-  const embeddingKeySet = Boolean(config.embeddingKey) ||
-    Boolean(process.env.OPENAI_API_KEY || process.env.VOYAGE_API_KEY || process.env.COHERE_API_KEY)
-  checks.push(embeddingKeySet
-    ? { level: 'pass', label: 'Embedding key', detail: config.embeddingProvider ?? 'openai' }
-    : {
-        level: 'warn',
-        label: 'Embedding key',
-        detail: 'no embedding provider key found (topic-shift and semantic search need one)',
-        hint:  'Set OPENAI_API_KEY (or VOYAGE_API_KEY / COHERE_API_KEY) and re-run npx robrain install',
-      })
+  // Cloud thin-client installs need neither key locally — Sensing ships raw
+  // turns and classification/embeddings run server-side.
+  if (config.thin) {
+    checks.push({ level: 'pass', label: 'Reasoning LLM key', detail: 'not needed — cloud thin client (server-side classification)' })
+    checks.push({ level: 'pass', label: 'Embedding key', detail: 'not needed — cloud thin client (server-side embeddings)' })
+  } else {
+    const llmKey = process.env.LLM_PROVIDER === 'openai'
+      ? process.env.OPENAI_API_KEY
+      : process.env.ANTHROPIC_API_KEY
+    checks.push(llmKey
+      ? { level: 'pass', label: 'Reasoning LLM key', detail: process.env.LLM_PROVIDER === 'openai' ? 'OPENAI_API_KEY set' : 'ANTHROPIC_API_KEY set' }
+      : {
+          level: 'warn',
+          label: 'Reasoning LLM key',
+          detail: 'not found in shell env / .env (decision extraction is skipped without it)',
+          hint:  'Set ANTHROPIC_API_KEY (or LLM_PROVIDER=openai + OPENAI_API_KEY) in the repo .env',
+        })
+    const embeddingKeySet = Boolean(config.embeddingKey) ||
+      Boolean(process.env.OPENAI_API_KEY || process.env.VOYAGE_API_KEY || process.env.COHERE_API_KEY)
+    checks.push(embeddingKeySet
+      ? { level: 'pass', label: 'Embedding key', detail: config.embeddingProvider ?? 'openai' }
+      : {
+          level: 'warn',
+          label: 'Embedding key',
+          detail: 'no embedding provider key found (topic-shift and semantic search need one)',
+          hint:  'Set OPENAI_API_KEY (or VOYAGE_API_KEY / COHERE_API_KEY) and re-run npx robrain install',
+        })
+  }
 
   // 5 — Perception health. A dead Perception is the classic silent failure:
   // Sensing blocks on it at session start, so the editor's first reply can

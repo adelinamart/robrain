@@ -26,7 +26,9 @@ export async function statusCommand(): Promise<void> {
   console.log(chalk.dim('  Installed:   ') + (config.installedAt
     ? new Date(config.installedAt).toLocaleDateString()
     : 'unknown'))
-  console.log(chalk.dim('  Embeddings:  ') + (config.embeddingProvider ?? 'not set'))
+  console.log(chalk.dim('  Embeddings:  ') + (config.thin
+    ? 'cloud (server-side)'
+    : (config.embeddingProvider ?? 'not set')))
   console.log()
   console.log(chalk.dim('  Current project'))
   console.log(chalk.dim('  ├ Name:      ') + info.name)

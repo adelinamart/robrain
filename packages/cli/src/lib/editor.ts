@@ -151,10 +151,25 @@ export interface McpWriteOptions {
   includeControl?: boolean
   /** Absolute dir of materialized Codex hook scripts — when set, the Codex TOML block also wires lifecycle hooks. */
   codexHooksDir?: string
+  /**
+   * Cloud thin-client mode: Sensing ships raw turns (needs_classification=true)
+   * and classification runs server-side, so the env block carries only
+   * ROBRAIN_MODE=cloud + Perception vars — no LLM or embedding keys.
+   * Default false (self-hosted env stays byte-for-byte unchanged).
+   */
+  thin?: boolean
 }
 
 /** Env vars for robrain-sensing — shared by JSON MCP configs and Codex TOML. */
 export function buildSensingMcpEnv(opts: McpWriteOptions): Record<string, string> {
+  if (opts.thin) {
+    return {
+      ROBRAIN_MODE:       'cloud',
+      PERCEPTION_API_URL: opts.perceptionUrl,
+      PERCEPTION_API_KEY: opts.perceptionKey,
+    }
+  }
+
   const env: Record<string, string> = {
     ANTHROPIC_API_KEY:  opts.anthropicKey,
     EMBEDDING_PROVIDER: opts.embeddingProvider,
