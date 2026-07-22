@@ -1,4 +1,7 @@
 {
+  // Intentional inline copy of ../../tsconfig.base.json: this package must build
+  // standalone (prepare: tsc) when installed from a git path, where the base file
+  // doesn't exist. If you edit tsconfig.base.json, mirror the change here.
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
