@@ -16,6 +16,8 @@ export interface RoMemoryConfig {
   email?:          string        // authenticated user email
   /** Set when using install --self-hosted (no Rory token) */
   selfHosted?:     boolean
+  /** Cloud thin-client install — Sensing ships raw turns; classification runs server-side */
+  thin?:           boolean
   perceptionUrl?:  string        // Rory-hosted Perception API URL
   perceptionKey?:  string        // Perception API key (cloud install; optional self-hosted)
   planningUrl?:    string        // Rory-hosted Planning API URL

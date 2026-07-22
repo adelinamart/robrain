@@ -92,6 +92,31 @@ describe('renderCodexBlock', () => {
     assert.match(block, /VOYAGE_API_KEY = "voyage-emb-key"/)
   })
 
+  it('thin mode writes only ROBRAIN_MODE + Perception vars — no LLM or embedding keys', () => {
+    const env = buildSensingMcpEnv({ ...baseOpts, thin: true })
+    assert.deepEqual(env, {
+      ROBRAIN_MODE:       'cloud',
+      PERCEPTION_API_URL: 'http://localhost:3001',
+      PERCEPTION_API_KEY: 'perception-secret',
+    })
+
+    const block = renderCodexBlock({ ...baseOpts, thin: true, includeControl: false })
+    assert.match(block, /ROBRAIN_MODE = "cloud"/)
+    assert.doesNotMatch(block, /ANTHROPIC_API_KEY|EMBEDDING_PROVIDER|OPENAI_API_KEY|VOYAGE_API_KEY|COHERE_API_KEY/)
+  })
+
+  it('non-thin env is unchanged (self-hosted stays byte-for-byte)', () => {
+    const env = buildSensingMcpEnv({ ...baseOpts })
+    assert.equal(env.ROBRAIN_MODE, undefined)
+    assert.deepEqual(env, {
+      ANTHROPIC_API_KEY:  'sk-ant-test',
+      EMBEDDING_PROVIDER: 'openai',
+      PERCEPTION_API_URL: 'http://localhost:3001',
+      PERCEPTION_API_KEY: 'perception-secret',
+      OPENAI_API_KEY:     'sk-openai-test',
+    })
+  })
+
   it('escapes quotes and backslashes in TOML strings', () => {
     const block = renderCodexBlock({
       ...baseOpts,

@@ -72,3 +72,15 @@ export const config = {
   sessionRegistryPath: process.env.SENSING_SESSION_REGISTRY_PATH
     ?? join(homedir(), '.robrain', 'sensing-sessions.json'),
 } as const
+
+// ── Cloud thin-client mode ─────────────────────────────────────
+// ROBRAIN_MODE=cloud is written into editor MCP configs by `robrain install`
+// (cloud, no --self-hosted). In thin mode Sensing ships raw turns to
+// Perception with needs_classification=true and server-side calibrated
+// re-extraction classifies them — no local LLM or embedding calls run, so
+// none of the provider keys above are required.
+// Read per call (not cached at import) so tests can flip it without a
+// process restart.
+export function isThinMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ROBRAIN_MODE?.trim().toLowerCase() === 'cloud'
+}

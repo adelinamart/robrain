@@ -24,4 +24,14 @@ describe('mergeServerEnv', () => {
     assert.equal(env.HOME, '/home/x')
     assert.equal(env.PERCEPTION_API_URL, undefined)
   })
+
+  it('propagates cloud thin mode from config so portable launches stay thin', () => {
+    const env = mergeServerEnv({}, { perceptionUrl: 'http://p', perceptionKey: 'k', thin: true })
+    assert.equal(env.ROBRAIN_MODE, 'cloud')
+  })
+
+  it('never sets ROBRAIN_MODE for non-thin configs, and explicit env wins', () => {
+    assert.equal(mergeServerEnv({}, { perceptionUrl: 'http://p' }).ROBRAIN_MODE, undefined)
+    assert.equal(mergeServerEnv({ ROBRAIN_MODE: 'custom' }, { thin: true }).ROBRAIN_MODE, 'custom')
+  })
 })

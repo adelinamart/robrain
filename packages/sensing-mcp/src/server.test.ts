@@ -8,13 +8,16 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 
 // config reads process.env at first import — pin a hermetic environment
 // BEFORE the dynamic import below. No embeddings, no Perception, tmp mirror.
+// bun test shares one module cache across files, so whichever test file loads
+// first owns the registry path: claim it with ??= and read the winner back,
+// so the mirror assertions below hold in any file order.
 const registryDir = mkdtempSync(join(tmpdir(), 'robrain-sensing-server-'))
-const registryPath = join(registryDir, 'sessions.json')
 process.env.SENSING_TOPIC_SHIFT_DISABLE_EMBEDDING = 'true'
 process.env.PERCEPTION_API_URL = ''
 process.env.PERCEPTION_API_KEY = ''
 process.env.ANTHROPIC_API_KEY = ''
-process.env.SENSING_SESSION_REGISTRY_PATH = registryPath
+process.env.SENSING_SESSION_REGISTRY_PATH ??= join(registryDir, 'sessions.json')
+const registryPath = process.env.SENSING_SESSION_REGISTRY_PATH
 
 const { buildServer, sessionRegistry } = await import('./server.js')
 

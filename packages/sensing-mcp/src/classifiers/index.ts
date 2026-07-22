@@ -15,7 +15,7 @@ import type {
   Scope,
 } from '@robrain/shared'
 import { extractDecisionLlm, LlmKeyMissingError } from '@robrain/shared'
-import { config } from '../config.js'
+import { config, isThinMode } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
 
 let lastClassifierFailure: string | null = null
@@ -184,7 +184,8 @@ export async function classifyTopicShift(
   turn: SessionTurn,
   signal?: AbortSignal,
 ): Promise<TopicShiftSignal | null> {
-  if (config.topicShiftDisableEmbedding) return null
+  // Thin mode (cloud) never embeds locally — fail open, no shift detected.
+  if (config.topicShiftDisableEmbedding || isThinMode()) return null
 
   const sessionId = turn.session_id
   const window = embeddingWindows.get(sessionId) ?? []
