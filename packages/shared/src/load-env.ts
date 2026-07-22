@@ -21,6 +21,25 @@ function parseDotenv(raw: string): Record<string, string> {
   return out
 }
 
+/**
+ * Rewrites a `localhost` host to `127.0.0.1` in any URL (http, postgres, …).
+ * Node 17+ resolves localhost IPv6-first (::1) on many systems, but the
+ * Docker stack and most local servers only bind 127.0.0.1 — connects then
+ * die with ECONNREFUSED ::1 while curl (which retries IPv4) works.
+ */
+export function normalizeLoopbackUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    if (u.hostname === 'localhost') {
+      u.hostname = '127.0.0.1'
+      return u.toString().replace(/\/$/, '')
+    }
+  } catch {
+    // not a parseable URL — leave as-is
+  }
+  return url
+}
+
 /** Nearest ancestor of `start` (inclusive) that looks like a repo / workspace root. */
 function findRepoRootUpward(start: string): string | null {
   let dir = start

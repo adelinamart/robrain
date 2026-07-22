@@ -31,6 +31,7 @@ import {
   McpBundleError,
 } from '../lib/mcp-bundle.js'
 import { installCodexHooks } from '../lib/codex-hooks.js'
+import { downloadControlBundle } from '../lib/control-bundle.js'
 import { initProjectCommand }                                   from './init-project.js'
 import {
   inferLocalRobrainMonorepoRoot,
@@ -180,6 +181,30 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   spinner.succeed('API endpoints configured')
 
+  // ── Step 3b: Control MCP bundle (cloud-only, fail-soft) ────
+  // The Control server ships from the cloud API, not the OSS repo. Download
+  // it before the includeControl check below so a fresh install registers
+  // robrain-control in the same pass. Bearer: planningKey — the same key the
+  // control env wiring writes (PLANNING_API_KEY); the login token works too
+  // (both auth planes hit the same middleware), so fall back to it.
+  // Re-running install refreshes the bundle when the server sha differs.
+  // ANY failure warns and continues: controlBundleReady() stays false and
+  // the install completes Sensing-only.
+  spinner.start('Downloading Control MCP bundle...')
+  const controlDownload = await downloadControlBundle({
+    baseUrl:       provisioned.planningUrl,
+    token:         provisioned.planningKey || token,
+    robrainMcpDir: ROBRAIN_MCP_DIR,
+  })
+  if (controlDownload.ok) {
+    spinner.succeed(controlDownload.updated
+      ? `Control MCP bundle installed (v${controlDownload.meta.version})`
+      : `Control MCP bundle up to date (v${controlDownload.meta.version})`)
+  } else {
+    spinner.warn('Control MCP unavailable — continuing without automatic injection')
+    console.log(chalk.dim(`    (${controlDownload.reason})`))
+  }
+
   // ── Step 4: Embedding provider — none needed (cloud thin client) ─
   // Cloud Sensing runs as a thin client: raw turns ship to Perception with
   // needs_classification=true and server-side calibrated re-extraction
@@ -292,7 +317,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     inferRobrainMonorepoRootFromCwd()
   loadCliEnv(cloneRootForEnv)
 
-  const perceptionUrl = opts.perceptionUrl ?? 'http://localhost:3001'
+  const perceptionUrl = opts.perceptionUrl ?? 'http://127.0.0.1:3001'
 
   console.log(chalk.bold('  Self-hosted mode\n'))
   console.log(chalk.dim('  Sensing MCP will connect to: ') + chalk.cyan(perceptionUrl))

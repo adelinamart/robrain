@@ -33,8 +33,25 @@ export function parseHookInput(raw) {
 }
 
 /**
+ * localhost → 127.0.0.1: Node 17+ resolves localhost IPv6-first (::1) but the
+ * Docker stack only binds 127.0.0.1; old configs may still carry localhost.
+ */
+function normalizeLoopbackUrl(url) {
+  try {
+    const u = new URL(url)
+    if (u.hostname === 'localhost') {
+      u.hostname = '127.0.0.1'
+      return u.toString().replace(/\/$/, '')
+    }
+  } catch {
+    // not a parseable URL — leave as-is
+  }
+  return url
+}
+
+/**
  * Perception connection: env wins, then ~/.robrain/config.json (written by
- * `robrain up` / `robrain install`), then localhost default.
+ * `robrain up` / `robrain install`), then loopback default.
  */
 export function loadPerception() {
   let url = process.env.PERCEPTION_URL?.trim() || ''
@@ -48,7 +65,7 @@ export function loadPerception() {
       // no config yet — fall through to defaults
     }
   }
-  return { url: url || 'http://localhost:3001', key }
+  return { url: normalizeLoopbackUrl(url || 'http://127.0.0.1:3001'), key }
 }
 
 /**

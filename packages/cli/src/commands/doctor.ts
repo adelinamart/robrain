@@ -9,7 +9,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
-import { sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
+import { controlBundleReady, sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
 import { detectEditors, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi } from '../lib/editor.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
@@ -82,6 +82,19 @@ export async function doctorCommand(): Promise<void> {
       detail: 'bundled Sensing server not found in this CLI install',
       hint:  'Reinstall: npm install -g robrain@latest (or npx robrain@latest mcp from a built clone)',
     })
+  }
+
+  // 2b — Control MCP bundle (cloud installs only: `robrain install` downloads
+  // it from the Rory Plans API; OSS self-hosted has no Control by design).
+  if (config.thin) {
+    checks.push(controlBundleReady(ROBRAIN_MCP_DIR)
+      ? { level: 'pass', label: 'Control MCP bundle', detail: join(ROBRAIN_MCP_DIR, 'control') }
+      : {
+          level: 'warn',
+          label: 'Control MCP bundle',
+          detail: `no bundle under ${join(ROBRAIN_MCP_DIR, 'control')} — automatic injection disabled`,
+          hint:  'Re-run: npx robrain install (downloads Control from roryplans.ai)',
+        })
   }
 
   // 3 — editor wiring (all editor config formats mention the server by name)

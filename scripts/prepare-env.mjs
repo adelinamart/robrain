@@ -69,7 +69,7 @@ if (dbIdx !== -1) {
     const user = userIdx !== -1 ? lines[userIdx].split('=')[1].trim() : 'robrain'
     const db = dbNameIdx !== -1 ? lines[dbNameIdx].split('=')[1].trim() : 'robrain'
     const port = portIdx !== -1 ? lines[portIdx].split('=')[1].trim() : '5432'
-    lines[dbIdx] = `DATABASE_URL=postgres://${user}:${postgresPassword}@localhost:${port}/${db}`
+    lines[dbIdx] = `DATABASE_URL=postgres://${user}:${postgresPassword}@127.0.0.1:${port}/${db}`
     generated.DATABASE_URL = '<rewritten with new POSTGRES_PASSWORD>'
   }
 }

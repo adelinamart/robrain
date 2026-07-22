@@ -11,6 +11,8 @@
 // already OpenAI-capable; this module only covers the text calls.
 // ─────────────────────────────────────────────────────────────
 
+import { normalizeLoopbackUrl } from './load-env.js'
+
 export type LlmProvider = 'anthropic' | 'openai'
 
 /** Project default classifier/extraction model — Anthropic Haiku. */
@@ -42,7 +44,7 @@ export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export function resolveOpenAiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const raw = env.OPENAI_BASE_URL?.trim()
   if (!raw) return DEFAULT_OPENAI_BASE_URL
-  return raw.replace(/\/+$/, '')
+  return normalizeLoopbackUrl(raw.replace(/\/+$/, ''))
 }
 
 export interface OpenAiChatParams {

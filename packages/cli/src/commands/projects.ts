@@ -5,16 +5,24 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk from 'chalk'
-import { readConfig } from '../lib/config.js'
+import { normalizeLoopbackUrl, readConfig } from '../lib/config.js'
 
 function perceptionEndpoint(): { url: string; key: string } {
   const config = readConfig()
-  const url =
+  const url = normalizeLoopbackUrl(
     config.perceptionUrl ??
     process.env.PERCEPTION_URL ??
-    'http://localhost:3001'
+    'http://127.0.0.1:3001',
+  )
   const key = config.perceptionKey ?? process.env.PERCEPTION_API_KEY ?? ''
   return { url, key }
+}
+
+function exitUnreachable(url: string, err: unknown): never {
+  console.log(chalk.red('  ✗ Perception is unreachable'))
+  console.log(chalk.dim(`  ${url} — ${err instanceof Error ? err.message : String(err)}`))
+  console.log(chalk.dim('  Start it with ') + chalk.cyan('npx robrain up') + chalk.dim(' (or pnpm docker:up from a clone).\n'))
+  process.exit(1)
 }
 
 export async function projectsListCommand(): Promise<void> {
@@ -22,7 +30,7 @@ export async function projectsListCommand(): Promise<void> {
   const { url, key } = perceptionEndpoint()
   const res = await fetch(`${url}/projects`, {
     headers: key ? { Authorization: `Bearer ${key}` } : {},
-  })
+  }).catch((err: unknown) => exitUnreachable(url, err))
 
   if (!res.ok) {
     const t = await res.text().catch(() => '')
@@ -77,7 +85,7 @@ export async function projectsMergeCommand(fromId: string, toId: string): Promis
       ...(key ? { Authorization: `Bearer ${key}` } : {}),
     },
     body: JSON.stringify({ from: fromId, to: toId }),
-  })
+  }).catch((err: unknown) => exitUnreachable(url, err))
 
   const raw = await res.text()
   if (!res.ok) {

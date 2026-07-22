@@ -32,7 +32,7 @@ export async function explainCommand(
 
   const config  = readConfig()
   const info    = gatherProjectInfo(cwd())
-  const percUrl = config.perceptionUrl ?? 'http://localhost:3001'
+  const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
   // Normalise the file path — strip leading ./ if present

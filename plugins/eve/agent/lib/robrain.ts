@@ -3,8 +3,24 @@
 // config, hard timeouts, fail-open always — a dead Perception must never
 // break the agent's session.
 
-const PERCEPTION_URL =
-  process.env.PERCEPTION_API_URL?.trim() || "http://localhost:3001";
+// localhost → 127.0.0.1: Node 17+ resolves localhost IPv6-first (::1) but the
+// Docker stack only binds 127.0.0.1; old configs may still carry localhost.
+function normalizeLoopbackUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "localhost") {
+      u.hostname = "127.0.0.1";
+      return u.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // not a parseable URL — leave as-is
+  }
+  return url;
+}
+
+const PERCEPTION_URL = normalizeLoopbackUrl(
+  process.env.PERCEPTION_API_URL?.trim() || "http://127.0.0.1:3001",
+);
 const PERCEPTION_KEY = process.env.PERCEPTION_API_KEY?.trim() || "";
 export const PROJECT_ID = process.env.ROBRAIN_PROJECT_ID?.trim() || "";
 

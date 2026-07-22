@@ -149,7 +149,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
 
   const config  = readConfig()
   const info    = gatherProjectInfo(cwd())
-  const percUrl = config.perceptionUrl ?? 'http://localhost:3001'
+  const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
   const since   = opts.since ?? '30 days ago'
 
@@ -293,7 +293,7 @@ export async function outcomesRecordCommand(decisionId: string, opts: OutcomesRe
 
   const config  = readConfig()
   const info    = gatherProjectInfo(cwd())
-  const percUrl = config.perceptionUrl ?? 'http://localhost:3001'
+  const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
   const spinner = ora(`Recording ${opts.outcome} outcome...`).start()

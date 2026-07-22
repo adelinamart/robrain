@@ -46,7 +46,7 @@
     "prepublishOnly": "pnpm build && node scripts/verify-release-artifacts.mjs && node scripts/vendor-sensing-mcp.mjs && node scripts/vendor-hermes-plugin.mjs && node scripts/vendor-codex-hooks.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/lib/release-guard.test.js dist/lib/mcp-bundle.test.js dist/lib/claude-plugin.test.js dist/lib/hermes-plugin.test.js dist/lib/codex-hooks.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js dist/commands/up.test.js dist/commands/mcp.test.js dist/commands/install.test.js",
+    "test": "pnpm build && node --test dist/lib/editor.codex.test.js dist/lib/release-guard.test.js dist/lib/mcp-bundle.test.js dist/lib/control-bundle.test.js dist/lib/claude-plugin.test.js dist/lib/hermes-plugin.test.js dist/lib/codex-hooks.test.js dist/commands/outcomes.test.js dist/commands/export-interchange.test.js dist/commands/up.test.js dist/commands/mcp.test.js dist/commands/install.test.js",
     "pack:verify": "node scripts/verify-publish-tarball.mjs",
     "postinstall": "node scripts/chmod-bin.cjs"
   },

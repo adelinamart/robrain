@@ -113,7 +113,7 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
   const info: ProjectInfo = opts.projectId
     ? { ...baseInfo, id: opts.projectId }
     : baseInfo
-  const percUrl = config.perceptionUrl ?? 'http://localhost:3001'
+  const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
   const memoryDir = opts.to

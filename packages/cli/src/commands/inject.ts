@@ -32,7 +32,7 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
   const info    = gatherProjectInfo(cwd())
 
   // Determine perception URL — local self-hosted or Rory Plans
-  const percUrl = config.perceptionUrl ?? 'http://localhost:3001'
+  const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
   // ── Build query ────────────────────────────────────────────

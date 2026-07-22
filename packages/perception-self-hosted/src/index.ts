@@ -23,7 +23,7 @@ import { bodyLimit }         from 'hono/body-limit'
 import { serve }             from '@hono/node-server'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, normalizeLoopbackUrl, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD } from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
@@ -36,7 +36,7 @@ const config = {
   port:            Number(process.env.PORT ?? 3001),
   apiKey:          process.env.PERCEPTION_API_KEY ?? '',
   allowUnauth:     process.env.ALLOW_UNAUTHENTICATED === 'true',
-  databaseUrl:     requireEnv('DATABASE_URL'),
+  databaseUrl:     normalizeLoopbackUrl(requireEnv('DATABASE_URL')),
   schema:          validateSchemaName(process.env.DB_SCHEMA ?? 'context_system'),
   // Reasoning LLM for decision extraction. Default Anthropic (Haiku); set
   // LLM_PROVIDER=openai to extract with OpenAI instead (Anthropic-free setup).

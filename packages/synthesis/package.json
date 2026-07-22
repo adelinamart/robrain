@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node --disable-warning=DEP0040 dist/index.js",
+    "start": "node --no-deprecation dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -3,7 +3,33 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { loadEnv } from './load-env.js'
+import { loadEnv, normalizeLoopbackUrl } from './load-env.js'
+
+describe('normalizeLoopbackUrl', () => {
+  it('rewrites localhost to 127.0.0.1 for http URLs', () => {
+    assert.equal(normalizeLoopbackUrl('http://localhost:3001'), 'http://127.0.0.1:3001')
+    assert.equal(normalizeLoopbackUrl('http://localhost:11434/v1'), 'http://127.0.0.1:11434/v1')
+  })
+
+  it('rewrites localhost inside postgres connection strings, keeping credentials', () => {
+    assert.equal(
+      normalizeLoopbackUrl('postgres://robrain:s3cret@localhost:5432/robrain'),
+      'postgres://robrain:s3cret@127.0.0.1:5432/robrain',
+    )
+  })
+
+  it('leaves non-localhost hosts alone — docker, cloud, explicit IPv6 escape hatch', () => {
+    assert.equal(normalizeLoopbackUrl('http://host.docker.internal:11434/v1'), 'http://host.docker.internal:11434/v1')
+    assert.equal(normalizeLoopbackUrl('https://api.roryplans.ai/perception'), 'https://api.roryplans.ai/perception')
+    assert.equal(normalizeLoopbackUrl('http://[::1]:3001'), 'http://[::1]:3001')
+    assert.equal(normalizeLoopbackUrl('http://127.0.0.1:3001'), 'http://127.0.0.1:3001')
+  })
+
+  it('returns unparseable input unchanged', () => {
+    assert.equal(normalizeLoopbackUrl('not a url'), 'not a url')
+    assert.equal(normalizeLoopbackUrl(''), '')
+  })
+})
 
 // Each test uses its own env keys so parallel/shared process.env stays clean.
 function inTempRepo(fn: (repo: string) => void): void {

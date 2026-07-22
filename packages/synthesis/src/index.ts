@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonrepair } from 'jsonrepair'
 import pg from 'pg'
-import { THRESHOLDS, loadEnv, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, attachPoolErrorHandler } from '@robrain/shared'
+import { THRESHOLDS, loadEnv, normalizeLoopbackUrl, resolveLlmProvider, resolveOpenAiBaseUrl, openaiChat, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, attachPoolErrorHandler } from '@robrain/shared'
 
 const { Pool } = pg
 
@@ -21,7 +21,7 @@ const repoRootForCli = (process.env.ROBRAIN_REPO?.trim() || join(synthesisDir, '
 loadEnv(repoRootForCli)
 
 const config = {
-  databaseUrl:      requireEnv('DATABASE_URL'),
+  databaseUrl:      normalizeLoopbackUrl(requireEnv('DATABASE_URL')),
   schema:           process.env.DB_SCHEMA ?? 'context_system',
   // Reasoning LLM for the three passes. Default Anthropic (Haiku); set
   // LLM_PROVIDER=openai to run Synthesis without an Anthropic account.

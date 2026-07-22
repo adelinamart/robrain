@@ -6,7 +6,7 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { resolveLlmProvider, resolveEmbeddingConfig, resolveOpenAiBaseUrl, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
+import { resolveLlmProvider, resolveEmbeddingConfig, resolveOpenAiBaseUrl, normalizeLoopbackUrl, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL } from '@robrain/shared'
 
 export const config = {
   // ── Reasoning LLM provider for decision classifier Stage 2 ──
@@ -42,7 +42,7 @@ export const config = {
   // ── Perception API (required — where signals get sent) ──────
   // Set after you deploy the Perception API to Railway / Fly.io.
   // Leave as placeholder during local Sensing-only testing.
-  perceptionApiUrl: process.env.PERCEPTION_API_URL ?? 'http://localhost:3001',
+  perceptionApiUrl: normalizeLoopbackUrl(process.env.PERCEPTION_API_URL ?? 'http://127.0.0.1:3001'),
   perceptionApiKey: process.env.PERCEPTION_API_KEY ?? '',
 
   // ── Classifier thresholds (optional — tune after instrumenting) ─

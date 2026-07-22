@@ -28,10 +28,30 @@ export interface RoMemoryConfig {
   version?:        string        // CLI version at install time
 }
 
+/**
+ * Rewrites a `localhost` host to `127.0.0.1`. Node 17+ resolves localhost
+ * IPv6-first (::1) on many systems, but the Docker stack only binds
+ * 127.0.0.1 — fetch then dies with ECONNREFUSED ::1 while curl works.
+ */
+export function normalizeLoopbackUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    if (u.hostname === 'localhost') {
+      u.hostname = '127.0.0.1'
+      return u.toString().replace(/\/$/, '')
+    }
+  } catch {
+    // not a parseable URL — leave as-is
+  }
+  return url
+}
+
 export function readConfig(): RoMemoryConfig {
   if (!existsSync(CONFIG_FILE)) return {}
   try {
-    return JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) as RoMemoryConfig
+    const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) as RoMemoryConfig
+    if (config.perceptionUrl) config.perceptionUrl = normalizeLoopbackUrl(config.perceptionUrl)
+    return config
   } catch {
     return {}
   }
