@@ -118,7 +118,7 @@ export async function embed(
 // ── OpenAI (and OpenAI-compatible via OPENAI_BASE_URL) ────────
 
 async function embedOpenAI(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<number[]> {
-  const baseUrl = config.openaiBaseUrl.replaceAll(/\/+$/, '')
+  const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '')
   if (!config.openaiApiKey && baseUrl === DEFAULT_OPENAI_BASE_URL) {
     throw new EmbeddingProviderError('openai', 'OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai (unless OPENAI_BASE_URL points at a local server)')
   }
