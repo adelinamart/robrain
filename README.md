@@ -26,6 +26,13 @@ How it works, the two pillars (capture + judgment), and the full walkthrough: [d
 
 ## Install
 
+Two ways to run RoBrain — pick one:
+
+- **Option 1 · Self-hosted** (free, open source): everything runs on your machine — your Postgres, your API keys, nothing leaves your laptop.
+- **Option 2 · [Rory Plans cloud](#option-2--rory-plans-cloud-managed)** (managed): nothing to host, no keys — included with every paid Rory Plans plan.
+
+### Option 1 · Self-hosted (free, open source)
+
 No clone needed — `robrain up` pulls the published Perception image and generates credentials into `~/.robrain/stack/.env`:
 
 ```bash
@@ -51,9 +58,9 @@ npx robrain install --self-hosted --repo-root "$(pwd)"
 
 </details>
 
-### Claude Code plugin
+#### Claude Code plugin (self-hosted)
 
-Claude Code users can add hook-based capture and pre-task warnings about previously rejected approaches — no CLAUDE.md protocol needed:
+Claude Code users on the self-hosted stack can add hook-based capture and pre-task warnings about previously rejected approaches — no CLAUDE.md protocol needed:
 
 ```bash
 claude plugin marketplace add adelinamart/robrain
@@ -62,7 +69,7 @@ claude plugin install robrain@robrain
 
 Details: [plugins/claude-code](plugins/claude-code/README.md). `robrain init-project` also recommends the plugin to collaborators via the project's `.claude/settings.json`, so teammates get an install prompt from Claude Code itself (opt out with `--skip-claude-plugin`).
 
-### Rory Plans cloud (managed)
+### Option 2 · Rory Plans cloud (managed)
 
 On any paid Rory Plans plan, RoBrain runs without hosting anything:
 
@@ -76,9 +83,11 @@ Every paid plan qualifies — individual standard or annual, Teams, and enterpri
 
 OpenAI-only: set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` instead of Anthropic — see [Concepts — Prefer not to use Anthropic](docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only).
 
-Upgrading on a new release — no-clone stack: just re-run `npx robrain@latest up`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
+Upgrading a self-hosted install on a new release — no-clone stack: just re-run `npx robrain@latest up`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 ## Quickstart
+
+After either install (self-hosted or cloud):
 
 ```bash
 # Wire capture into an application project (run inside the repo)
@@ -92,9 +101,11 @@ npx robrain init-project          # writes CLAUDE.md, AGENTS.md, .cursor/rules/r
 # Explain any file's decision history
 npx robrain explain path/to/file
 
-# Run corpus judgment (manual, or add to cron)
+# Inspect / approve captured rows (both modes)
+npx robrain review
+
+# Run corpus judgment — self-hosted only; cloud runs judgment server-side
 npx robrain synth                 # drift, contradictions, entity promotion
-npx robrain review                # inspect / approve captured rows
 ```
 
 After `init-project`, every repo gets `CLAUDE.md` and `AGENTS.md` (Codex CLI), and Cursor also gets `.cursor/rules/robrain.mdc` with `alwaysApply: true`. If captures don't land, run `npx robrain doctor` — see [Troubleshooting](docs/troubleshooting.md).
