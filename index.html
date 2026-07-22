@@ -735,15 +735,13 @@
 
       <section class="card">
         <h2 id="how-to-use"><span class="icon">→</span> How to use RoBrain?</h2>
-        <p><strong>Two commands, no clone needed:</strong></p>
+        <p><strong>Two ways to run it — pick one.</strong></p>
+
+        <h3>Option 1 · Self-hosted — free, open source</h3>
+        <p>Runs on your machine: your Postgres, your API keys, nothing leaves your laptop. Two commands, no clone needed:</p>
         <pre><code>export ANTHROPIC_API_KEY=... OPENAI_API_KEY=...   # classifier + embedding keys (or add to ~/.robrain/stack/.env after first run)
 npx robrain@latest up                             # start the backend (Postgres + Perception) in Docker
 npx robrain install --self-hosted                 # wire the MCP server into your editors</code></pre>
-        <p>
-          Then run <code>npx robrain init-project</code> inside any repo you want memory for. Capture is automatic from
-          there — every session turn is classified, no tagging. If captures don't land,
-          <code>npx robrain doctor</code> diagnoses the setup.
-        </p>
         <p>
           Claude Code users should also install the plugin for hook-based capture and pre-task
           warnings about rejected approaches. Codex CLI users get the same hooks automatically
@@ -751,8 +749,22 @@ npx robrain install --self-hosted                 # wire the MCP server into you
         </p>
         <pre><code>claude plugin marketplace add adelinamart/robrain
 claude plugin install robrain@robrain</code></pre>
+
+        <h3>Option 2 · Rory Plans cloud — managed</h3>
+        <p>
+          Nothing to host: no Docker, no database, no LLM or embedding keys — included with every paid
+          <a href="https://roryplans.ai">Rory Plans</a> plan. Sign in, create an API token on your profile page, then:
+        </p>
+        <pre><code>npx robrain install               # cloud mode — paste your token when asked</code></pre>
+        <p>Your editors are wired automatically, and teammates on your Rory Plans team share the same memory.</p>
+
+        <p>
+          <strong>Either way</strong>, run <code>npx robrain init-project</code> inside any repo you want memory for.
+          Capture is automatic from there — every session turn is classified, no tagging. If captures don't land,
+          <code>npx robrain doctor</code> diagnoses the setup.
+        </p>
         <p class="figure-caption" style="margin-top: 1rem">
-          Clone path, Synthesis, ledger export, and troubleshooting:
+          Clone path, Synthesis, ledger export, and troubleshooting (self-hosted):
           <a href="#quick-start">Quick start</a> ·
           <a href="https://github.com/adelinamart/robrain/blob/main/docs/cli.md">CLI reference</a>
         </p>
@@ -984,10 +996,11 @@ claude plugin install robrain@robrain</code></pre>
       </p>
 
       <section class="card" id="quick-start">
-        <h2><span class="icon">⚡</span> Quick start</h2>
+        <h2><span class="icon">⚡</span> Quick start — self-hosted</h2>
         <p class="final-cta-intro">
-          The <a href="#how-to-use">steps above</a> are enough to get going. Below: OpenAI-only keys, the clone
-          development path, Synthesis, and the git ledger.
+          Everything below is for the <strong>self-hosted (OSS)</strong> path — cloud users only need
+          <code>npx robrain install</code> (<a href="#how-to-use">see above</a>). OpenAI-only keys, the clone
+          development path, Synthesis, and the git ledger:
         </p>
         <p class="code-label">One-time — no clone needed</p>
         <pre><code>export ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
