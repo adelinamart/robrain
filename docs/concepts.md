@@ -372,7 +372,7 @@ The [Claude Code plugin](../plugins/claude-code/README.md) calls this on `UserPr
 
 **Not the same as cloud pre-commit `/dry-run`:** that is a structured write-time conflict verdict on Rory Plans cloud. `POST /veto-scan` is the OSS pre-action check for literal rejected-option mentions.
 
-**Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
+**Get cloud access:** included with every paid [Rory Plans](https://roryplans.ai) plan. Sign in, create an API token on your profile page, then run `npx robrain install`. Teams share one memory; solo subscribers get their own.
 
 The self-hosted version already brings decisions back automatically through the always-on summary, and lets you pull extra context with `npx robrain inject` when you need something task-specific. The cloud version adds automatic injection at task boundaries — context can arrive without you running a command — while exposing the same CLI surface (inject, explain, export, outcomes) against the hosted API.
 
@@ -415,7 +415,7 @@ The honest difference: self-hosted gives you capture, storage, provenance, outco
 
 The extraction quality difference is real but secondary. Both versions use Claude Haiku 4.5 by default (`claude-haiku-4-5`). The cloud version has a more calibrated prompt that reduces false positives — we'll publish numbers once we have real-session benchmark data. The bigger gap is task-boundary targeting and proactive injection vs relying on `inject` yourself — a workflow change, not just an accuracy improvement.
 
-**Get cloud access:** register for Rory Plans cloud early access by filling in [this form](https://docs.google.com/forms/d/e/1FAIpQLSe9c-7a23MvUEzF_yjxzK4RN_sF1VHiMSpPplRcG9GxEvbPhA/viewform?pli=1), or visit [roryplans.ai](https://roryplans.ai).
+**Get cloud access:** included with every paid [Rory Plans](https://roryplans.ai) plan. Sign in, create an API token on your profile page, then run `npx robrain install`. Teams share one memory; solo subscribers get their own.
 
 ## Comparisons
 
