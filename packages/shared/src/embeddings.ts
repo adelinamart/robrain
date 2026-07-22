@@ -118,16 +118,17 @@ export async function embed(
 // ── OpenAI (and OpenAI-compatible via OPENAI_BASE_URL) ────────
 
 async function embedOpenAI(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<number[]> {
-  if (!config.openaiApiKey) {
-    throw new EmbeddingProviderError('openai', 'OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai')
+  const baseUrl = config.openaiBaseUrl.replaceAll(/\/+$/, '')
+  if (!config.openaiApiKey && baseUrl === DEFAULT_OPENAI_BASE_URL) {
+    throw new EmbeddingProviderError('openai', 'OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai (unless OPENAI_BASE_URL points at a local server)')
   }
   const res = await fetchEmbedding(
-    `${config.openaiBaseUrl}/embeddings`,
+    `${baseUrl}/embeddings`,
     {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${config.openaiApiKey}`,
         'Content-Type':  'application/json',
+        ...(config.openaiApiKey ? { 'Authorization': `Bearer ${config.openaiApiKey}` } : {}),
       },
       body: JSON.stringify({
         model: config.openaiModel,

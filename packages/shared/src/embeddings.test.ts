@@ -115,9 +115,24 @@ describe('embed — openai', () => {
 
   it('throws EmbeddingProviderError when OPENAI_API_KEY is missing', async () => {
     await assert.rejects(
-      embed('x', makeConfig({ openaiApiKey: undefined })),
+      embed('x', makeConfig({
+        openaiApiKey: undefined,
+        openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
+       })),
       (err: unknown) => err instanceof EmbeddingProviderError && err.provider === 'openai',
     )
+  })
+
+  it('allows a missing OPENAI_API_KEY for local OpenAI-compatible base URLs', async () => {
+    const calls = mockFetch(() => jsonResponse({ data: [{ embedding: [1, 2] }] }))
+    const vec = await embed('x', makeConfig({
+      openaiApiKey: undefined,
+      openaiBaseUrl: 'http://localhost:11434/v1',
+      openaiModel: 'nomic-embed-text',
+    }))
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]!.url, 'http://localhost:11434/v1/embeddings')
+    assert.equal(vec.length, EMBEDDING_TARGET_DIMS)
   })
 })
 
