@@ -94,6 +94,8 @@ Keep `EMBEDDING_PROVIDER` identical between this file and what you select when r
 
 For Claude Code, `init-project` also merges a plugin recommendation into `.claude/settings.json` so teammates who trust the repo get an install prompt from Claude Code itself. Skip with `--skip-claude-plugin`. Details: [plugins/claude-code/README.md](../plugins/claude-code/README.md).
 
+Cloud installs configure Sensing in thin mode (`ROBRAIN_MODE=cloud`): turns ship raw to the managed API, which runs the calibrated extractor server-side. `robrain doctor` and `robrain status` understand this mode — a missing local key is not an error in cloud mode.
+
 #### CLI on your `PATH` (optional)
 
 If you prefer not to use `npx` every time, install the package globally, then use the `robrain` command directly:
@@ -278,7 +280,7 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `pnpm synthesis:dry-run` | Run Synthesis with `SYNTHESIS_DRY_RUN=true` (no DB writes) |
 | `npx robrain install --self-hosted` | Wire Sensing MCP into detected editors (Claude Code, Cursor, Codex, Copilot); then runs **`init-project` in the current directory** by default |
 | `npx robrain install --hermes` | Install the bundled Hermes memory-provider plugin into `$HERMES_HOME/plugins/robrain` (combine with `--self-hosted`) |
-| `npx robrain install --token <token>` | Authenticate against Rory Plans cloud (or set `RORY_TOKEN`) |
+| `npx robrain install [--token <token>]` | Cloud mode (default when `--self-hosted` is absent): authenticates against Rory Plans, provisions the managed API, wires editors as thin clients — no local LLM/embedding keys needed. Token from roryplans.ai → profile → API tokens (or set `RORY_TOKEN`) |
 | `npx robrain install --editor <claude-code\|cursor\|copilot\|codex>` | Target a specific editor instead of all detected |
 | `npx robrain install --perception-url <url>` | Override Perception URL for self-hosted (default `http://localhost:3001`) |
 | `npx robrain install --repo-root <path>` | Dev override: symlink/copy sensing-mcp from the clone (replaces any package-copied bundle; or set `ROBRAIN_REPO`) |

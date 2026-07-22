@@ -62,6 +62,18 @@ claude plugin install robrain@robrain
 
 Details: [plugins/claude-code](plugins/claude-code/README.md). `robrain init-project` also recommends the plugin to collaborators via the project's `.claude/settings.json`, so teammates get an install prompt from Claude Code itself (opt out with `--skip-claude-plugin`).
 
+### Rory Plans cloud (managed)
+
+On any paid Rory Plans plan, RoBrain runs without hosting anything:
+
+```bash
+npx robrain install          # no flags — cloud mode
+```
+
+Sign in at [roryplans.ai](https://roryplans.ai), create an API token on your profile page, and paste it when the installer asks. That's the whole setup: no Docker, no database, no LLM or embedding keys — extraction and search run on our side. Your editors (Claude Code, Cursor, Copilot, Codex CLI) are wired automatically, and teammates on your Rory Plans team share the same memory.
+
+Every paid plan qualifies — individual standard or annual, Teams, and enterprise. Solo subscribers get a private memory space; teams share one. Self-hosting stays free and fully supported (see Install above); the [comparison table](#self-hosted-vs-rory-plans-cloud) shows what each tier adds.
+
 OpenAI-only: set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` instead of Anthropic — see [Concepts — Prefer not to use Anthropic](docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only).
 
 Upgrading on a new release — no-clone stack: just re-run `npx robrain@latest up`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
