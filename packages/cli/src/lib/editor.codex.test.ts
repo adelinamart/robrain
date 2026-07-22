@@ -117,6 +117,21 @@ describe('renderCodexBlock', () => {
     })
   })
 
+  it('local base URL: writes OPENAI_BASE_URL and omits an empty OPENAI_API_KEY', () => {
+    const env = buildSensingMcpEnv({
+      ...baseOpts,
+      embeddingKey:  '',
+      openaiBaseUrl: 'http://localhost:11434/v1',
+    })
+    assert.equal(env.OPENAI_BASE_URL, 'http://localhost:11434/v1')
+    assert.equal('OPENAI_API_KEY' in env, false)
+
+    // A key set alongside a local base URL is still forwarded (server may enforce auth)
+    const withKey = buildSensingMcpEnv({ ...baseOpts, openaiBaseUrl: 'http://localhost:11434/v1' })
+    assert.equal(withKey.OPENAI_API_KEY, 'sk-openai-test')
+    assert.equal(withKey.OPENAI_BASE_URL, 'http://localhost:11434/v1')
+  })
+
   it('escapes quotes and backslashes in TOML strings', () => {
     const block = renderCodexBlock({
       ...baseOpts,

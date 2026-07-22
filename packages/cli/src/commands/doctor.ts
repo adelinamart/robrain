@@ -10,7 +10,7 @@ import { join } from 'path'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
-import { detectEditors } from '../lib/editor.js'
+import { detectEditors, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi } from '../lib/editor.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
 const ROBRAIN_MCP_DIR = join(homedir(), '.robrain', 'mcp')
@@ -118,11 +118,16 @@ export async function doctorCommand(): Promise<void> {
     checks.push({ level: 'pass', label: 'Reasoning LLM key', detail: 'not needed — cloud thin client (server-side classification)' })
     checks.push({ level: 'pass', label: 'Embedding key', detail: 'not needed — cloud thin client (server-side embeddings)' })
   } else {
+    // A non-default OPENAI_BASE_URL means a local OpenAI-compatible server
+    // (Ollama / LM Studio / vLLM) — those usually run keyless.
+    const localOpenAi = usingLocalOpenAi()
     const llmKey = process.env.LLM_PROVIDER === 'openai'
       ? process.env.OPENAI_API_KEY
       : process.env.ANTHROPIC_API_KEY
     checks.push(llmKey
       ? { level: 'pass', label: 'Reasoning LLM key', detail: process.env.LLM_PROVIDER === 'openai' ? 'OPENAI_API_KEY set' : 'ANTHROPIC_API_KEY set' }
+      : process.env.LLM_PROVIDER === 'openai' && localOpenAi
+      ? { level: 'pass', label: 'Reasoning LLM key', detail: `not needed — local server via OPENAI_BASE_URL (${resolveOpenAiBaseUrlFromEnv()})` }
       : {
           level: 'warn',
           label: 'Reasoning LLM key',
@@ -133,6 +138,8 @@ export async function doctorCommand(): Promise<void> {
       Boolean(process.env.OPENAI_API_KEY || process.env.VOYAGE_API_KEY || process.env.COHERE_API_KEY)
     checks.push(embeddingKeySet
       ? { level: 'pass', label: 'Embedding key', detail: config.embeddingProvider ?? 'openai' }
+      : (config.embeddingProvider ?? 'openai') === 'openai' && localOpenAi
+      ? { level: 'pass', label: 'Embedding key', detail: `not needed — local server via OPENAI_BASE_URL (${resolveOpenAiBaseUrlFromEnv()})` }
       : {
           level: 'warn',
           label: 'Embedding key',

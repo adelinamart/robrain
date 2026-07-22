@@ -133,6 +133,22 @@ export function resolveLlmProviderFromEnv(env: NodeJS.ProcessEnv = process.env):
   return env.LLM_PROVIDER?.trim().toLowerCase() === 'openai' ? 'openai' : 'anthropic'
 }
 
+// Mirrors @robrain/shared llm.ts — the CLI deliberately has no dependency on
+// shared so a bare `npx robrain install` needs no workspace build.
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+/** Reads OPENAI_BASE_URL, normalized the same way as shared's resolveOpenAiBaseUrl. */
+export function resolveOpenAiBaseUrlFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.OPENAI_BASE_URL?.trim()
+  if (!raw) return DEFAULT_OPENAI_BASE_URL
+  return raw.replace(/\/+$/, '')
+}
+
+/** True when OPENAI_BASE_URL points at a local OpenAI-compatible server (Ollama / LM Studio / vLLM) — OPENAI_API_KEY is optional then. */
+export function usingLocalOpenAi(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveOpenAiBaseUrlFromEnv(env) !== DEFAULT_OPENAI_BASE_URL
+}
+
 export interface McpWriteOptions {
   sensingMcpPath:  string
   controlMcpPath:  string
@@ -147,6 +163,8 @@ export interface McpWriteOptions {
   llmProvider?: LlmProvider
   /** OpenAI key for LLM when llmProvider is openai and embedding provider is not openai. */
   openaiKey?: string
+  /** Non-default OpenAI-compatible base URL (Ollama / LM Studio / vLLM). Written into the Sensing env; makes OPENAI_API_KEY optional. */
+  openaiBaseUrl?: string
   /** When false, drops robrain-control (OSS self-hosted — Control ships with Rory cloud only). Default true. */
   includeControl?: boolean
   /** Absolute dir of materialized Codex hook scripts — when set, the Codex TOML block also wires lifecycle hooks. */
@@ -187,10 +205,14 @@ export function buildSensingMcpEnv(opts: McpWriteOptions): Record<string, string
 
   const needsOpenAi = opts.embeddingProvider === 'openai' || llmProvider === 'openai'
   if (needsOpenAi) {
-    env.OPENAI_API_KEY =
+    const openaiKey =
       opts.embeddingProvider === 'openai'
         ? opts.embeddingKey
         : (opts.openaiKey?.trim() ?? '')
+    if (opts.openaiBaseUrl) env.OPENAI_BASE_URL = opts.openaiBaseUrl
+    // Keyless is only valid against a local base URL — without one, keep
+    // writing the (possibly empty) key so a misconfigured install stays visible.
+    if (openaiKey || !opts.openaiBaseUrl) env.OPENAI_API_KEY = openaiKey
   }
 
   return env

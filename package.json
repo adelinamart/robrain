@@ -1,6 +1,6 @@
 {
   "name": "robrain-monorepo",
-  "version": "2.4.0",
+  "version": "2.4.2",
   "description": "Institutional memory for AI coding agents \u2014 capture decisions, rejected alternatives, and rationale across sessions",
   "license": "Apache-2.0",
   "private": true,

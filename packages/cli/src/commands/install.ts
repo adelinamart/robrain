@@ -18,6 +18,8 @@ import { validateToken, fetchProvisionedConfig, type ProvisionedConfig } from '.
 import {
   resolveEditorsForInstall,
   resolveLlmProviderFromEnv,
+  resolveOpenAiBaseUrlFromEnv,
+  usingLocalOpenAi,
   writeMcpConfig,
   type McpWriteOptions,
 } from '../lib/editor.js'
@@ -236,7 +238,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     // Display only (status) — the thin client never embeds locally.
     ...(provisioned.embeddingProvider ? { embeddingProvider: provisioned.embeddingProvider } : {}),
     installedAt:       new Date().toISOString(),
-    version:           '2.4.0',
+    version:           '2.4.2',
   })
 
   spinner.succeed('MCP servers configured')
@@ -318,9 +320,13 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider] ?? 'EMBEDDING_API_KEY'
 
+  const openaiBaseUrl = usingLocalOpenAi() ? resolveOpenAiBaseUrlFromEnv() : undefined
+
   let embKey = process.env[keyName] ?? ''
   if (embKey) {
     console.log(chalk.dim(`  Using ${keyName} from environment`))
+  } else if (provider === 'openai' && openaiBaseUrl) {
+    console.log(chalk.dim(`  ${keyName} not needed — OPENAI_BASE_URL=${openaiBaseUrl} (local server)`))
   } else {
     const answer = await prompts({ type: 'password', name: 'embKey', message: `${keyName}:` })
     embKey = answer.embKey as string
@@ -337,6 +343,8 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
       openaiKey = embKey
     } else if (openaiKey) {
       console.log(chalk.dim('  Using OPENAI_API_KEY from environment (LLM)'))
+    } else if (openaiBaseUrl) {
+      console.log(chalk.dim('  OPENAI_API_KEY not needed — OPENAI_BASE_URL points at a local server'))
     } else {
       const answer = await prompts({
         type:    'password',
@@ -401,6 +409,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     embeddingKey:      embKey,
     llmProvider,
     openaiKey:         llmProvider === 'openai' ? openaiKey : undefined,
+    openaiBaseUrl,
     includeControl:    false as const,
     codexHooksDir:     resolveCodexHooksForInstall(editorsToConfig),
   }
@@ -425,7 +434,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
-    version:           '2.4.0',
+    version:           '2.4.2',
     selfHosted:        true,
   })
 

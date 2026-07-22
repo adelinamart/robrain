@@ -15,7 +15,7 @@ FROM node:22-alpine
 # keeps the Glama-introspected surface reproducible. Bump on release.
 ENV PNPM_HOME=/usr/local/share/pnpm
 ENV PATH=$PNPM_HOME/bin:$PNPM_HOME:$PATH
-RUN corepack enable && pnpm add -g robrain@2.4.0
+RUN corepack enable && pnpm add -g robrain@2.4.2
 
 # stdio MCP transport: the client speaks JSON-RPC over stdin/stdout.
 ENTRYPOINT ["robrain", "mcp"]

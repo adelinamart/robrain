@@ -58,6 +58,19 @@ describe('ensureStackEnvContent', () => {
     assert.ok(generated.includes('ANTHROPIC_API_KEY'))
   })
 
+  it('seeds OPENAI_BASE_URL so Perception in Docker sees a local server', () => {
+    const { content, generated } = ensureStackEnvContent(null, {
+      LLM_PROVIDER: 'openai',
+      OPENAI_BASE_URL: 'http://host.docker.internal:11434/v1',
+    })
+    assert.equal(readEnvValue(content, 'LLM_PROVIDER'), 'openai')
+    assert.equal(readEnvValue(content, 'OPENAI_BASE_URL'), 'http://host.docker.internal:11434/v1')
+    // Blank key line is fine — keyless local servers don't need OPENAI_API_KEY.
+    assert.equal(readEnvValue(content, 'OPENAI_API_KEY'), '')
+    assert.ok(generated.includes('OPENAI_BASE_URL'))
+    assert.ok(generated.includes('LLM_PROVIDER'))
+  })
+
   it('never overwrites existing non-empty values', () => {
     const first = ensureStackEnvContent(null, {}).content
     const second = ensureStackEnvContent(first, { ANTHROPIC_API_KEY: 'sk-ant-late' })
