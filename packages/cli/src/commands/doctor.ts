@@ -10,7 +10,7 @@ import { join } from 'path'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { controlBundleReady, sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
-import { detectEditors, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi } from '../lib/editor.js'
+import { detectEditors, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi, roBrainBlockReferencesRemovedTools } from '../lib/editor.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
 const ROBRAIN_MCP_DIR = join(homedir(), '.robrain', 'mcp')
@@ -228,6 +228,29 @@ export async function doctorCommand(): Promise<void> {
     } catch {
       checks.push({ level: 'warn', label: 'Project registered', detail: 'could not list projects' })
     }
+  }
+
+  // 7 — stale RoBrain block in this repo's project files. Older blocks named
+  // Control tools that no longer exist; an agent following them calls phantom
+  // tools and Control stays inert. Detects marked blocks, truncated markers,
+  // and unmarked legacy blocks so the fix (re-run init-project) is actionable
+  // instead of silent. Covers the Cursor rule too — same block in all three.
+  const staleFiles: string[] = []
+  for (const rel of ['AGENTS.md', 'CLAUDE.md', join('.cursor', 'rules', 'robrain.mdc')]) {
+    try {
+      const p = join(cwd(), rel)
+      if (existsSync(p) && roBrainBlockReferencesRemovedTools(readFileSync(p, 'utf8'))) {
+        staleFiles.push(rel)
+      }
+    } catch { /* unreadable — skip */ }
+  }
+  if (staleFiles.length > 0) {
+    checks.push({
+      level: 'warn',
+      label: 'RoBrain instructions',
+      detail: `${staleFiles.join(', ')} reference removed Control tools — the agent will call tools that don't exist`,
+      hint:  'Run: npx robrain init-project in this directory to regenerate the block',
+    })
   }
 
   for (const c of checks) printCheck(c)

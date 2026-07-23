@@ -396,6 +396,36 @@ export function writeCodexMcpConfig(configPath: string, opts: McpWriteOptions): 
 
 const ROBRAIN_MARKER_START = '<!-- robrain -->'
 const ROBRAIN_MARKER_END   = '<!-- /robrain -->'
+
+/** Control tools removed 2026-07-23 — an instruction block naming any of these is stale. */
+export const REMOVED_CONTROL_TOOLS = [
+  'control_get_session_context',
+  'control_inject_context',
+  'control_add_rule',
+  'control_end_session',
+] as const
+
+/**
+ * True when a project instruction file references a Control tool that no longer
+ * exists. Intended for AGENTS.md / CLAUDE.md / `.cursor/rules/robrain.mdc`.
+ *
+ * Scan scope:
+ * - Marked block present (start+end): only the marker-bounded region (changelog
+ *   mentions outside the block are never false positives).
+ * - Start marker without end: from start to EOF (broken managed block — still warn).
+ * - No markers: whole file (legacy blocks written before markers existed).
+ */
+export function roBrainBlockReferencesRemovedTools(fileContent: string): boolean {
+  const start = fileContent.indexOf(ROBRAIN_MARKER_START)
+  if (start !== -1) {
+    const end = fileContent.indexOf(ROBRAIN_MARKER_END, start)
+    const block = end === -1
+      ? fileContent.slice(start)
+      : fileContent.slice(start, end + ROBRAIN_MARKER_END.length)
+    return REMOVED_CONTROL_TOOLS.some(t => block.includes(t))
+  }
+  return REMOVED_CONTROL_TOOLS.some(t => fileContent.includes(t))
+}
 export type RoBrainInstructionMode = 'sensing-only' | 'sensing+control'
 
 /** Shared body for CLAUDE.md, AGENTS.md, and `.cursor/rules/robrain.mdc` (keep in sync). */
@@ -429,52 +459,57 @@ sensing_end_session(session_id="<stored session_id>", summary="one sentence: wha
 `
   }
 
-  return `## RoBrain — Context Management
+  return `## RoBrain — Context Management (Rory Plans cloud)
 
-This project uses RoBrain for persistent institutional memory across sessions.
-Call these tools as instructed to maintain causal memory of decisions.
+This project uses RoBrain for persistent institutional memory across sessions:
+**Sensing** captures your turns, **Control** injects prior decisions and pre-task
+veto warnings. Pass \`project_id="${projectId}"\` on every Control call (it is your
+registered project id — do not substitute a guess or the repo name).
 
-### Session start (every session, first thing)
+### Session start (mandatory, first thing in every new chat)
+\`sensing_start_session\` returns a \`session_id\` — reuse it on every call below.
 \`\`\`
 sensing_start_session(project_id="${projectId}")
-control_get_session_context(project_id="${projectId}", session_id="<same session_id as sensing_start_session response>")
+control_get_context(project_id="${projectId}", task_description="session start - project overview", session_id="<session_id from sensing_start_session>")
 \`\`\`
-Inject the always_on_summary returned by control_get_session_context into your context.
+Inject the block control_get_context returns into your context.
 
-### After every response
+### After every response (mandatory)
 \`\`\`
-sensing_record_turn(session_id=..., sequence=<n>, user_message=..., claude_reply="<assistant reply>", files_touched=[...], injected_memory_ids=[...])
+sensing_record_turn(session_id="<stored session_id>", sequence=<n>, user_message="<full user message>", claude_reply="<full assistant reply>", files_touched=[...], injected_memory_ids=[...])
 \`\`\`
 (\`claude_reply\` is the required MCP parameter name for the assistant reply.)
-If topic_shift=true is returned, immediately call:
+If topic_shift=true is returned, call control_get_context again for the new task.
+
+### At every task boundary (new task, plan step, or topic shift)
 \`\`\`
-control_inject_context(project_id="${projectId}", session_id=..., task_description=..., files_in_scope=[...])
+control_get_context(project_id="${projectId}", task_description="<what you are about to do>", files=[...], session_id="<stored session_id>")
 \`\`\`
 
-### When you need deeper context
+### Before implementing any architectural or design choice
 \`\`\`
-control_get_context(project_id="${projectId}", session_id=..., query=..., files_relevant=[...])
-\`\`\`
-
-### When prior context is wrong or outdated
-\`\`\`
-control_record_correction(session_id=..., decision_id=..., source="user_correction"|"claude_disagreement", invalidate=true)
+control_check_task(project_id="${projectId}", proposed_approach="<the choice, one sentence>", files=[...])
 \`\`\`
 
-### When user adds a rule
+### When the user confirms, rejects, or corrects a surfaced decision
 \`\`\`
-control_add_rule(project_id="${projectId}", rule="...", type="always_include"|"always_exclude"|"preference")
+control_record_correction(decision_id="<id from an injected memory or verdict>", action="approve"|"invalidate"|"edit", corrected_decision="...", corrected_rationale="...")
+\`\`\`
+
+### After a reply that followed an injection (closes the effectiveness loop)
+\`\`\`
+control_report_reply(session_id="<stored session_id>", sequence=<n>, reply_text="<full assistant reply>")
 \`\`\`
 
 ### Session end (last thing)
 \`\`\`
-sensing_end_session(session_id=..., summary="one sentence: what was accomplished")
-control_end_session(project_id="${projectId}", session_id=...)
+sensing_end_session(session_id="<stored session_id>", summary="one sentence: what was accomplished")
 \`\`\`
 
 ### Acknowledgement rule
-When injected context contains a question marked ⚠, you must explicitly state
-whether the constraint applies to the current task before proceeding.
+When a control_get_context or control_check_task result leads with "⚠ ACKNOWLEDGEMENT
+REQUIRED", present the warning to the user verbatim, ask for explicit confirmation,
+and do NOT proceed with the conflicting approach until the user responds.
 `
 }
 
