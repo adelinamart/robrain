@@ -409,7 +409,7 @@ Call Sensing tools exactly as instructed to maintain session memory.
 
 ### Session start (mandatory, first thing in every new chat)
 \`\`\`
-sensing_start_session(project_id="${projectId}", working_dir="<cwd>")
+sensing_start_session(project_id="${projectId}")
 \`\`\`
 Use the session_id from the tool response (or pass your own unique id per chat). Initialize sequence=1 before your first reply.
 
@@ -436,7 +436,7 @@ Call these tools as instructed to maintain causal memory of decisions.
 
 ### Session start (every session, first thing)
 \`\`\`
-sensing_start_session(project_id="${projectId}", working_dir="<cwd>")
+sensing_start_session(project_id="${projectId}")
 control_get_session_context(project_id="${projectId}", session_id="<same session_id as sensing_start_session response>")
 \`\`\`
 Inject the always_on_summary returned by control_get_session_context into your context.

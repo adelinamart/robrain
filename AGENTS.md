@@ -7,7 +7,7 @@ Call Sensing tools exactly as instructed to maintain session memory.
 
 ### Session start (mandatory, first thing in every new chat)
 ```
-sensing_start_session(project_id="5a8ff3c609de", working_dir="<cwd>")
+sensing_start_session(project_id="5a8ff3c609de")
 ```
 Use the session_id from the tool response (or pass your own unique id per chat). Initialize sequence=1 before your first reply.
 

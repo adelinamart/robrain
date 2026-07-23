@@ -48,7 +48,7 @@ function resolveSessionId(raw: string | null | undefined): string {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name:    'sensing-mcp',
-    version: '2.4.3',
+    version: '2.4.4',
   })
 
   // ─────────────────────────────────────────────────────────────
@@ -65,9 +65,13 @@ export function buildServer(): McpServer {
       session_id:  z.string().nullish().describe(
         'Unique id for this session. Omit, use null, or "" to let the server generate one (recommended). Otherwise supply a fresh id per chat (e.g. ISO timestamp + 4 hex chars).',
       ),
-      working_dir: z.string().describe('Absolute path to the project root directory'),
+      // working_dir was removed 2026-07-23: it was only ever logged locally and
+      // never forwarded, but instructing agents to send an absolute local path
+      // trips editor security policies (Codex flags it as data egress). Old
+      // instruction blocks that still pass it are tolerated — zod strips
+      // unknown keys.
     },
-    async ({ project_id, session_id, working_dir }) => {
+    async ({ project_id, session_id }) => {
       const sessionId = resolveSessionId(session_id)
 
       sessionRegistry.register(sessionId, project_id)
@@ -76,7 +80,7 @@ export function buildServer(): McpServer {
       // For now, return placeholder until Perception is wired
       const summaryResult = await fetchAlwaysOnSummary(project_id)
 
-      console.error(`[Sensing] Session started: ${sessionId} (${project_id}) @ ${working_dir}`)
+      console.error(`[Sensing] Session started: ${sessionId} (${project_id})`)
 
       return {
         content: [{
