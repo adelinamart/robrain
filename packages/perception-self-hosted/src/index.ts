@@ -1317,9 +1317,13 @@ async function extractDecisionOSS(userMsg: string, claudeReply: string) {
       openaiModel:     config.openaiLlmModel,
       openaiBaseUrl:   config.openaiBaseUrl,
     })
-  } catch {
-    // Missing key / provider / parse failure = treat as no decision (keys are
-    // validated at boot, so this is transient provider trouble, not config).
+  } catch (err) {
+    // Missing key / provider / parse failure = treat as no decision so one bad
+    // turn never blocks ingest. But LOG it: without this line a provider outage
+    // (revoked key, API down, unparseable response) is indistinguishable from a
+    // genuine "no decision here" — every capture silently returns discarded and
+    // the whole system looks dead with zero signal in the logs.
+    console.error('[Perception OSS] Decision extraction failed (treating turn as no-decision):', err instanceof Error ? err.message : err)
     return { decision: null, rationale: null, rejected: [], confidence: 0 }
   }
 }
