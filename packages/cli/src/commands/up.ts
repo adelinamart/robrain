@@ -106,9 +106,9 @@ export interface EnsureEnvResult {
  * existing non-empty values are never overwritten; blank or missing
  * POSTGRES_PASSWORD / PERCEPTION_API_KEY get random 32-byte hex values, and a
  * DATABASE_URL still carrying CHANGE_ME is rewritten to match. On first creation,
- * provider keys / OPENAI_BASE_URL present in `seeds` (the caller's process env)
- * are copied in so users who exported ANTHROPIC_API_KEY / OPENAI_API_KEY /
- * OPENAI_BASE_URL (local Ollama / LM Studio / vLLM) are not asked twice.
+ * provider keys / OPENAI_BASE_URL / OPENAI_HOST_BASE_URL present in `seeds`
+ * (the caller's process env) are copied in so users who exported
+ * ANTHROPIC_API_KEY / OPENAI_API_KEY / local Ollama URLs are not asked twice.
  */
 export function ensureStackEnvContent(
   existing: string | null,
@@ -139,6 +139,7 @@ ${seededLine('ANTHROPIC_API_KEY')}
 ${seededLine('EMBEDDING_PROVIDER', 'openai')}
 ${seededLine('OPENAI_API_KEY')}
 ${seededLine('OPENAI_BASE_URL')}
+${seededLine('OPENAI_HOST_BASE_URL')}
 ${seededLine('VOYAGE_API_KEY')}
 ${seededLine('COHERE_API_KEY')}
 

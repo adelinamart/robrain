@@ -345,13 +345,24 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
 
   const keyName  = { openai: 'OPENAI_API_KEY', voyage: 'VOYAGE_API_KEY', cohere: 'COHERE_API_KEY' }[provider] ?? 'EMBEDDING_API_KEY'
 
-  const openaiBaseUrl = usingLocalOpenAi() ? resolveOpenAiBaseUrlFromEnv() : undefined
+  // Docker URL (OPENAI_BASE_URL only) + host URL (prefer OPENAI_HOST_BASE_URL).
+  // Sensing MCP gets both so preferHost works outside the clone (mcp.json-only env).
+  const openaiBaseUrl = usingLocalOpenAi()
+    ? (process.env.OPENAI_BASE_URL?.trim()
+      ? resolveOpenAiBaseUrlFromEnv()
+      : undefined)
+    : undefined
+  const openaiHostBaseUrl = process.env.OPENAI_HOST_BASE_URL?.trim()
+    ? resolveOpenAiBaseUrlFromEnv(process.env, { preferHost: true })
+    : undefined
+  const localOpenAiUrl = openaiHostBaseUrl
+    ?? (usingLocalOpenAi() ? resolveOpenAiBaseUrlFromEnv(process.env, { preferHost: true }) : undefined)
 
   let embKey = process.env[keyName] ?? ''
   if (embKey) {
     console.log(chalk.dim(`  Using ${keyName} from environment`))
-  } else if (provider === 'openai' && openaiBaseUrl) {
-    console.log(chalk.dim(`  ${keyName} not needed — OPENAI_BASE_URL=${openaiBaseUrl} (local server)`))
+  } else if (provider === 'openai' && localOpenAiUrl) {
+    console.log(chalk.dim(`  ${keyName} not needed — local server via ${localOpenAiUrl}`))
   } else {
     const answer = await prompts({ type: 'password', name: 'embKey', message: `${keyName}:` })
     embKey = answer.embKey as string
@@ -368,8 +379,8 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
       openaiKey = embKey
     } else if (openaiKey) {
       console.log(chalk.dim('  Using OPENAI_API_KEY from environment (LLM)'))
-    } else if (openaiBaseUrl) {
-      console.log(chalk.dim('  OPENAI_API_KEY not needed — OPENAI_BASE_URL points at a local server'))
+    } else if (localOpenAiUrl) {
+      console.log(chalk.dim(`  OPENAI_API_KEY not needed — local server via ${localOpenAiUrl}`))
     } else {
       const answer = await prompts({
         type:    'password',
@@ -435,6 +446,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     llmProvider,
     openaiKey:         llmProvider === 'openai' ? openaiKey : undefined,
     openaiBaseUrl,
+    openaiHostBaseUrl,
     includeControl:    false as const,
     codexHooksDir:     resolveCodexHooksForInstall(editorsToConfig),
   }

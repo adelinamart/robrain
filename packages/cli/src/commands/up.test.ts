@@ -62,12 +62,15 @@ describe('ensureStackEnvContent', () => {
     const { content, generated } = ensureStackEnvContent(null, {
       LLM_PROVIDER: 'openai',
       OPENAI_BASE_URL: 'http://host.docker.internal:11434/v1',
+      OPENAI_HOST_BASE_URL: 'http://127.0.0.1:11434/v1',
     })
     assert.equal(readEnvValue(content, 'LLM_PROVIDER'), 'openai')
     assert.equal(readEnvValue(content, 'OPENAI_BASE_URL'), 'http://host.docker.internal:11434/v1')
+    assert.equal(readEnvValue(content, 'OPENAI_HOST_BASE_URL'), 'http://127.0.0.1:11434/v1')
     // Blank key line is fine — keyless local servers don't need OPENAI_API_KEY.
     assert.equal(readEnvValue(content, 'OPENAI_API_KEY'), '')
     assert.ok(generated.includes('OPENAI_BASE_URL'))
+    assert.ok(generated.includes('OPENAI_HOST_BASE_URL'))
     assert.ok(generated.includes('LLM_PROVIDER'))
   })
 

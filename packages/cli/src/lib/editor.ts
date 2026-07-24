@@ -137,16 +137,43 @@ export function resolveLlmProviderFromEnv(env: NodeJS.ProcessEnv = process.env):
 // shared so a bare `npx robrain install` needs no workspace build.
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
-/** Reads OPENAI_BASE_URL, normalized the same way as shared's resolveOpenAiBaseUrl. */
-export function resolveOpenAiBaseUrlFromEnv(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env.OPENAI_BASE_URL?.trim()
-  if (!raw) return DEFAULT_OPENAI_BASE_URL
-  return raw.replace(/\/+$/, '')
+export interface ResolveOpenAiBaseUrlFromEnvOptions {
+  /** Prefer OPENAI_HOST_BASE_URL (Sensing/Synthesis / doctor on the host). */
+  preferHost?: boolean
 }
 
-/** True when OPENAI_BASE_URL points at a local OpenAI-compatible server (Ollama / LM Studio / vLLM) — OPENAI_API_KEY is optional then. */
+/** localhost → 127.0.0.1 (same contract as shared normalizeLoopbackUrl). */
+function normalizeLoopbackUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname === 'localhost') {
+      parsed.hostname = '127.0.0.1'
+      return parsed.toString().replace(/\/$/, '')
+    }
+  } catch {
+    // leave unparseable input as-is
+  }
+  return url
+}
+
+/**
+ * Reads OPENAI_BASE_URL (or OPENAI_HOST_BASE_URL when preferHost), matching
+ * shared's resolveOpenAiBaseUrl.
+ */
+export function resolveOpenAiBaseUrlFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ResolveOpenAiBaseUrlFromEnvOptions = {},
+): string {
+  const raw = options.preferHost
+    ? (env.OPENAI_HOST_BASE_URL?.trim() || env.OPENAI_BASE_URL?.trim())
+    : env.OPENAI_BASE_URL?.trim()
+  if (!raw) return DEFAULT_OPENAI_BASE_URL
+  return normalizeLoopbackUrl(raw.replace(/\/+$/, ''))
+}
+
+/** True when a local OpenAI-compatible server URL is configured (host or Docker). */
 export function usingLocalOpenAi(env: NodeJS.ProcessEnv = process.env): boolean {
-  return resolveOpenAiBaseUrlFromEnv(env) !== DEFAULT_OPENAI_BASE_URL
+  return resolveOpenAiBaseUrlFromEnv(env, { preferHost: true }) !== DEFAULT_OPENAI_BASE_URL
 }
 
 export interface McpWriteOptions {
@@ -163,8 +190,10 @@ export interface McpWriteOptions {
   llmProvider?: LlmProvider
   /** OpenAI key for LLM when llmProvider is openai and embedding provider is not openai. */
   openaiKey?: string
-  /** Non-default OpenAI-compatible base URL (Ollama / LM Studio / vLLM). Written into the Sensing env; makes OPENAI_API_KEY optional. */
+  /** OPENAI_BASE_URL for Sensing (often host.docker.internal when Perception is in Docker). */
   openaiBaseUrl?: string
+  /** OPENAI_HOST_BASE_URL for Sensing on the host (127.0.0.1). Sensing preferHost uses this first. */
+  openaiHostBaseUrl?: string
   /** When false, drops robrain-control (OSS self-hosted — Control ships with Rory cloud only). Default true. */
   includeControl?: boolean
   /** Absolute dir of materialized Codex hook scripts — when set, the Codex TOML block also wires lifecycle hooks. */
@@ -210,9 +239,11 @@ export function buildSensingMcpEnv(opts: McpWriteOptions): Record<string, string
         ? opts.embeddingKey
         : (opts.openaiKey?.trim() ?? '')
     if (opts.openaiBaseUrl) env.OPENAI_BASE_URL = opts.openaiBaseUrl
+    if (opts.openaiHostBaseUrl) env.OPENAI_HOST_BASE_URL = opts.openaiHostBaseUrl
     // Keyless is only valid against a local base URL — without one, keep
     // writing the (possibly empty) key so a misconfigured install stays visible.
-    if (openaiKey || !opts.openaiBaseUrl) env.OPENAI_API_KEY = openaiKey
+    const hasLocalUrl = Boolean(opts.openaiBaseUrl || opts.openaiHostBaseUrl)
+    if (openaiKey || !hasLocalUrl) env.OPENAI_API_KEY = openaiKey
   }
 
   return env

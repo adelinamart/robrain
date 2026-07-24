@@ -131,16 +131,17 @@ export async function doctorCommand(): Promise<void> {
     checks.push({ level: 'pass', label: 'Reasoning LLM key', detail: 'not needed — cloud thin client (server-side classification)' })
     checks.push({ level: 'pass', label: 'Embedding key', detail: 'not needed — cloud thin client (server-side embeddings)' })
   } else {
-    // A non-default OPENAI_BASE_URL means a local OpenAI-compatible server
-    // (Ollama / LM Studio / vLLM) — those usually run keyless.
+    // Local OpenAI-compatible server (Ollama / LM Studio / vLLM) — usually keyless.
+    // Prefer host URL so doctor doesn't print host.docker.internal on the host.
     const localOpenAi = usingLocalOpenAi()
+    const localOpenAiUrl = resolveOpenAiBaseUrlFromEnv(process.env, { preferHost: true })
     const llmKey = process.env.LLM_PROVIDER === 'openai'
       ? process.env.OPENAI_API_KEY
       : process.env.ANTHROPIC_API_KEY
     checks.push(llmKey
       ? { level: 'pass', label: 'Reasoning LLM key', detail: process.env.LLM_PROVIDER === 'openai' ? 'OPENAI_API_KEY set' : 'ANTHROPIC_API_KEY set' }
       : process.env.LLM_PROVIDER === 'openai' && localOpenAi
-      ? { level: 'pass', label: 'Reasoning LLM key', detail: `not needed — local server via OPENAI_BASE_URL (${resolveOpenAiBaseUrlFromEnv()})` }
+      ? { level: 'pass', label: 'Reasoning LLM key', detail: `not needed — local server (${localOpenAiUrl})` }
       : {
           level: 'warn',
           label: 'Reasoning LLM key',
@@ -152,7 +153,7 @@ export async function doctorCommand(): Promise<void> {
     checks.push(embeddingKeySet
       ? { level: 'pass', label: 'Embedding key', detail: config.embeddingProvider ?? 'openai' }
       : (config.embeddingProvider ?? 'openai') === 'openai' && localOpenAi
-      ? { level: 'pass', label: 'Embedding key', detail: `not needed — local server via OPENAI_BASE_URL (${resolveOpenAiBaseUrlFromEnv()})` }
+      ? { level: 'pass', label: 'Embedding key', detail: `not needed — local server (${localOpenAiUrl})` }
       : {
           level: 'warn',
           label: 'Embedding key',

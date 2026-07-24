@@ -35,14 +35,25 @@ export function resolveLlmProvider(env: NodeJS.ProcessEnv = process.env): LlmPro
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
+/** When true, prefer OPENAI_HOST_BASE_URL over OPENAI_BASE_URL (Sensing/Synthesis). */
+export interface ResolveOpenAiBaseUrlOptions {
+  preferHost?: boolean
+}
+
 /**
  * Reads OPENAI_BASE_URL — point the OpenAI-compatible calls (chat AND
  * embeddings) at Ollama / LM Studio / vLLM for a fully-local setup.
+ * With preferHost, OPENAI_HOST_BASE_URL wins when set.
  * When a non-default base URL is in use, OPENAI_API_KEY becomes optional
  * (local servers usually ignore auth).
  */
-export function resolveOpenAiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env.OPENAI_BASE_URL?.trim()
+export function resolveOpenAiBaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ResolveOpenAiBaseUrlOptions = {},
+): string {
+  const raw = options.preferHost
+    ? (env.OPENAI_HOST_BASE_URL?.trim() || env.OPENAI_BASE_URL?.trim())
+    : env.OPENAI_BASE_URL?.trim()
   if (!raw) return DEFAULT_OPENAI_BASE_URL
   return normalizeLoopbackUrl(raw.replace(/\/+$/, ''))
 }

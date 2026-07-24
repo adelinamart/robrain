@@ -75,7 +75,8 @@ describe('resolveEmbeddingConfig', () => {
       EMBEDDING_TIMEOUT_MS:        '5000',
     })
     assert.equal(cfg.provider, 'voyage')
-    assert.equal(cfg.openaiBaseUrl, 'http://localhost:11434/v1') // trailing slash stripped
+    // trailing slash stripped + localhost → 127.0.0.1
+    assert.equal(cfg.openaiBaseUrl, 'http://127.0.0.1:11434/v1')
     assert.equal(cfg.openaiModel, 'nomic-embed-text')
     assert.equal(cfg.openaiDimensions, 768)
     assert.equal(cfg.voyageModel, 'voyage-3-large')
@@ -86,6 +87,25 @@ describe('resolveEmbeddingConfig', () => {
   it('ignores a non-numeric OPENAI_EMBEDDING_DIMENSIONS', () => {
     const cfg = resolveEmbeddingConfig({ OPENAI_EMBEDDING_DIMENSIONS: 'nope' })
     assert.equal(cfg.openaiDimensions, undefined)
+  })
+
+  it('ignores OPENAI_HOST_BASE_URL without preferHost (Perception / Docker)', () => {
+    const cfg = resolveEmbeddingConfig({
+      OPENAI_BASE_URL:      'http://host.docker.internal:11434/v1',
+      OPENAI_HOST_BASE_URL: 'http://127.0.0.1:11434/v1',
+    })
+    assert.equal(cfg.openaiBaseUrl, 'http://host.docker.internal:11434/v1')
+  })
+
+  it('prefers OPENAI_HOST_BASE_URL when preferHost is true (Sensing)', () => {
+    const cfg = resolveEmbeddingConfig(
+      {
+        OPENAI_BASE_URL:      'http://host.docker.internal:11434/v1',
+        OPENAI_HOST_BASE_URL: 'http://127.0.0.1:11434/v1',
+      },
+      { preferHost: true },
+    )
+    assert.equal(cfg.openaiBaseUrl, 'http://127.0.0.1:11434/v1')
   })
 })
 

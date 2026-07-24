@@ -17,7 +17,7 @@
 // users don't need a managed SaaS account to run `pnpm docker:up`.
 // ─────────────────────────────────────────────────────────────
 
-import { DEFAULT_OPENAI_BASE_URL } from './llm.js'
+import { DEFAULT_OPENAI_BASE_URL, resolveOpenAiBaseUrl, type ResolveOpenAiBaseUrlOptions } from './llm.js'
 
 export type EmbeddingProvider = 'openai' | 'voyage' | 'cohere'
 
@@ -62,17 +62,20 @@ export interface EmbeddingConfig {
 
 /**
  * Env vars: EMBEDDING_PROVIDER, OPENAI_API_KEY, OPENAI_BASE_URL,
- * OPENAI_EMBEDDING_MODEL, OPENAI_EMBEDDING_DIMENSIONS, VOYAGE_API_KEY,
- * VOYAGE_EMBEDDING_MODEL, COHERE_API_KEY, COHERE_EMBEDDING_MODEL,
- * EMBEDDING_TIMEOUT_MS.
+ * OPENAI_HOST_BASE_URL (optional, with preferHost), OPENAI_EMBEDDING_MODEL,
+ * OPENAI_EMBEDDING_DIMENSIONS, VOYAGE_API_KEY, VOYAGE_EMBEDDING_MODEL,
+ * COHERE_API_KEY, COHERE_EMBEDDING_MODEL, EMBEDDING_TIMEOUT_MS.
  */
-export function resolveEmbeddingConfig(env: NodeJS.ProcessEnv = process.env): EmbeddingConfig {
+export function resolveEmbeddingConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ResolveOpenAiBaseUrlOptions = {},
+): EmbeddingConfig {
   const dims = Number(env.OPENAI_EMBEDDING_DIMENSIONS)
   return {
     provider: (env.EMBEDDING_PROVIDER ?? 'openai') as EmbeddingProvider,
 
     openaiApiKey:     env.OPENAI_API_KEY,
-    openaiBaseUrl:    (env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
+    openaiBaseUrl:    resolveOpenAiBaseUrl(env, options),
     openaiModel:      env.OPENAI_EMBEDDING_MODEL ?? DEFAULT_OPENAI_EMBEDDING_MODEL,
     openaiDimensions: Number.isFinite(dims) && dims > 0 ? dims : undefined,
 

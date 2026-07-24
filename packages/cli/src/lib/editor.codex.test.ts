@@ -5,9 +5,12 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildSensingMcpEnv,
+  DEFAULT_OPENAI_BASE_URL,
   forceEditor,
   renderCodexBlock,
   resolveEditorsForInstall,
+  resolveOpenAiBaseUrlFromEnv,
+  usingLocalOpenAi,
   writeCodexMcpConfig,
 } from './editor.js'
 
@@ -132,6 +135,29 @@ describe('renderCodexBlock', () => {
     assert.equal(withKey.OPENAI_BASE_URL, 'http://localhost:11434/v1')
   })
 
+  it('split local setup: writes Docker OPENAI_BASE_URL and host OPENAI_HOST_BASE_URL', () => {
+    const env = buildSensingMcpEnv({
+      ...baseOpts,
+      embeddingKey: '',
+      openaiBaseUrl: 'http://host.docker.internal:11434/v1',
+      openaiHostBaseUrl: 'http://127.0.0.1:11434/v1',
+    })
+    assert.equal(env.OPENAI_BASE_URL, 'http://host.docker.internal:11434/v1')
+    assert.equal(env.OPENAI_HOST_BASE_URL, 'http://127.0.0.1:11434/v1')
+    assert.equal('OPENAI_API_KEY' in env, false)
+  })
+
+  it('host-only local URL: OPENAI_HOST_BASE_URL alone is enough for keyless', () => {
+    const env = buildSensingMcpEnv({
+      ...baseOpts,
+      embeddingKey: '',
+      openaiHostBaseUrl: 'http://127.0.0.1:11434/v1',
+    })
+    assert.equal(env.OPENAI_HOST_BASE_URL, 'http://127.0.0.1:11434/v1')
+    assert.equal('OPENAI_BASE_URL' in env, false)
+    assert.equal('OPENAI_API_KEY' in env, false)
+  })
+
   it('escapes quotes and backslashes in TOML strings', () => {
     const block = renderCodexBlock({
       ...baseOpts,
@@ -139,6 +165,47 @@ describe('renderCodexBlock', () => {
       includeControl: false,
     })
     assert.match(block, /PERCEPTION_API_KEY = "say \\"hello\\" \\\\ path"/)
+  })
+})
+
+describe('resolveOpenAiBaseUrlFromEnv', () => {
+  it('preferHost uses OPENAI_HOST_BASE_URL over the Docker URL', () => {
+    const env = {
+      OPENAI_BASE_URL: 'http://host.docker.internal:11434/v1',
+      OPENAI_HOST_BASE_URL: 'http://127.0.0.1:11434/v1',
+    }
+    assert.equal(
+      resolveOpenAiBaseUrlFromEnv(env),
+      'http://host.docker.internal:11434/v1',
+    )
+    assert.equal(
+      resolveOpenAiBaseUrlFromEnv(env, { preferHost: true }),
+      'http://127.0.0.1:11434/v1',
+    )
+    assert.equal(usingLocalOpenAi(env), true)
+  })
+
+  it('preferHost falls through empty OPENAI_HOST_BASE_URL to OPENAI_BASE_URL', () => {
+    const env = {
+      OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1/',
+      OPENAI_HOST_BASE_URL: '   ',
+    }
+    assert.equal(
+      resolveOpenAiBaseUrlFromEnv(env, { preferHost: true }),
+      'http://127.0.0.1:11434/v1',
+    )
+  })
+
+  it('normalizes localhost to 127.0.0.1', () => {
+    assert.equal(
+      resolveOpenAiBaseUrlFromEnv({ OPENAI_BASE_URL: 'http://localhost:11434/v1' }),
+      'http://127.0.0.1:11434/v1',
+    )
+  })
+
+  it('defaults when unset', () => {
+    assert.equal(resolveOpenAiBaseUrlFromEnv({}), DEFAULT_OPENAI_BASE_URL)
+    assert.equal(usingLocalOpenAi({}), false)
   })
 })
 
