@@ -16,6 +16,9 @@ cd /path/to/your/project
 npx robrain init-project
 ```
 
+Fully-local LLM (Ollama / LM Studio / vLLM, no cloud keys):
+https://github.com/adelinamart/robrain/blob/main/docs/cli.md#fully-local-llm-ollama--lm-studio--vllm
+
 ## License
 
 Apache 2.0. See `LICENSE` in this package and the repository root.

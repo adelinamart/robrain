@@ -204,7 +204,7 @@ The memory corpus is guarded by `PERCEPTION_API_KEY` — a random secret in the 
 
 Perception refuses to start when the key is empty — running unauthenticated requires an explicit opt-in. **Upgrading from a version that ran without a key:** add one to `.env` (or re-run `pnpm docker:up` to auto-fill it), then re-run `npx robrain install --self-hosted` so editors pick it up. Details and the opt-in flag are documented in [`.env.example`](.env.example).
 
-Also on by default: secrets redaction (API keys, tokens, private keys, connection-string passwords are scrubbed at capture and again at ingest, before anything is embedded or stored), and a fully-local mode where extraction and embeddings run on an OpenAI-compatible local server — see [`.env.example`](.env.example).
+Also on by default: secrets redaction (API keys, tokens, private keys, connection-string passwords are scrubbed at capture and again at ingest, before anything is embedded or stored), and a fully-local mode where extraction and embeddings run on an OpenAI-compatible local server (Ollama / LM Studio / vLLM) — see [CLI — Fully-local LLM](docs/cli.md#fully-local-llm-ollama--lm-studio--vllm) and [`.env.example`](.env.example).
 
 ## What's next
 
@@ -214,16 +214,17 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 
 - Docker + Docker Compose (runs Postgres and Perception locally)
 - Node.js with pnpm (build and CLI)
-- An LLM key for the classifier — Anthropic Haiku or OpenAI
-- An embedding key (e.g. OpenAI)
+- An LLM key for the classifier — Anthropic Haiku or OpenAI — **or** a local OpenAI-compatible server (see [Fully-local LLM](docs/cli.md#fully-local-llm-ollama--lm-studio--vllm))
+- An embedding key (e.g. OpenAI) — or the same local server for embeddings
 - No data leaves your machine in self-hosted mode
 
 ## Docs
 
 - Concepts (how it works, two pillars, Synthesis, comparisons) → [docs/concepts.md](docs/concepts.md)
 - CLI reference (`explain`, install, upgrading, editor setup, full command table) → [docs/cli.md](docs/cli.md)
+- Fully-local LLM (Ollama / LM Studio / vLLM, no cloud keys) → [docs/cli.md#fully-local-llm-ollama--lm-studio--vllm](docs/cli.md#fully-local-llm-ollama--lm-studio--vllm)
 - **Maintainer release checklist** (tag → GHCR → npm → MCP registry) → [docs/release.md](docs/release.md)
-- Troubleshooting (silent 401s, Docker rebuilds, stale summaries) → [docs/troubleshooting.md](docs/troubleshooting.md)
+- Troubleshooting (silent 401s, Docker rebuilds, stale summaries, local LLM) → [docs/troubleshooting.md](docs/troubleshooting.md)
 - Memory interchange format (`robrain export`, `robrain-memory/v1` JSONL) → [docs/memory-interchange.md](docs/memory-interchange.md)
 - VetoBench (does memory stop rejected re-proposals? methodology + archived receipts) → [packages/vetobench/README.md](packages/vetobench/README.md)
 - Claude Code plugin (hook-based capture + veto warnings) → [plugins/claude-code/README.md](plugins/claude-code/README.md)

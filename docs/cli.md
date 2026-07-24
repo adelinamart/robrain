@@ -8,7 +8,7 @@ Install details, editor setup, and the full command table.
 
 `pnpm docker:up` brings up Postgres + Perception in the background; the user-facing surfaces are Sensing and the `robrain` CLI. `npx robrain init-project` writes the project instructions that tell each editor's agent to call the Sensing tools at session start and end (`CLAUDE.md`, `AGENTS.md` for Codex, and `.cursor/rules/robrain.mdc` when Cursor is installed).
 
-Self-hosted setup usually needs two keys: **`ANTHROPIC_API_KEY`** for extraction and one embedding-provider key for semantic retrieval. If that surprises you, see [Why are there two API keys in self-hosted mode?](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#why-are-there-two-api-keys-in-self-hosted-mode).
+Self-hosted setup usually needs two keys: **`ANTHROPIC_API_KEY`** for extraction and one embedding-provider key for semantic retrieval. If that surprises you, see [Why are there two API keys in self-hosted mode?](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#why-are-there-two-api-keys-in-self-hosted-mode). For a setup with **no cloud API keys** (Ollama / LM Studio / vLLM), see [Fully-local LLM](#fully-local-llm-ollama--lm-studio--vllm).
 
 #### No clone needed (`robrain up`)
 
@@ -82,6 +82,94 @@ OPENAI_API_KEY=
 ```
 
 Keep `EMBEDDING_PROVIDER` identical between this file and what you select when running install (or set `EMBEDDING_PROVIDER` in `.env` and install will pick it up without prompting).
+
+#### Fully-local LLM (Ollama / LM Studio / vLLM)
+
+Run extraction, chat, and embeddings against a local OpenAI-compatible server — no Anthropic or OpenAI cloud keys required.
+
+**Why two base URLs?** Perception runs in Docker; Sensing MCP and Synthesis run on the host. One shared `.env` cannot use a single `localhost` URL for both:
+
+| Process | Needs |
+|---------|--------|
+| Perception (Docker) | `host.docker.internal` to reach the LLM server on your machine |
+| Sensing / Synthesis / `robrain doctor` (host) | `127.0.0.1` — Node `fetch` often fails on `host.docker.internal` |
+
+Use **your** server’s host port and **whatever models it serves**. The placeholders below are required in shape only — replace `<port>`, `<chat-model>`, and `<embedding-model>`. Keep the `/v1` suffix. Common defaults: Ollama `11434`, LM Studio `1234`, vLLM `8000`.
+
+```bash
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+# OPENAI_API_KEY=          # optional — local servers usually ignore auth
+
+# Perception in Docker → host machine
+OPENAI_BASE_URL=http://host.docker.internal:<port>/v1
+# Sensing / Synthesis / doctor on the host
+OPENAI_HOST_BASE_URL=http://127.0.0.1:<port>/v1
+
+# Models your local server actually exposes (names from `ollama list`, LM Studio, etc.)
+OPENAI_LLM_MODEL=<chat-model>
+OPENAI_EMBEDDING_MODEL=<embedding-model>
+```
+
+Ollama-shaped **example** (not required — swap port/models for yours):
+
+```bash
+OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+OPENAI_HOST_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_LLM_MODEL=llama3.2:3b
+OPENAI_EMBEDDING_MODEL=nomic-embed-text
+```
+
+Host-only (no Docker Perception) can set a single `OPENAI_BASE_URL=http://127.0.0.1:<port>/v1` and leave `OPENAI_HOST_BASE_URL` unset.
+
+**Clone path**
+
+```bash
+# 1. Start your local server and pull/load the chat + embedding models you chose
+#    e.g. ollama pull <chat-model> && ollama pull <embedding-model>
+
+# 2. Put the variables above in repo-root .env (see .env.example)
+pnpm docker:up:build          # rebuild Perception so it picks up the env
+pnpm install:self-hosted      # writes BOTH URLs into editor MCP env
+npx robrain init-project
+
+# 3. Fully quit and reopen the editor (Cmd-Q) so MCP reloads env
+```
+
+**No-clone path (`robrain up`)**
+
+Put the same variables in `~/.robrain/stack/.env` (created on first `robrain up`), then:
+
+```bash
+npx robrain@latest up
+npx robrain install --self-hosted
+cd /path/to/your/project && npx robrain init-project
+```
+
+`install` copies `OPENAI_BASE_URL` and `OPENAI_HOST_BASE_URL` into `~/.cursor/mcp.json`, `~/.claude.json`, and `~/.codex/config.toml` so Sensing outside the clone does not rely on the repo `.env`.
+
+**Verify**
+
+```bash
+# Perception should show your Docker-side URL and reach the local server
+docker exec robrain-perception printenv OPENAI_BASE_URL
+docker exec robrain-perception curl -sf http://host.docker.internal:<port>/api/tags   # Ollama; other servers differ
+curl -sf http://127.0.0.1:3001/health
+
+# Doctor (from the clone / stack .env) should treat the local server as keyless
+npx robrain doctor
+
+# Host-side LLM path
+pnpm synthesis:dry-run    # clone path
+```
+
+Editor MCP env should contain both URLs:
+
+```bash
+python3 -c "import json; print(json.load(open('$HOME/.cursor/mcp.json'))['mcpServers']['robrain-sensing']['env'])"
+```
+
+**Embedding dimensions:** the pgvector column is fixed at **1536**. Shorter vectors are zero-padded; longer ones are truncated. Prefer a model that emits 1536 dims, or a matryoshka-capable model with `OPENAI_EMBEDDING_DIMENSIONS=1536`. Changing the embedding model after decisions exist requires re-embedding — see [`.env.example`](../.env.example).
 
 #### What `init-project` writes
 

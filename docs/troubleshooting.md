@@ -108,6 +108,37 @@ pnpm docker:up
 
 **Never add `-v`** to `docker compose down` here — that deletes the volume, which is the one thing that isn't recoverable.
 
+### Fully-local LLM: Sensing fails with `host.docker.internal`
+
+With a local OpenAI-compatible server (Ollama / LM Studio / vLLM) and Perception in Docker, a single `OPENAI_BASE_URL=http://host.docker.internal:…` breaks host processes: Sensing MCP and Synthesis need `127.0.0.1`. Set both URLs using **your** server’s port (not tied to a model — common defaults: Ollama `11434`, LM Studio `1234`, vLLM `8000`). Full steps: [CLI — Fully-local LLM](cli.md#fully-local-llm-ollama--lm-studio--vllm).
+
+```bash
+OPENAI_BASE_URL=http://host.docker.internal:<port>/v1
+OPENAI_HOST_BASE_URL=http://127.0.0.1:<port>/v1
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+```
+
+Then rebuild, reinstall, and fully quit the editor so MCP reloads env:
+
+```bash
+pnpm docker:up:build                 # or: npx robrain up  (no-clone stack)
+pnpm install:self-hosted             # or: npx robrain install --self-hosted
+```
+
+Confirm editor configs have **both** vars (`OPENAI_HOST_BASE_URL` is what Sensing uses on the host):
+
+```bash
+python3 -c "import json; e=json.load(open('$HOME/.cursor/mcp.json'))['mcpServers']['robrain-sensing']['env']; print(e.get('OPENAI_BASE_URL')); print(e.get('OPENAI_HOST_BASE_URL'))"
+```
+
+Also verify Perception can reach the local server:
+
+```bash
+docker exec robrain-perception printenv OPENAI_BASE_URL
+docker exec robrain-perception curl -sf http://host.docker.internal:<port>/api/tags
+```
+
 ### Perception container unhealthy or refusing to start
 
 ```bash
