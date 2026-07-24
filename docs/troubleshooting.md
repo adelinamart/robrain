@@ -108,7 +108,7 @@ pnpm docker:up
 
 **Never add `-v`** to `docker compose down` here — that deletes the volume, which is the one thing that isn't recoverable.
 
-### Fully-local LLM: Sensing fails with `host.docker.internal` / doctor wants API keys
+### Fully-local LLM: Sensing fails with `host.docker.internal`
 
 With a local OpenAI-compatible server (Ollama / LM Studio / vLLM) and Perception in Docker, a single `OPENAI_BASE_URL=http://host.docker.internal:…` breaks host processes: Sensing MCP and Synthesis need `127.0.0.1`. Set both URLs using **your** server’s port (not tied to a model — common defaults: Ollama `11434`, LM Studio `1234`, vLLM `8000`). Full steps: [CLI — Fully-local LLM](cli.md#fully-local-llm-ollama--lm-studio--vllm).
 
@@ -131,8 +131,6 @@ Confirm editor configs have **both** vars (`OPENAI_HOST_BASE_URL` is what Sensin
 ```bash
 python3 -c "import json; e=json.load(open('$HOME/.cursor/mcp.json'))['mcpServers']['robrain-sensing']['env']; print(e.get('OPENAI_BASE_URL')); print(e.get('OPENAI_HOST_BASE_URL'))"
 ```
-
-`robrain doctor` warnings about missing `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are expected when you run it from a project directory that has **no** `.env` with those URLs — doctor reads the shell / cwd `.env`, not `mcp.json`. Run doctor from the clone (or `~/.robrain/stack/`) where the local URLs are set; it should report that a key is not needed for the local server.
 
 Also verify Perception can reach the local server:
 
