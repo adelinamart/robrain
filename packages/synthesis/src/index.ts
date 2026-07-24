@@ -34,7 +34,8 @@ const config = {
   openaiModel:      process.env.OPENAI_LLM_MODEL ?? DEFAULT_OPENAI_LLM_MODEL,
   // OPENAI_BASE_URL — non-default means a local OpenAI-compatible server
   // (Ollama / LM Studio / vLLM); OPENAI_API_KEY becomes optional then.
-  openaiBaseUrl:    resolveOpenAiBaseUrl(),
+  // preferHost: OPENAI_HOST_BASE_URL wins when set (host vs Docker URL split).
+  openaiBaseUrl:    resolveOpenAiBaseUrl(process.env, { preferHost: true }),
   lookbackDays:     Number(process.env.SYNTHESIS_LOOKBACK_DAYS ?? 0),
   minClusterSize:   Number(process.env.SYNTHESIS_MIN_CLUSTER ?? 3),
   contThreshold:    Number(process.env.SYNTHESIS_CONT_THRESHOLD ?? THRESHOLDS.SIMILARITY_LINK),

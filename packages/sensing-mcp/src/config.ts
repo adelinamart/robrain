@@ -20,7 +20,8 @@ export const config = {
   // OPENAI_BASE_URL — point the OpenAI-compatible calls (LLM_PROVIDER=openai
   // chat AND EMBEDDING_PROVIDER=openai embeddings) at Ollama / LM Studio /
   // vLLM for a fully-local setup. When set, OPENAI_API_KEY becomes optional.
-  openaiBaseUrl:   resolveOpenAiBaseUrl(),
+  // preferHost: OPENAI_HOST_BASE_URL wins when set (host vs Docker URL split).
+  openaiBaseUrl:   resolveOpenAiBaseUrl(process.env, { preferHost: true }),
 
   // ── Anthropic (needed for decision classifier Stage 2 — Haiku) ─
   // Not validated at process start so the MCP server can boot when Cursor
@@ -34,7 +35,7 @@ export const config = {
   // 'cohere') plus its API key. Provider, model, timeout, and retry env vars
   // are all resolved by @robrain/shared so Sensing and Perception always
   // embed with the same model — see shared/src/embeddings.ts for the list.
-  embedding: resolveEmbeddingConfig(),
+  embedding: resolveEmbeddingConfig(process.env, { preferHost: true }),
 
   // Also reused by the OpenAI chat path when LLM_PROVIDER=openai.
   openaiApiKey: process.env.OPENAI_API_KEY,
