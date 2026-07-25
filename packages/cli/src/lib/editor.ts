@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────
 // ******ROBRAIN****
 
+import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
@@ -15,11 +16,40 @@ export type Editor = 'claude-code' | 'cursor' | 'copilot' | 'codex' | 'unknown'
 export const INSTALLABLE_EDITORS = ['claude-code', 'cursor', 'copilot', 'codex'] as const
 export type InstallableEditor = (typeof INSTALLABLE_EDITORS)[number]
 
-const EDITOR_LABELS: Record<InstallableEditor, string> = {
+export const EDITOR_LABELS: Record<InstallableEditor, string> = {
   'claude-code': 'Claude Code',
   'cursor':      'Cursor',
   'copilot':     'GitHub Copilot (VS Code)',
   'codex':       'Codex CLI',
+}
+
+/**
+ * Installable editors with no detected config footprint. Detection keys off
+ * config dirs the editor creates on FIRST LAUNCH (e.g. `~/.cursor`), so an
+ * editor that is installed but never opened comes back here — install should
+ * name these instead of silently skipping them (`--editor <name>` wires an
+ * editor regardless of footprint).
+ */
+export function undetectedInstallableEditors(): InstallableEditor[] {
+  const detected = new Set(detectEditors().map(e => e.editor))
+  return (INSTALLABLE_EDITORS as readonly InstallableEditor[]).filter(e => !detected.has(e))
+}
+
+/**
+ * Best-effort: is the Cursor application present on this machine, even if it
+ * was never launched (no `~/.cursor` footprint yet)?
+ */
+export function cursorAppInstalled(): boolean {
+  if (process.platform === 'darwin') {
+    return existsSync('/Applications/Cursor.app')
+      || existsSync(join(homedir(), 'Applications', 'Cursor.app'))
+  }
+  try {
+    execSync('command -v cursor', { stdio: 'ignore' })
+    return true
+  } catch { /* not on PATH */ }
+  return existsSync('/usr/share/applications/cursor.desktop')
+    || existsSync(join(homedir(), '.local', 'share', 'applications', 'cursor.desktop'))
 }
 
 export interface DetectedEditor {

@@ -187,6 +187,8 @@ Synthesis runs a **corpus-wide** pass: find candidate pairs (same **scope**, hig
 - **`extends`** when the second decision **builds on** the first without contradicting it (direction: newer message in the prompt extends the earlier one, stored as an edge for graph consumers).
 - **`related_to`** when they are compatible peers on the same topic.
 
+Confirmed contradictions are **flagged for `robrain review`** — resolving them stays a human call in the self-hosted version. Guard-railed **auto-resolution** (newer decision wins under confidence + approval guards) is part of Rory Plans cloud; see the [comparison table](#free--self-hosted-vs-rory-plans-cloud).
+
 Incremental mode (default) only re-checks pairs touched since **`projects.last_synthesis_at`**, unless you disable it (see env vars below). Resolving “keep both” in **`robrain review`** can record **`related_to`** (via the counterpart id) so Pass 2 does not re-flag the same pair forever.
 
 #### Pass 3 — What recurring entity has no structured entry?
@@ -220,11 +222,15 @@ pnpm synthesis:run
 pnpm synthesis:dry-run
 ```
 
-Equivalent: `pnpm --filter @robrain/synthesis build|start`, or **`npx robrain synth`**, which runs the same filter with `pnpm`’s cwd set to the monorepo root. The CLI resolves that root from **`ROBRAIN_REPO`** if set; otherwise **`../../../..`** from this module’s compiled path (`packages/cli/dist/commands/`), i.e. the published package layout. The package also publishes a **`robrain-synth`** bin after `pnpm synthesis:build`.
+Equivalent: `pnpm --filter @robrain/synthesis build|start`, or **`npx robrain synth`**, which needs no clone at all — the published CLI ships the esbuild-bundled Synthesis under `vendor/synthesis/` and runs it with `node` directly. Resolution order: **`ROBRAIN_REPO`** → a robrain checkout the CLI runs from (or cwd) → the vendored bundle. When neither a shell export nor a repo/cwd `.env` provides `DATABASE_URL` / keys, the CLI fills them from **`~/.robrain/stack/.env`** (written by `robrain up`). The package also publishes a **`robrain-synth`** bin after `pnpm synthesis:build`.
 
 It uses the **same `DATABASE_URL` / `DB_SCHEMA` / `ANTHROPIC_API_KEY`** as Perception (see repo `.env`). Optional **`ANTHROPIC_MODEL`** overrides the default Haiku model id. The package depends on **`@anthropic-ai/sdk` ^0.32** and marks fixed system prompts with **ephemeral prompt cache**, so repeated cron runs pay less for identical system text.
 
 **`planning_blocks`** supports **`topic`** + **`last_refreshed_at`** and a **partial unique index** on `(project_id, block_type, topic)` for upserts; **`projects.last_synthesis_at`** drives incremental Pass 2.
+
+**Provenance:** every Synthesis-written block also records **`source_ids`** (the decision ids it was compiled from) and **`confidence`** (the reviewed-decision ratio of its source set, `0.00–1.00`). That is what makes a compiled line auditable — you can always walk back from a `compiled_truth` / `drift_signal` / `entity` row to the exact decisions that produced it, and spot blocks whose sources have since been invalidated.
+
+**Rubric overrides:** each pass prompt can be replaced per project by dropping a markdown file into **`.robrain/rubrics/`** — `cluster.md`, `truth.md`, `contradiction.md`, `entity-extract.md`, `entity-summary.md`. Resolution order: **`SYNTHESIS_RUBRICS_DIR`** → `<cwd>/.robrain/rubrics` → `<repo>/.robrain/rubrics`; a missing file falls back to the bundled default with a log line (never fatal). Optional YAML frontmatter is stripped; the body becomes the system prompt. Useful for tuning the clustering taxonomy to your domain, or adapting prompts to a local model without a code change.
 
 **CLI wrapper:** `npx robrain synth` (from a checkout) forwards to the same job with optional **`--dry-run`**, **`--full`** (disable incremental Pass 2), **`--lookback <days>`**, **`--project <id>`** (sets `SYNTHESIS_PROJECT_ID`).
 
@@ -241,11 +247,11 @@ It uses the **same `DATABASE_URL` / `DB_SCHEMA` / `ANTHROPIC_API_KEY`** as Perce
 | `SYNTHESIS_PASS1_CHUNK` | `50` | Decisions per clustering prompt chunk. |
 | `SYNTHESIS_PASS2_CONCURRENCY` | `4` | Parallel Haiku calls in Pass 2. |
 | `SYNTHESIS_PROJECT_ID` | *(all projects)* | Restrict the run to one `projects.id`. |
-| `SYNTHESIS_EXPORT_MEMORY` | off | When `true`, after **new `compiled_truth`** rows, runs **`robrain export-memory --cwd <stored> --project-id …`** (needs `working_directory` on `projects`, set by **`robrain init-project`**). **`ROBRAIN_REPO`** overrides the monorepo root for that subprocess if needed. |
+| `SYNTHESIS_EXPORT_MEMORY` | off | When `true`, after **new `compiled_truth`** rows, runs **`robrain export-memory --cwd <stored> --project-id …`** (needs `working_directory` on `projects`, set by **`robrain init-project`**). `npx robrain synth` passes **`ROBRAIN_CLI_BIN`** so the subprocess finds the CLI without a clone; **`ROBRAIN_REPO`** still overrides the monorepo root when set. |
 
 #### Recommended cron setup
 
-Run Synthesis from the **robrain clone** (so `pnpm` can resolve **`@robrain/synthesis`**). Point **`DATABASE_URL`** (and API keys) at the same Postgres Perception uses — e.g. reuse the repo **`.env`**, or set vars in the cron line / a small wrapper script if you do not want to source `.env` from cron.
+Point **`DATABASE_URL`** (and API keys) at the same Postgres Perception uses. After `robrain up` (no-clone), **`npx robrain synth`** picks them up from `~/.robrain/stack/.env` automatically; from a clone, reuse the repo **`.env`**, or set vars in the cron line / a small wrapper script if you do not want to source `.env` from cron.
 
 **User crontab** (`crontab -e`) — nightly at 02:00:
 
@@ -254,7 +260,11 @@ Run Synthesis from the **robrain clone** (so `pnpm` can resolve **`@robrain/synt
 0 2 * * * cd /path/to/robrain && pnpm synthesis:run >> /tmp/robrain-synthesis.log 2>&1
 ```
 
-**`npx robrain synth`** works too if the global CLI can resolve the monorepo (**`ROBRAIN_REPO`** / install layout); **`pnpm synthesis:run`** from the clone is the most reliable cron target.
+No-clone setups (`robrain up`) can cron the CLI directly — no repo path required:
+
+```bash
+0 2 * * * npx --yes robrain synth >> /tmp/robrain-synthesis.log 2>&1
+```
 
 **`/etc/cron.d/`** files need a **sixth field: the user** who runs the job (see `man 5 crontab`):
 
@@ -386,8 +396,9 @@ The self-hosted version already brings decisions back automatically through the 
 | Always-on summary at session start | ✓ | ✓ |
 | `npx robrain review` / `inject` / `explain` / `export-memory` | ✓ | ✓ |
 | Synthesis — drift, contradictions, entity promotion | ✓ | ✓ |
+| Synthesis prompt rubrics — per-project overrides (`.robrain/rubrics/`) | ✓ | ✓ |
 | Decision graph (`conflicts_with` / `extends` / `related_to`) | ✓ | ✓ |
-| Provenance on every memory — source session, turn, excerpt | ✓ | ✓ |
+| Provenance on every memory — source session, turn, excerpt; compiled blocks carry source decision ids | ✓ | ✓ |
 | Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
 | Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
 | Secrets redaction at capture and ingest | ✓ | ✓ |
@@ -405,7 +416,7 @@ The self-hosted version already brings decisions back automatically through the 
 | Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
 | 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
-| Auto-propagated vetoes — supersessions inherit rejection history | — | ✓ |
+| Vetoes survive supersession — rejection history follows the newest decision | ✓ | ✓ full history merge |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
 | Decision lineage timeline (API + dashboard) | — | ✓ |
 | Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |

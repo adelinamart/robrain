@@ -19,6 +19,7 @@ mkdirSync(work, { recursive: true })
 
 try {
   execFileSync('node', ['scripts/vendor-sensing-mcp.mjs'], { cwd: cliRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/vendor-synthesis.mjs'], { cwd: cliRoot, stdio: 'inherit' })
   execFileSync('node', ['scripts/vendor-hermes-plugin.mjs'], { cwd: cliRoot, stdio: 'inherit' })
   execFileSync('node', ['scripts/vendor-codex-hooks.mjs'], { cwd: cliRoot, stdio: 'inherit' })
 
@@ -49,6 +50,26 @@ try {
   if (!dir) fail('resolveInstalledSensingMcpDir() returned undefined in extracted tarball')
   if (!existsSync(join(dir, 'dist', 'index.js'))) {
     fail(`resolved dir has no dist/index.js: ${dir}`)
+  }
+
+  const synthVendorEntry = join(extracted, 'vendor', 'synthesis', 'dist', 'index.js')
+  if (!existsSync(synthVendorEntry)) {
+    fail('vendor/synthesis/dist/index.js missing from tarball')
+  }
+
+  const synthUrl = pathToFileURL(join(extracted, 'dist', 'lib', 'synthesis-bundle.js')).href
+  const { resolveSynthesisEntry } = await import(synthUrl)
+  // Empty env + checkoutRoot:null simulates an npx install outside any checkout —
+  // the resolver must land on the tarball's own vendored bundle.
+  const synthResolved = resolveSynthesisEntry({}, { checkoutRoot: null })
+  if (!existsSync(synthResolved.entry)) {
+    fail(`resolveSynthesisEntry() entry does not exist: ${synthResolved.entry}`)
+  }
+  // realpath both sides — on macOS the tmpdir is reached via the /var →
+  // /private/var symlink, so raw equality false-negatives.
+  const { realpathSync: realpath } = await import('fs')
+  if (realpath(synthResolved.entry) !== realpath(synthVendorEntry)) {
+    fail(`resolveSynthesisEntry() did not pick the tarball's vendored bundle: ${synthResolved.entry}`)
   }
 
   const hermesVendorEntry = join(extracted, 'vendor', 'hermes-plugin', 'robrain', '__init__.py')

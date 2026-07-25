@@ -94,6 +94,10 @@ Keep `EMBEDDING_PROVIDER` identical between this file and what you select when r
 
 For Claude Code, `init-project` also merges a plugin recommendation into `.claude/settings.json` so teammates who trust the repo get an install prompt from Claude Code itself. Skip with `--skip-claude-plugin`. Details: [plugins/claude-code/README.md](../plugins/claude-code/README.md).
 
+#### Where the project id comes from
+
+The id is, in order: **`--project-id`** if you pass it → an id pinned in this repo's editor files (`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/robrain.mdc`, including at the repo root when you run from a monorepo subdirectory) → a deterministic hash of the directory path. **Adoption stops at the git repo boundary**: an id found *above* your repo (say a stray `~/AGENTS.md`) is reported as a hint, never silently joined — pass `--project-id <id>` to join it deliberately. `init-project` also refuses to initialize your home directory or a directory with no project markers (`.git`, `package.json`, …) unless you pass **`--force`** — this keeps `robrain install` run from the wrong directory from minting a junk project.
+
 Cloud installs configure Sensing in thin mode (`ROBRAIN_MODE=cloud`): turns ship raw to the managed API, which runs the calibrated extractor server-side. `robrain doctor` and `robrain status` understand this mode — a missing local key is not an error in cloud mode.
 
 #### CLI on your `PATH` (optional)
@@ -170,7 +174,7 @@ npx robrain@latest up --tag <version>    # pull new Perception image; same ~/.ro
 npx robrain@latest install --self-hosted   # refresh editor MCP configs + sensing bundle
 ```
 
-Fully quit and reopen editors after install (`Cmd-Q` on macOS, then reopen).
+`robrain up` recreates the Perception container from the new GHCR image — that is what applies startup DB migrations (a `docker pull` alone leaves the old process running). Fully quit and reopen editors after install (`Cmd-Q` on macOS, then reopen).
 
 ### Self-hosted from a clone (typical)
 
@@ -315,6 +319,7 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain inject --copy` | Copy output directly to clipboard |
 | `npx robrain inject --all` | Request up to **100** decisions (server cap): all **unreviewed** without `--query`, or a wider semantic pool with `--query` |
 | `npx robrain inject --limit <n>` | Cap how many decisions are returned (default: **5**) |
+| `npx robrain check "<proposal>"` | Pre-commit veto scan: does the proposal mention a previously **rejected** option? Deterministic word-boundary match against `rejected[]` (same scan the editor hooks run pre-task) — no LLM, sub-second. Exit **0** clean, **1** on match (scriptable: `robrain check "..." && apply`), **2** if Perception unreachable |
 | `npx robrain doctor` | Run install diagnostics for editors, MCP wiring, and Perception connectivity |
 | `npx robrain explain <file>` | Answer "why does this code exist?" for any file |
 | `npx robrain explain <file> --why` | Full rationale + rejected alternatives per decision |
@@ -325,5 +330,5 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain status` | Auth + Perception/Planning health + **active decision count** for the current project |
 | `npx robrain logout` | Clear locally stored credentials (Rory Plans token / install state) |
 | `pnpm synthesis:run` | **[Synthesis](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#synthesis)** — batch job from **robrain repo root** (`pnpm` must resolve `@robrain/synthesis`) |
-| `npx robrain synth` | Same job via CLI: optional **`--dry-run`**, **`--full`**, **`--lookback <n>`**, **`--project <id>`**. Resolves the robrain monorepo from this CLI package unless **`ROBRAIN_REPO`** is set (needed for some global installs). |
+| `npx robrain synth` | Same job via CLI: optional **`--dry-run`**, **`--full`**, **`--lookback <n>`**, **`--project <id>`**. No clone needed — runs the Synthesis bundle shipped with the CLI and falls back to `~/.robrain/stack/.env` for `DATABASE_URL` + keys after `robrain up`. A robrain checkout (**`ROBRAIN_REPO`**, or cwd) takes precedence when present. |
 

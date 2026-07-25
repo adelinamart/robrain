@@ -115,24 +115,26 @@ importers:
         version: 5.9.3
 
   packages/synthesis:
-    dependencies:
+    devDependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
       '@robrain/shared':
         specifier: workspace:*
         version: link:../shared
-      jsonrepair:
-        specifier: ^3.14.0
-        version: 3.14.0
-      pg:
-        specifier: ^8.11.0
-        version: 8.20.0
-    devDependencies:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.39
       '@types/pg':
+        specifier: ^8.11.0
+        version: 8.20.0
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      jsonrepair:
+        specifier: ^3.14.0
+        version: 3.14.0
+      pg:
         specifier: ^8.11.0
         version: 8.20.0
       typescript:

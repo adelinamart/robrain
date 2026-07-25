@@ -10,7 +10,7 @@ import { join } from 'path'
 import { cwd } from 'process'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { controlBundleReady, sensingBundleReady, resolveInstalledSensingMcpDir } from '../lib/mcp-bundle.js'
-import { detectEditors, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi, roBrainBlockReferencesRemovedTools } from '../lib/editor.js'
+import { detectEditors, cursorAppInstalled, resolveOpenAiBaseUrlFromEnv, usingLocalOpenAi, roBrainBlockReferencesRemovedTools } from '../lib/editor.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
 const ROBRAIN_MCP_DIR = join(homedir(), '.robrain', 'mcp')
@@ -120,6 +120,19 @@ export async function doctorCommand(): Promise<void> {
         ? `detected ${editors.map(e => e.label).join(', ')} but none reference robrain-sensing`
         : 'no supported editor detected',
       hint:  'Run: npx robrain install (add --editor claude-code | cursor | copilot | codex to target one)',
+    })
+  }
+
+  // 3b — Cursor installed but invisible to detection. Cursor only creates
+  // `~/.cursor` on first launch, so a fresh machine where robrain was
+  // installed before Cursor ever ran gets silently skipped by install's
+  // detection — the app is there, the wiring isn't.
+  if (!editors.some(e => e.editor === 'cursor') && cursorAppInstalled()) {
+    checks.push({
+      level: 'warn',
+      label: 'Cursor wiring',
+      detail: 'Cursor app is installed but has no ~/.cursor config footprint yet — Sensing is not wired',
+      hint:  'Run: npx robrain install --editor cursor (works before first launch; Cursor picks it up on next start)',
     })
   }
 

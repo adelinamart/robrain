@@ -147,10 +147,10 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   if (decisions.length === 0) {
     if (opts.history) {
       console.log(chalk.dim(`  No decisions stored yet for ${chalk.bold(info.name)}.`))
-      console.log(chalk.dim('  Run a Claude Code session to start capturing memory.\n'))
+      console.log(chalk.dim('  Run an agent session (Claude Code, Cursor, Codex, …) to start capturing memory.\n'))
     } else {
       console.log(chalk.green(`  ✓ All caught up — no decisions need review for ${chalk.bold(info.name)}.`))
-      console.log(chalk.dim('  Run a Claude Code session to capture more, or use --history to see all decisions.\n'))
+      console.log(chalk.dim('  Run an agent session to capture more, or use --history to see all decisions.\n'))
     }
     return
   }

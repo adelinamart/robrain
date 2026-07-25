@@ -3,12 +3,21 @@
 
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** `dotenv.parse` via CJS resolver — avoids NodeNext interop typing issues. */
-const dotenvParse = createRequire(import.meta.url)('dotenv') as {
-  parse(src: Buffer | string): Record<string, string>
+/**
+ * `dotenv.parse` via CJS resolver — avoids NodeNext interop typing issues.
+ * Resolved lazily: verify-publish-tarball.mjs imports modules that depend on
+ * this file from a bare extracted tarball with no node_modules, where an
+ * import-time require('dotenv') would throw before any parse is needed.
+ */
+type DotenvModule = { parse(src: Buffer | string): Record<string, string> }
+let dotenvModule: DotenvModule | undefined
+function dotenvParse(): DotenvModule {
+  dotenvModule ??= createRequire(import.meta.url)('dotenv') as DotenvModule
+  return dotenvModule
 }
 
 /** Paths checked in order; earlier paths win per key when merging into process.env. */
@@ -31,7 +40,7 @@ function isUnsetOrEmptyShell(v: string | undefined): boolean {
 /** Apply each key from a `.env` file only when the current process.env value is unset or empty. */
 function mergeEnvFromFile(path: string): void {
   const raw = readFileSync(path)
-  const parsed = dotenvParse.parse(raw)
+  const parsed = dotenvParse().parse(raw)
   for (const [key, value] of Object.entries(parsed)) {
     if (!isUnsetOrEmptyShell(process.env[key])) continue
     process.env[key] = value
@@ -42,6 +51,25 @@ function mergeEnvFromFile(path: string): void {
 export function loadCliEnv(repoRoot?: string): void {
   for (const path of candidateEnvPaths(repoRoot)) {
     if (existsSync(path)) mergeEnvFromFile(path)
+  }
+}
+
+/**
+ * `robrain up` writes the host-side DATABASE_URL (+ provider keys) into
+ * ~/.robrain/stack/.env. Fill vars still unset/empty in `env` from it so
+ * no-clone flows (`robrain up` then `robrain synth`) work without exporting
+ * anything. Shell exports and repo/cwd `.env` keep priority — loadCliEnv
+ * runs first and this only fills the gaps.
+ */
+export function applyStackEnvFallback(
+  env: NodeJS.ProcessEnv,
+  stackEnvPath = join(homedir(), '.robrain', 'stack', '.env'),
+): void {
+  if (!existsSync(stackEnvPath)) return
+  const parsed = dotenvParse().parse(readFileSync(stackEnvPath))
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isUnsetOrEmptyShell(env[key]) || value === '') continue
+    env[key] = value
   }
 }
 
@@ -82,7 +110,7 @@ export function inferRobrainMonorepoRootFromCwd(): string | undefined {
 export function readDotenvKey(repoRoot: string, key: string): string | undefined {
   const path = join(repoRoot, '.env')
   if (!existsSync(path)) return undefined
-  const parsed = dotenvParse.parse(readFileSync(path))
+  const parsed = dotenvParse().parse(readFileSync(path))
   const v = parsed[key]
   if (v === undefined || String(v).trim() === '') return undefined
   return String(v).trim()

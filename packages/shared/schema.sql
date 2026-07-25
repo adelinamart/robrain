@@ -209,10 +209,26 @@ CREATE TABLE IF NOT EXISTS context_system.planning_blocks (
   content            TEXT NOT NULL,
   weight             FLOAT NOT NULL DEFAULT 1.0,
   hit_count          INTEGER NOT NULL DEFAULT 0,
+  -- Provenance: decision ids this block was compiled from (Pass 1 truth/drift
+  -- sources, Pass 3 entity matches) — "click to see why", staleness detection.
+  source_ids         TEXT[] NOT NULL DEFAULT '{}',
+  -- Reviewed-decision ratio of the source set (0.00–1.00). 1.00 = every
+  -- source row user-approved in `robrain review`.
+  confidence         NUMERIC(3,2),
+  -- Fingerprint of (sorted source_ids + compiling rubric text). Unchanged
+  -- fingerprint → Synthesis skips the LLM compile for this block.
+  provenance_hash    TEXT,
   last_refreshed_at  TIMESTAMPTZ DEFAULT now(),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Additive upgrade guard: mirrors migrations 004 + 005 for databases whose
+-- planning_blocks predates the provenance columns. Idempotent either way.
+ALTER TABLE context_system.planning_blocks
+  ADD COLUMN IF NOT EXISTS source_ids      TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS confidence      NUMERIC(3,2),
+  ADD COLUMN IF NOT EXISTS provenance_hash TEXT;
 
 -- One compiled row per (project, block_type, topic) when topic is set — avoids duplicate planning_blocks each Synthesis run.
 CREATE UNIQUE INDEX IF NOT EXISTS planning_blocks_unique_topic

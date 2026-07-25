@@ -83,7 +83,7 @@ Every paid plan qualifies — individual standard or annual, Teams, and enterpri
 
 OpenAI-only: set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` instead of Anthropic — see [Concepts — Prefer not to use Anthropic](docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only).
 
-Upgrading a self-hosted install on a new release — no-clone stack: just re-run `npx robrain@latest up`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
+Upgrading a self-hosted install on a new release — no-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 ## Quickstart
 
@@ -152,8 +152,9 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Always-on summary at session start | ✓ | ✓ |
 | `npx robrain review` / `inject` / `explain` / `export-memory` | ✓ | ✓ |
 | Synthesis — drift, contradictions, entity promotion | ✓ | ✓ |
+| Synthesis prompt rubrics — per-project overrides (`.robrain/rubrics/`) | ✓ | ✓ |
 | Decision graph (`conflicts_with` / `extends` / `related_to`) | ✓ | ✓ |
-| Provenance on every memory — source session, turn, excerpt | ✓ | ✓ |
+| Provenance on every memory — source session, turn, excerpt; compiled blocks carry source decision ids | ✓ | ✓ |
 | Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
 | Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
 | Secrets redaction at capture and ingest | ✓ | ✓ |

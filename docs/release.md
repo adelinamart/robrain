@@ -112,7 +112,7 @@ From repo root (release guard runs automatically in `prepublishOnly`):
 
 ```bash
 pnpm publish:npm
-# equivalent: pnpm --filter @robrain/sensing-mcp build && pnpm --filter robrain publish --access public --no-git-checks
+# equivalent: pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks
 ```
 
 Smoke:

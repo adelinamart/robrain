@@ -1,6 +1,6 @@
 {
   "name": "@robrain/synthesis",
-  "version": "2.4.5",
+  "version": "2.4.6",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -8,19 +8,18 @@
     "robrain-synth": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node build.mjs",
     "start": "node --no-deprecation dist/index.js",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "devDependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@robrain/shared": "workspace:*",
-    "jsonrepair": "^3.14.0",
-    "pg": "^8.11.0"
-  },
-  "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.0",
+    "esbuild": "^0.25.0",
+    "jsonrepair": "^3.14.0",
+    "pg": "^8.11.0",
     "typescript": "^5.4.0"
   }
 }

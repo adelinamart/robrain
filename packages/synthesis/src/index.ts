@@ -6,6 +6,8 @@
 // Loads repo-root `.env` (same as CLI) so DATABASE_URL / ANTHROPIC_API_KEY need not be exported manually.
 
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
@@ -15,7 +17,12 @@ import { THRESHOLDS, loadEnv, normalizeLoopbackUrl, resolveLlmProvider, resolveO
 
 const { Pool } = pg
 
-/** Repo root for `.env` (src or dist: …/packages/synthesis/{src|dist} → three levels up). */
+/**
+ * Repo root for `.env` — three levels up covers both layouts:
+ * checkout …/packages/synthesis/{src|dist}, and the CLI-vendored bundle
+ * …/robrain/vendor/synthesis/dist (landing on the installed package root,
+ * which has no `.env`; loadEnv then falls back to the cwd walk).
+ */
 const synthesisDir = dirname(fileURLToPath(import.meta.url))
 const repoRootForCli = (process.env.ROBRAIN_REPO?.trim() || join(synthesisDir, '..', '..', '..'))
 loadEnv(repoRootForCli)
@@ -114,7 +121,12 @@ async function llmText(opts: {
   return block?.type === 'text' ? block.text : ''
 }
 
-/** Static system prompts — identical across runs; ephemeral cache cuts input-token cost on repeat cron / multi-project. */
+/**
+ * Bundled DEFAULT system prompts. Overridable per project via
+ * `.robrain/rubrics/*.md` (see loadRubrics below) — always call through
+ * RUBRICS.<name>, never these constants directly. Static per run either way,
+ * so the ephemeral cache still cuts input-token cost on repeat cron runs.
+ */
 const SYSTEM_PASS1_CLUSTER = `You cluster software architecture decisions into topic areas.
 
 Output format (strict):
@@ -163,6 +175,107 @@ function cachedEphemeral(text: string) {
 
 function log(msg: string)  { console.log(`[Synthesis] ${msg}`) }
 function warn(msg: string) { console.warn(`[Synthesis] ⚠ ${msg}`) }
+
+// ── Externalized rubrics ──────────────────────────────────────
+// Each pass prompt can be overridden by a markdown file, so teams tune the
+// clustering taxonomy / judge behavior per project — or per model, now that
+// providers are swappable — without a code change or release:
+//   .robrain/rubrics/{cluster,truth,contradiction,entity-extract,entity-summary}.md
+// Resolution order: SYNTHESIS_RUBRICS_DIR → <cwd>/.robrain/rubrics →
+// <repo>/.robrain/rubrics. Missing file → bundled default, with a log line
+// (loud fallback, never fatal — cron keeps running on a typo'd path).
+// YAML frontmatter (--- … ---) is stripped; the body becomes the system prompt.
+
+type RubricName = 'cluster' | 'truth' | 'contradiction' | 'entity-extract' | 'entity-summary'
+
+const RUBRIC_DEFAULTS: Record<RubricName, string> = {
+  cluster:          SYSTEM_PASS1_CLUSTER,
+  truth:            SYSTEM_PASS1_COMPILED_TRUTH,
+  contradiction:    SYSTEM_PASS2_CONTRADICTION,
+  'entity-extract': SYSTEM_PASS3_ENTITY_EXTRACT,
+  'entity-summary': SYSTEM_PASS3_ENTITY_SUMMARY,
+}
+
+function stripYamlFrontmatter(s: string): string {
+  const m = s.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  return (m ? s.slice(m[0].length) : s).trim()
+}
+
+/** Which rubric files are active overrides — used to attribute parse failures to a custom rubric. */
+const RUBRIC_SOURCES: Record<RubricName, string | null> = {
+  cluster: null, truth: null, contradiction: null, 'entity-extract': null, 'entity-summary': null,
+}
+
+function loadRubrics(): Record<RubricName, string> {
+  const dirs = [
+    process.env.SYNTHESIS_RUBRICS_DIR?.trim() || null,
+    join(process.cwd(), '.robrain', 'rubrics'),
+    join(repoRootForCli, '.robrain', 'rubrics'),
+  ].filter((d): d is string => Boolean(d))
+
+  const out = { ...RUBRIC_DEFAULTS }
+  const overridden: string[] = []
+  for (const name of Object.keys(RUBRIC_DEFAULTS) as RubricName[]) {
+    for (const dir of dirs) {
+      const file = join(dir, `${name}.md`)
+      if (!existsSync(file)) continue
+      // First dir that has the file wins — even when unreadable/empty, so a
+      // broken override is loudly reported rather than silently shadowed by
+      // a stale copy further down the resolution ladder.
+      try {
+        const body = stripYamlFrontmatter(readFileSync(file, 'utf8'))
+        if (body) {
+          out[name] = body
+          RUBRIC_SOURCES[name] = file
+          overridden.push(`${name} ← ${file}`)
+        } else {
+          warn(`rubric ${file} is empty — using bundled default`)
+        }
+      } catch (e) {
+        warn(`rubric ${file} unreadable (${String(e)}) — using bundled default`)
+      }
+      break
+    }
+  }
+  if (overridden.length) for (const o of overridden) log(`rubric override: ${o}`)
+  else log('rubrics: bundled defaults (no .robrain/rubrics overrides found)')
+  return out
+}
+
+const RUBRICS = loadRubrics()
+
+/** Suffix for parse-failure warnings when a custom rubric may be the cause. */
+function rubricBlame(name: RubricName): string {
+  const src = RUBRIC_SOURCES[name]
+  return src
+    ? ` — custom rubric active (${src}); check its output format or remove it to restore the bundled default`
+    : ''
+}
+
+/**
+ * Fingerprint of a block's compile inputs: sorted source decision ids + the
+ * rubric text that compiles it. Unchanged fingerprint → the block's inputs
+ * are identical to the stored row (a source invalidation removes its id from
+ * the recomputed set, so a match also implies every source is still live) —
+ * the LLM compile is skipped and the row left untouched.
+ */
+function provenanceHash(sourceIds: string[], rubric: string): string {
+  return createHash('sha256')
+    .update([...sourceIds].sort().join(','))
+    .update('\u001f')
+    .update(rubric)
+    .digest('hex')
+    .slice(0, 16)
+}
+
+/** Existing (block_type:topic) → provenance_hash for one project, for skip-recompute checks. */
+async function fetchBlockHashes(projectId: string): Promise<Map<string, string | null>> {
+  const { rows } = await pool.query<{ block_type: string; topic: string; provenance_hash: string | null }>(`
+    SELECT block_type, topic, provenance_hash FROM ${S}.planning_blocks
+    WHERE project_id = $1 AND topic IS NOT NULL
+  `, [projectId])
+  return new Map(rows.map(b => [`${b.block_type}:${b.topic}`, b.provenance_hash]))
+}
 
 function stripMarkdownJsonFence(raw: string): string {
   const t = raw.trim()
@@ -457,9 +570,24 @@ function coerceEntityCandidates(rows: unknown[]): Array<{ name: string; type: st
   return out
 }
 
-/** F2 — refresh Claude auto-memory after new compiled_truth rows (needs `working_directory` on projects). */
+/** Refresh Claude auto-memory after new compiled_truth rows (needs `working_directory` on projects). */
 async function spawnExportMemory(projectId: string, workingDir: string): Promise<void> {
-  const bin = join(repoRootForCli, 'packages/cli/bin/robrain.js')
+  // Prefer the bin the parent `robrain synth` process already resolved
+  // (ROBRAIN_CLI_BIN). Fall back to checkout layout, then published package
+  // layout when Synthesis is the CLI-vendored bundle (repoRootForCli = install root).
+  const fromEnv = process.env.ROBRAIN_CLI_BIN?.trim()
+  const candidates = [
+    ...(fromEnv ? [fromEnv] : []),
+    join(repoRootForCli, 'packages/cli/bin/robrain.js'),
+    join(repoRootForCli, 'bin/robrain.js'),
+  ]
+  const bin = candidates.find(p => existsSync(p))
+  if (!bin) {
+    throw new Error(
+      `export-memory skipped: robrain CLI not found near ${repoRootForCli} ` +
+      `(run via \`npx robrain synth\`, or set ROBRAIN_CLI_BIN / ROBRAIN_REPO)`,
+    )
+  }
   await new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, [
       bin, 'export-memory', '--cwd', workingDir, '--project-id', projectId,
@@ -546,7 +674,7 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
 
     const rawText = await withRetry(() =>
       llmText({
-        system:     SYSTEM_PASS1_CLUSTER,
+        system:     RUBRICS.cluster,
         user:       `Cluster these decisions:\n\n${list}`,
         maxTokens:  4096,
         json:       true,
@@ -556,7 +684,7 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
 
     const clusters = parsePass1ClusterResponse(rawText)
     if (!clusters?.length) {
-      warn(`  Could not parse cluster response for chunk (${chunk.length} decisions)`)
+      warn(`  Could not parse cluster response for chunk (${chunk.length} decisions)${rubricBlame('cluster')}`)
       if (process.env.SYNTHESIS_DEBUG_PARSE === 'true' && rawText) {
         const preview = rawText.length > 400 ? `${rawText.slice(0, 400)}…` : rawText
         log(`    parse debug preview: ${JSON.stringify(preview)}`)
@@ -579,56 +707,85 @@ async function pass1ClusterAndDrift(projectId: string): Promise<boolean> {
 
   log(`  ${allClusters.size} topic clusters across ${chunks.length} chunk(s)`)
 
+  // Skip-recompute: existing block fingerprints for this project. A topic
+  // whose source set + rubric are unchanged since the stored row was compiled
+  // needs no new LLM call — the sentence would come out the same.
+  const existingHashes = await fetchBlockHashes(projectId)
+
   for (const [topic, cluster] of allClusters) {
     if (cluster.decisions.length < 2) continue
     log(`  Topic "${topic}": ${cluster.decisions.length} decisions${cluster.has_drift ? ' ⚠ DRIFT' : ''}`)
 
-    // F9 hybrid: drift/cluster used all rows above; compiled_truth only from reviewed (trusted) rows.
+    // Hybrid review gate: drift/cluster used all rows above; compiled_truth only from reviewed (trusted) rows.
     const reviewedForTruth = cluster.decisions.filter(d => d.reviewed_at != null)
     if (reviewedForTruth.length === 0) {
-      log(`    skip compiled_truth — no reviewed decisions in cluster (F9)`)
+      log(`    skip compiled_truth — no reviewed decisions in cluster (review gate)`)
     } else {
-      const text = reviewedForTruth
-        .map(d => `${d.decision}${d.rationale ? ` — ${d.rationale}` : ''}`)
-        .join('\n')
+      // Provenance: reviewed rows are the compile sources; confidence is
+      // the reviewed ratio of the WHOLE cluster the sentence claims to summarise.
+      const truthSourceIds = reviewedForTruth.map(d => d.id)
+      const reviewedRatio  = Number((reviewedForTruth.length / cluster.decisions.length).toFixed(2))
+      const truthHash      = provenanceHash(truthSourceIds, RUBRICS.truth)
 
-      const truthText = await withRetry(() =>
-        llmText({
-          system:      SYSTEM_PASS1_COMPILED_TRUTH,
-          user:        `Topic: ${topic}\n\nDecisions:\n${text}`,
-          maxTokens:   120,
-          cacheSystem: true,
-        }),
-      )
+      if (existingHashes.get(`compiled_truth:${topic}`) === truthHash) {
+        log(`    compiled_truth unchanged (same sources + rubric) — skipping compile`)
+      } else {
+        const text = reviewedForTruth
+          .map(d => `${d.decision}${d.rationale ? ` — ${d.rationale}` : ''}`)
+          .join('\n')
 
-      const compiledTruth = truthText.trim() || null
-      if (!compiledTruth) {
-        /* skip write */
-      } else if (!config.dryRun) {
-        await pool.query(
-      `
-      INSERT INTO ${S}.planning_blocks
-        (project_id, block_type, topic, content, weight, last_refreshed_at)
-      VALUES ($1, 'compiled_truth', $2, $3, 2.0, now())
-      ON CONFLICT (project_id, block_type, topic) WHERE (topic IS NOT NULL)
-      DO UPDATE SET content = EXCLUDED.content, last_refreshed_at = now(), updated_at = now()
-    `,
-          [projectId, topic, `[${topic}] ${compiledTruth}`],
+        const truthText = await withRetry(() =>
+          llmText({
+            system:      RUBRICS.truth,
+            user:        `Topic: ${topic}\n\nDecisions:\n${text}`,
+            maxTokens:   120,
+            cacheSystem: true,
+          }),
         )
-        wroteCompiledTruth = true
+
+        const compiledTruth = truthText.trim() || null
+        if (!compiledTruth) {
+          /* skip write */
+        } else if (!config.dryRun) {
+          await pool.query(
+        `
+        INSERT INTO ${S}.planning_blocks
+          (project_id, block_type, topic, content, weight, source_ids, confidence, provenance_hash, last_refreshed_at)
+        VALUES ($1, 'compiled_truth', $2, $3, 2.0, $4::text[], $5, $6, now())
+        ON CONFLICT (project_id, block_type, topic) WHERE (topic IS NOT NULL)
+        DO UPDATE SET content = EXCLUDED.content, source_ids = EXCLUDED.source_ids,
+                      confidence = EXCLUDED.confidence, provenance_hash = EXCLUDED.provenance_hash,
+                      last_refreshed_at = now(), updated_at = now()
+      `,
+            [projectId, topic, `[${topic}] ${compiledTruth}`, truthSourceIds, reviewedRatio, truthHash],
+          )
+          wroteCompiledTruth = true
+        }
       }
     }
 
     if (cluster.has_drift && cluster.drift_signal && !config.dryRun) {
+      // Drift provenance covers the whole cluster — drift is judged across
+      // reviewed AND pending rows by design (hybrid review gate). No skip
+      // check: the drift text comes free with the cluster call (already paid).
+      const driftSourceIds = cluster.decisions.map(d => d.id)
+      const driftReviewed  = cluster.decisions.filter(d => d.reviewed_at != null).length
       await pool.query(
         `
         INSERT INTO ${S}.planning_blocks
-          (project_id, block_type, topic, content, weight, last_refreshed_at)
-        VALUES ($1, 'drift_signal', $2, $3, 1.5, now())
+          (project_id, block_type, topic, content, weight, source_ids, confidence, provenance_hash, last_refreshed_at)
+        VALUES ($1, 'drift_signal', $2, $3, 1.5, $4::text[], $5, $6, now())
         ON CONFLICT (project_id, block_type, topic) WHERE (topic IS NOT NULL)
-        DO UPDATE SET content = EXCLUDED.content, last_refreshed_at = now(), updated_at = now()
+        DO UPDATE SET content = EXCLUDED.content, source_ids = EXCLUDED.source_ids,
+                      confidence = EXCLUDED.confidence, provenance_hash = EXCLUDED.provenance_hash,
+                      last_refreshed_at = now(), updated_at = now()
       `,
-        [projectId, topic, `Topic "${topic}" drifting: ${cluster.drift_signal}`],
+        [
+          projectId, topic, `Topic "${topic}" drifting: ${cluster.drift_signal}`,
+          driftSourceIds,
+          Number((driftReviewed / cluster.decisions.length).toFixed(2)),
+          provenanceHash(driftSourceIds, RUBRICS.cluster),
+        ],
       )
     }
   }
@@ -691,6 +848,7 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
   log(`  ${pairs.length} candidate pairs — checking with concurrency=${config.pass2Concurrency}`)
 
   let cursor = 0
+  let warnedUnknownAnswer = false
   const workers = Array.from({ length: config.pass2Concurrency }, () =>
     (async (): Promise<{ contradictions: number; extends: number }> => {
       let localContradictions = 0
@@ -703,7 +861,7 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
 
         const respText = await withRetry(() =>
           llmText({
-            system:      SYSTEM_PASS2_CONTRADICTION,
+            system:      RUBRICS.contradiction,
             user:        `A: ${pair.decision_a}\nB: ${pair.decision_b}`,
             maxTokens:   24,
             cacheSystem: true,
@@ -713,8 +871,19 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
         const raw    = respText.trim().toLowerCase() || 'no'
         const answer = raw.replace(/\.$/, '').split(/\s+/)[0] ?? 'no'
 
+        // An answer outside the 4-word contract falls through to "no wire"
+        // silently — surface it once per run, naming a custom rubric if one
+        // is active (the usual cause of a drifted output format).
+        if (!['yes', 'no', 'related', 'extends'].includes(answer) && !warnedUnknownAnswer) {
+          warnedUnknownAnswer = true
+          warn(`  unrecognized contradiction answer ${JSON.stringify(raw.slice(0, 40))} — treated as "no"${rubricBlame('contradiction')}`)
+        }
+
         if (answer === 'yes') {
           localContradictions++
+          // Contradictions are flagged for `robrain review` — resolution stays
+          // a human call here. (Guard-railed auto-resolution is a Rory Plans
+          // cloud feature; see the comparison table in docs/concepts.md.)
           if (config.dryRun) continue
           await pool.query(
             `
@@ -762,19 +931,21 @@ async function pass2ContradictionScan(projectId: string, lastSynthesisAt: Date |
   const tallies = await Promise.all(workers)
   const contradictions = tallies.reduce((s, t) => s + t.contradictions, 0)
   const extendsTotal   = tallies.reduce((s, t) => s + t.extends, 0)
-  log(`  ${contradictions} contradictions flagged, ${extendsTotal} extends edges`)
+  log(`  ${contradictions} contradictions flagged for review, ${extendsTotal} extends edges`)
 }
 
 async function pass3EntityPromotion(projectId: string): Promise<void> {
   log('Pass 3: entity promotion')
 
   const { rows: decisions } = await pool.query<{
+    id: string
     decision: string
     rationale: string | null
     rejected: Array<{ option: string; reason: string }>
+    reviewed_at: Date | null
   }>(
     `
-    SELECT d.decision, d.rationale, d.rejected
+    SELECT d.id, d.decision, d.rationale, d.rejected, d.reviewed_at
     FROM ${S}.decisions d
     JOIN ${S}.sessions s ON s.id = d.session_id
     WHERE s.project_id = $1 AND d.invalidated_at IS NULL AND d.quarantined_at IS NULL
@@ -797,7 +968,7 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
 
   const raw = await withRetry(() =>
     llmText({
-      system:      SYSTEM_PASS3_ENTITY_EXTRACT,
+      system:      RUBRICS['entity-extract'],
       user:        sample.slice(0, 4000),
       maxTokens:   400,
       json:        true,
@@ -807,7 +978,7 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
 
   const parsedRows = parseEntityArrayFromModelText(raw)
   if (parsedRows == null) {
-    warn('  could not parse entities')
+    warn(`  could not parse entities${rubricBlame('entity-extract')}`)
     if (process.env.SYNTHESIS_DEBUG_PARSE === 'true' && raw) {
       const preview = raw.length > 400 ? `${raw.slice(0, 400)}…` : raw
       log(`    parse debug preview: ${JSON.stringify(preview)}`)
@@ -817,29 +988,57 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
 
   const candidates = coerceEntityCandidates(parsedRows)
 
-  const corpus = decisions
-    .map(d =>
-      `${d.decision} ${d.rationale ?? ''} ${(d.rejected ?? []).map(r => r.option).join(' ')}`,
-    )
-    .join('\n')
-    .toLowerCase()
+  // Per-decision scan (same totals as one joined-corpus scan) so entity
+  // provenance — WHICH decisions mention the entity — falls out of the same
+  // deterministic count that gates promotion.
+  const decisionTexts = decisions.map(d => ({
+    id:       d.id,
+    reviewed: d.reviewed_at != null,
+    text:     `${d.decision} ${d.rationale ?? ''} ${(d.rejected ?? []).map(r => r.option).join(' ')}`.toLowerCase(),
+  }))
 
-  const promoted: Array<{ name: string; type: string; count: number }> = []
+  const promoted: Array<{ name: string; type: string; count: number; sourceIds: string[]; confidence: number }> = []
   for (const c of candidates) {
     if (!c?.name || typeof c.name !== 'string') continue
     const needle = c.name.toLowerCase()
     const re     = new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')
-    const count  = (corpus.match(re) ?? []).length
-    if (count >= config.entityThreshold) promoted.push({ ...c, count })
+    let count = 0
+    let reviewedMatches = 0
+    const sourceIds: string[] = []
+    for (const t of decisionTexts) {
+      const hits = t.text.match(re)?.length ?? 0
+      if (hits === 0) continue
+      count += hits
+      sourceIds.push(t.id)
+      if (t.reviewed) reviewedMatches++
+    }
+    if (count >= config.entityThreshold) {
+      promoted.push({
+        ...c,
+        count,
+        sourceIds,
+        confidence: sourceIds.length ? Number((reviewedMatches / sourceIds.length).toFixed(2)) : 0,
+      })
+    }
   }
 
   log(`  ${promoted.length} entities cleared threshold`)
   if (config.dryRun) return
 
+  // Skip-recompute: same fingerprint check as Pass 1 — an entity whose
+  // matching decisions + rubric are unchanged keeps its stored summary.
+  const existingHashes = await fetchBlockHashes(projectId)
+
   for (const e of promoted) {
+    const entityHash = provenanceHash(e.sourceIds, RUBRICS['entity-summary'])
+    if (existingHashes.get(`entity:${e.name}`) === entityHash) {
+      log(`  entity "${e.name}" unchanged (same sources + rubric) — skipping summary`)
+      continue
+    }
+
     const summaryText = await withRetry(() =>
       llmText({
-        system:      SYSTEM_PASS3_ENTITY_SUMMARY,
+        system:      RUBRICS['entity-summary'],
         user:        `Entity: ${e.name}\nMentioned ${e.count}x across decisions.\nSample: ${sample.slice(0, 1500)}`,
         maxTokens:   80,
         cacheSystem: true,
@@ -851,12 +1050,14 @@ async function pass3EntityPromotion(projectId: string): Promise<void> {
     await pool.query(
       `
       INSERT INTO ${S}.planning_blocks
-        (project_id, block_type, topic, content, weight, last_refreshed_at)
-      VALUES ($1, 'entity', $2, $3, 1.2, now())
+        (project_id, block_type, topic, content, weight, source_ids, confidence, provenance_hash, last_refreshed_at)
+      VALUES ($1, 'entity', $2, $3, 1.2, $4::text[], $5, $6, now())
       ON CONFLICT (project_id, block_type, topic) WHERE (topic IS NOT NULL)
-      DO UPDATE SET content = EXCLUDED.content, last_refreshed_at = now(), updated_at = now()
+      DO UPDATE SET content = EXCLUDED.content, source_ids = EXCLUDED.source_ids,
+                    confidence = EXCLUDED.confidence, provenance_hash = EXCLUDED.provenance_hash,
+                    last_refreshed_at = now(), updated_at = now()
     `,
-      [projectId, e.name, `[${e.name} ×${e.count}] ${summary}`],
+      [projectId, e.name, `[${e.name} ×${e.count}] ${summary}`, e.sourceIds, e.confidence, entityHash],
     )
   }
 }
@@ -909,7 +1110,7 @@ async function main(): Promise<void> {
         && wroteCompiled
         && p.working_directory
       ) {
-        log('  F2: running export-memory for third-channel refresh…')
+        log('  running export-memory refresh (auto-memory files)…')
         try {
           await spawnExportMemory(p.id, p.working_directory)
         } catch (e) {

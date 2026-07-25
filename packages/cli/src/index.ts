@@ -21,6 +21,7 @@ import { statusCommand, ruleCommand, logoutCommand } from './commands/status.js'
 import { doctorCommand }       from './commands/doctor.js'
 import { reviewCommand }       from './commands/review.js'
 import { injectCommand }       from './commands/inject.js'
+import { checkCommand }        from './commands/check.js'
 import { synthCommand }        from './commands/synth.js'
 import { exportMemoryCommand } from './commands/export-memory.js'
 import { exportInterchangeCommand } from './commands/export-interchange.js'
@@ -31,7 +32,7 @@ import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
 
-const VERSION = '2.4.5'
+const VERSION = '2.4.6'
 
 program
   .name('robrain')
@@ -81,6 +82,15 @@ program
   .option('-a, --all',            'Fetch up to 100 decisions (Perception cap): all unreviewed when no --query, or broader semantic results with --query')
   .action(async (opts: { query?: string; files?: string; copy?: boolean; limit?: number; all?: boolean }) => {
     await injectCommand(opts)
+  })
+
+// ── check — pre-commit veto scan ──────────────────────────────
+
+program
+  .command('check <text>')
+  .description('Scan a proposed change against prior rejections before committing to it (exit 1 on match)')
+  .action(async (text: string) => {
+    await checkCommand(text)
   })
 
 // ── synth — Synthesis batch job ───────────────────────────────
@@ -233,8 +243,9 @@ program
   .description('Warm-start project memory from your codebase (run once per project)')
   .option('--project-id <id>', 'Override the auto-derived project ID')
   .option('--skip-claude-plugin', 'Do not recommend the RoBrain Claude Code plugin in .claude/settings.json')
-  .action(async (opts: { projectId?: string; skipClaudePlugin?: boolean }) => {
-    await initProjectCommand({ projectId: opts.projectId, skipClaudePlugin: opts.skipClaudePlugin })
+  .option('--force', 'Initialize even when the directory has no project markers (or is your home directory)')
+  .action(async (opts: { projectId?: string; skipClaudePlugin?: boolean; force?: boolean }) => {
+    await initProjectCommand({ projectId: opts.projectId, skipClaudePlugin: opts.skipClaudePlugin, force: opts.force })
   })
 
 // ── projects — list / merge Perception project ids ────────────
@@ -322,7 +333,8 @@ program.addHelpText('afterAll', `
     npx robrain explain src/store/cart.ts           Why does this file look this way?
     npx robrain outcomes --dry-run                  Match git reverts against stored decisions
     npx robrain export --format interchange         Dump memories as portable JSONL (robrain-memory/v1)
-    npx robrain synth --dry-run                     Run Synthesis from the robrain clone (needs DATABASE_URL + ANTHROPIC_API_KEY)
+    npx robrain check "switch tests to Vitest"      Pre-commit veto scan — did we already reject this? (exit 1 on match)
+    npx robrain synth --dry-run                     Run Synthesis (no clone needed after \`robrain up\`; needs the classifier LLM key)
 
   From a robrain clone instead (dev): pnpm install && pnpm build, pnpm docker:up,
   then npx robrain install --self-hosted --repo-root <robrain-clone>.

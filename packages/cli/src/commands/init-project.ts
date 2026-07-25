@@ -16,6 +16,7 @@ import ora     from 'ora'
 import prompts from 'prompts'
 import { cwd } from 'process'
 import { existsSync, readFileSync } from 'fs'
+import { homedir } from 'os'
 import { dirname, join } from 'path'
 import { readConfig, isAuthenticated } from '../lib/config.js'
 import { recommendClaudePlugin } from '../lib/claude-plugin.js'
@@ -29,7 +30,12 @@ interface InitProjectOptions {
   nonInteractive?: boolean
   /** Do not recommend the Claude Code plugin in .claude/settings.json. */
   skipClaudePlugin?: boolean
+  /** Initialize even when the target directory doesn't look like a project (home dir, no markers). */
+  force?: boolean
 }
+
+/** Files that mark a directory as a plausible project root. */
+const PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml', 'Gemfile', 'mix.exs']
 
 export async function initProjectCommand(opts: InitProjectOptions): Promise<void> {
   console.log()
@@ -50,14 +56,42 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
     process.exit(1)
   }
 
+  // ── Guard: don't initialize non-project directories ─────────
+  // Initializing $HOME (e.g. `robrain install` run from the home directory)
+  // mints a junk project whose id then shadows every directory beneath it.
+  const guardRoot = cwd()
+  const isHome = guardRoot === homedir()
+  const looksLikeProject = PROJECT_MARKERS.some(m => existsSync(join(guardRoot, m)))
+  if (!opts.force && (isHome || !looksLikeProject)) {
+    const why = isHome ? 'this is your home directory' : 'no project markers found (.git, package.json, …)'
+    console.log(chalk.yellow(`  ⚠ ${guardRoot} doesn't look like a project root — ${why}.`))
+    if (opts.nonInteractive) {
+      // Chained from `robrain install`: skip cleanly, tell the user what to do.
+      console.log(chalk.dim('  Skipped init-project. From your project root, run: ') + chalk.cyan('npx robrain init-project'))
+      console.log()
+      return
+    }
+    const { proceed } = await prompts({
+      type:    'confirm',
+      name:    'proceed',
+      message: 'Initialize RoBrain memory here anyway?',
+      initial: false,
+    })
+    if (!proceed) {
+      console.log(chalk.dim('\n  Cancelled. Run from your project root, or pass --force to override.\n'))
+      process.exit(0)
+    }
+  }
+
   // ── Gather project info ────────────────────────────────────
   const spinner = ora({ text: 'Scanning project...', color: 'green' }).start()
 
   const projectRoot = cwd()
   const detectedAncestor = findAncestorRoBrainProject(projectRoot)
+  const adoptedAncestor  = detectedAncestor && !detectedAncestor.outsideRepo ? detectedAncestor : null
   const info = gatherProjectInfo(projectRoot)
   const resolvedProjectId = opts.projectId
-    ?? detectedAncestor?.projectId
+    ?? adoptedAncestor?.projectId
     ?? info.id
 
   spinner.text = `Detected: ${chalk.bold(info.name)}`
@@ -65,9 +99,19 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
 
   spinner.succeed(`Project: ${chalk.bold(info.name)} ${chalk.dim(`(id: ${resolvedProjectId})`)}`)
 
-  if (!opts.projectId && detectedAncestor?.projectId && detectedAncestor.dir !== projectRoot) {
+  if (!opts.projectId && adoptedAncestor && adoptedAncestor.dir !== projectRoot) {
     console.log(chalk.dim(
-      `  Reusing existing RoBrain project id from ${detectedAncestor.source} in ${detectedAncestor.dir}: ${detectedAncestor.projectId}`,
+      `  Reusing existing RoBrain project id from ${adoptedAncestor.source} in ${adoptedAncestor.dir}: ${adoptedAncestor.projectId}`,
+    ))
+  }
+  // Found-but-not-adopted: an id above the repo boundary is a hint, never a
+  // silent adoption — joining an out-of-repo scope is an explicit choice.
+  if (!opts.projectId && detectedAncestor?.outsideRepo) {
+    console.log(chalk.yellow(
+      `  ⚠ Found RoBrain project ${detectedAncestor.projectId} in ${detectedAncestor.source} at ${detectedAncestor.dir} — outside this repo, not adopted.`,
+    ))
+    console.log(chalk.dim(
+      `  To join it deliberately: npx robrain init-project --project-id ${detectedAncestor.projectId}`,
     ))
   }
 
@@ -183,21 +227,43 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function findAncestorRoBrainProject(startDir: string): { projectId: string; source: string; dir: string } | null {
+/** Nearest ancestor (or startDir itself) containing a `.git` entry — the repo boundary. Null outside any repo. */
+function gitRootOf(startDir: string): string | null {
   let dir = startDir
   for (;;) {
-    const claudeMdPath = join(dir, 'CLAUDE.md')
-    const cursorRulePath = join(dir, '.cursor', 'rules', 'robrain.mdc')
-    const agentsMdPath = join(dir, 'AGENTS.md')
+    if (existsSync(join(dir, '.git'))) return dir
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
 
-    const claudeMdProjectId = readRoBrainProjectIdFromFile(claudeMdPath)
-    if (claudeMdProjectId) return { projectId: claudeMdProjectId, source: 'CLAUDE.md', dir }
+/**
+ * Walk up from startDir looking for a RoBrain project id pinned in editor
+ * files. Adoption is bounded by the git repo: a hit inside the current repo
+ * (the monorepo-subdirectory case) is adopted; a hit ABOVE the repo root —
+ * or any ancestor hit when startDir isn't in a git repo at all — is returned
+ * with `outsideRepo: true` so the caller can surface it as a hint instead of
+ * silently joining an unrelated scope (e.g. a stray `~/AGENTS.md`). One
+ * project = one repo; cross-repo sharing is a scope/team concern, not a
+ * shared-id concern.
+ */
+function findAncestorRoBrainProject(startDir: string): { projectId: string; source: string; dir: string; outsideRepo: boolean } | null {
+  const gitRoot = gitRootOf(startDir)
+  let dir = startDir
+  for (;;) {
+    // A hit at startDir itself is always in scope — that's the project's own
+    // pinned id. Above that, adoption requires staying inside the git repo.
+    const inScope = dir === startDir || (gitRoot != null && (dir === gitRoot || dir.startsWith(gitRoot + '/')))
 
-    const cursorProjectId = readRoBrainProjectIdFromFile(cursorRulePath)
-    if (cursorProjectId) return { projectId: cursorProjectId, source: '.cursor/rules/robrain.mdc', dir }
+    const claudeMdProjectId = readRoBrainProjectIdFromFile(join(dir, 'CLAUDE.md'))
+    if (claudeMdProjectId) return { projectId: claudeMdProjectId, source: 'CLAUDE.md', dir, outsideRepo: !inScope }
 
-    const agentsProjectId = readRoBrainProjectIdFromFile(agentsMdPath)
-    if (agentsProjectId) return { projectId: agentsProjectId, source: 'AGENTS.md', dir }
+    const cursorProjectId = readRoBrainProjectIdFromFile(join(dir, '.cursor', 'rules', 'robrain.mdc'))
+    if (cursorProjectId) return { projectId: cursorProjectId, source: '.cursor/rules/robrain.mdc', dir, outsideRepo: !inScope }
+
+    const agentsProjectId = readRoBrainProjectIdFromFile(join(dir, 'AGENTS.md'))
+    if (agentsProjectId) return { projectId: agentsProjectId, source: 'AGENTS.md', dir, outsideRepo: !inScope }
 
     const parent = dirname(dir)
     if (parent === dir) return null

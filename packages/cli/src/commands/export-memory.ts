@@ -201,7 +201,7 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
     console.log()
     if (totalFetched === 0) {
       console.log(chalk.dim('  No decisions captured yet for this project.'))
-      console.log(chalk.dim('  Run a Claude Code session with Sensing first.\n'))
+      console.log(chalk.dim('  Run an agent session with Sensing first (Claude Code, Cursor, Codex, …).\n'))
     } else if (active.length === 0) {
       console.log(chalk.dim(`  All ${totalFetched} captured decisions are invalidated/superseded.\n`))
     } else {

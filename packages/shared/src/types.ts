@@ -286,7 +286,7 @@ export const TOKEN_BUDGETS = {
 
 /**
  * Planning / retrieval composite weights (sum = 1.0).
- * F1: `APPROVAL_STATE` is user review (`reviewed_at`) — bumps trusted decisions in ranked lists.
+ * `APPROVAL_STATE` is user review (`reviewed_at`) — bumps trusted decisions in ranked lists.
  */
 export const SCORING_WEIGHTS = {
   SEMANTIC_SIMILARITY:    0.32,

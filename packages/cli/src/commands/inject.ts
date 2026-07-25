@@ -110,7 +110,7 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     console.log(chalk.dim(`  No decisions found for "${query ?? 'recent'}"\n`))
     console.log(chalk.dim(query
       ? '  No semantic matches were returned. Try a broader query (for example: "build tooling" instead of "env precedence").\n'
-      : '  Run a Claude Code session first to capture decisions.\n'))
+      : '  Run an agent session (Claude Code, Cursor, Codex, …) first to capture decisions.\n'))
     return
   }
 

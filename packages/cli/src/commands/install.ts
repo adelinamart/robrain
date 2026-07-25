@@ -21,6 +21,8 @@ import {
   resolveOpenAiBaseUrlFromEnv,
   usingLocalOpenAi,
   writeMcpConfig,
+  undetectedInstallableEditors,
+  EDITOR_LABELS,
   type McpWriteOptions,
 } from '../lib/editor.js'
 import {
@@ -69,6 +71,20 @@ function resolveCodexHooksForInstall(
     console.log()
   }
   return dir
+}
+
+/**
+ * Name the supported editors install did NOT wire because they have no config
+ * footprint yet. An editor that is installed but never launched (Cursor
+ * creates `~/.cursor` on first run) is invisible to detection — without this
+ * hint the skip is silent and looks like a broken install.
+ */
+function printUndetectedEditorHints(): void {
+  const missing = undetectedInstallableEditors()
+  if (missing.length === 0) return
+  console.log(chalk.dim('  Not detected: ') + missing.map(e => EDITOR_LABELS[e]).join(chalk.dim(', ')))
+  console.log(chalk.dim('  An editor never launched has no config footprint — wire one explicitly, e.g. ')
+    + chalk.cyan(`npx robrain install --editor ${missing[0]}`))
 }
 
 async function chainInitAfterInstall(opts: InstallOptions): Promise<void> {
@@ -263,7 +279,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     // Display only (status) — the thin client never embeds locally.
     ...(provisioned.embeddingProvider ? { embeddingProvider: provisioned.embeddingProvider } : {}),
     installedAt:       new Date().toISOString(),
-    version:           '2.4.5',
+    version:           '2.4.6',
   })
 
   spinner.succeed('MCP servers configured')
@@ -272,6 +288,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   console.log()
   console.log(chalk.green('  ✓ RoBrain installed successfully\n'))
   console.log(chalk.dim('  Configured for: ') + editorsToConfig.map(e => e.label).join(', '))
+  printUndetectedEditorHints()
   console.log(chalk.dim('  Cloud thin client: classification runs server-side — no local API keys needed.'))
   console.log()
 
@@ -471,7 +488,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
-    version:           '2.4.5',
+    version:           '2.4.6',
     selfHosted:        true,
   })
 
@@ -480,6 +497,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   console.log()
   console.log(chalk.green('  ✓ RoBrain (self-hosted) installed\n'))
   console.log(chalk.dim('  Configured for: ') + editorsToConfig.map(e => e.label).join(', '))
+  printUndetectedEditorHints()
   console.log(chalk.dim('  Perception: ') + chalk.cyan(perceptionUrl))
   console.log(chalk.dim('  Planning + Control injection: ') + chalk.yellow('not available in self-hosted OSS'))
   console.log()

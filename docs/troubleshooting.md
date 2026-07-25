@@ -28,6 +28,21 @@ The developer needs two habits:
 
 Everything else — capture, extraction, storage, embedding — happens without you doing anything.
 
+### When are decisions actually written? (what "closing a session" means)
+
+Decisions do **not** wait for the session to end. The normal path is asynchronous: Sensing buffers each turn, its classifier examines the buffer off the hot path, and anything that clears the confidence gate POSTs to Perception within seconds — mid-conversation, no action needed. If that's not happening, the classifier path is failing (usually a missing/invalid LLM key in the Sensing MCP env, or Perception rejecting writes — see the silent-401 section below), and diagnosing that beats manually flushing.
+
+`sensing_end_session` is the **safety net**, not the main path: it ships whatever is still unclassified in the buffer (raw, flagged for later classification) so nothing is lost when a session stops mid-classification. What triggers it: the agent calling the tool — typically when you say you're done, or per the instruction block `init-project` writes. **"Closing a session" is not restarting the editor**; killing the editor without an `end_session` call skips the flush (the async classifier path has usually already shipped everything that mattered).
+
+If decisions only ever appear after you explicitly ask the agent to end the session, that is the tell that the async path is broken in your setup:
+
+```bash
+# Ask the agent to call sensing_get_status — look at buffer size and classifier queue.
+# A growing buffer + zero decisions in `robrain review` = classifier path failing.
+```
+
+Then check the Sensing MCP env for the classifier key (`ANTHROPIC_API_KEY`, or `LLM_PROVIDER=openai` + `OPENAI_API_KEY`) and follow the silent-401 steps below.
+
 ### Decisions captured in the editor but `robrain review` shows nothing (silent 401)
 
 The most common silent failure: the editor's MCP panel shows Sensing as connected, you made decisions in chats, but `robrain review --history` or a direct DB query returns nothing. Perception is rejecting every signal with **401 Unauthorized** and Sensing has no way to surface that back to the editor.
@@ -90,6 +105,16 @@ curl -s -X POST -H "Authorization: Bearer <PERCEPTION_API_KEY>" \
 ```
 
 Then start a **new** Claude Code / Cursor session so `sensing_start_session` pulls the regenerated summary.
+
+### `robrain synth` fails with `No projects matched the filters` (npx / global install)
+
+Older CLI versions could only run Synthesis from inside a robrain clone: `synth` shelled out to `pnpm --filter @robrain/synthesis`, and under `npx` there is no pnpm workspace — pnpm printed that error (often after a Corepack `packageManager` warning). Fix: upgrade and re-run —
+
+```bash
+npx robrain@latest synth
+```
+
+Current versions ship Synthesis inside the CLI, so no clone is needed; after `robrain up`, `DATABASE_URL` and keys are read from `~/.robrain/stack/.env` automatically. From a checkout, build it first (`pnpm install && pnpm --filter @robrain/synthesis build`) or set `ROBRAIN_REPO=/path/to/clone` when running elsewhere.
 
 ### `Conflict. The container name "/robrain-postgres" is already in use`
 

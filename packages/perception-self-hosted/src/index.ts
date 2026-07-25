@@ -565,7 +565,7 @@ app.get('/decisions', async (c) => {
     // `robrain inject` (semantic search) both ignore reviewed_at because they
     // want full visibility / retrieval coverage.
     if (query_text) {
-      // Semantic search — F1: composite planning_score (shared SCORING_WEIGHTS) over vector neighbours.
+      // Semantic search — composite planning_score (shared SCORING_WEIGHTS) over vector neighbours.
       const embedding = await embed(query_text)
       const w  = SCORING_WEIGHTS
       const hl = THRESHOLDS.RECENCY_HALF_LIFE_DAYS
@@ -1266,6 +1266,23 @@ app.post('/projects/merge', async (c) => {
 })
 
 // ── GET /projects/:id/summary ──────────────────────────────────
+/**
+ * Provenance-driven staleness gate for Synthesis blocks: skip any block whose
+ * `source_ids` include a decision invalidated AFTER the block was last
+ * compiled. Its compiled sentence may assert superseded policy, so it must
+ * not ride the always-on summary; the next Synthesis run rewrites it from
+ * live rows and it re-qualifies. Blocks without provenance (`source_ids`
+ * empty — pre-provenance rows or other writers) always pass. Used by BOTH
+ * block selections below (hit_count + regenerateSummary) — keep in lockstep.
+ */
+const FRESH_BLOCK_SQL = `
+      NOT EXISTS (
+        SELECT 1 FROM ${S}.decisions sd
+        WHERE sd.id = ANY(pb.source_ids)
+          AND sd.invalidated_at IS NOT NULL
+          AND sd.invalidated_at > COALESCE(pb.last_refreshed_at, pb.created_at)
+      )`
+
 app.get('/projects/:id/summary', async (c) => {
   const id = c.req.param('id')
   const { rows } = await pool.query<{ always_on_summary: string | null; mission: string | null }>(`
@@ -1276,14 +1293,16 @@ app.get('/projects/:id/summary', async (c) => {
   }
   // hit_count measures serves, not write churn: this route is what Sensing hits
   // at session start, so count the blocks riding along in the summary here
-  // (same top-8-by-weight selection regenerateSummary includes). Fire-and-forget.
+  // (same top-8-by-weight fresh-block selection regenerateSummary includes).
+  // Fire-and-forget.
   pool.query(`
     UPDATE ${S}.planning_blocks
     SET hit_count = hit_count + 1, updated_at = now()
     WHERE id IN (
-      SELECT id FROM ${S}.planning_blocks
-      WHERE project_id = $1
-      ORDER BY weight DESC, last_refreshed_at DESC NULLS LAST
+      SELECT pb.id FROM ${S}.planning_blocks pb
+      WHERE pb.project_id = $1
+      AND ${FRESH_BLOCK_SQL}
+      ORDER BY pb.weight DESC, pb.last_refreshed_at DESC NULLS LAST
       LIMIT 8
     )
   `, [id]).catch(err =>
@@ -1428,11 +1447,14 @@ async function regenerateSummary(projectId: string): Promise<void> {
   // Synthesis planning blocks (compiled_truth / drift_signal / entity) ride
   // along — the always-on summary is the only OSS injection surface.
   // hit_count is incremented on the serve path (GET /projects/:id/summary),
-  // not here — rebuilds are write churn, not serves.
+  // not here — rebuilds are write churn, not serves. FRESH_BLOCK_SQL drops
+  // blocks whose source decisions were invalidated since the block was
+  // compiled (stale policy must not be served; next Synthesis run rebuilds).
   const { rows: blocks } = await pool.query<{ id: string; content: string }>(`
-    SELECT id, content FROM ${S}.planning_blocks
-    WHERE project_id = $1
-    ORDER BY weight DESC, last_refreshed_at DESC NULLS LAST
+    SELECT pb.id, pb.content FROM ${S}.planning_blocks pb
+    WHERE pb.project_id = $1
+    AND ${FRESH_BLOCK_SQL}
+    ORDER BY pb.weight DESC, pb.last_refreshed_at DESC NULLS LAST
     LIMIT 8
   `, [projectId])
 
