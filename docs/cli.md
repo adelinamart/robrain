@@ -330,5 +330,5 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain status` | Auth + Perception/Planning health + **active decision count** for the current project |
 | `npx robrain logout` | Clear locally stored credentials (Rory Plans token / install state) |
 | `pnpm synthesis:run` | **[Synthesis](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md#synthesis)** — batch job from **robrain repo root** (`pnpm` must resolve `@robrain/synthesis`) |
-| `npx robrain synth` | Same job via CLI: optional **`--dry-run`**, **`--full`**, **`--lookback <n>`**, **`--project <id>`**. No clone needed — runs the Synthesis bundle shipped with the CLI and falls back to `~/.robrain/stack/.env` for `DATABASE_URL` + keys after `robrain up`. A robrain checkout (**`ROBRAIN_REPO`**, or cwd) takes precedence when present. |
+| `npx robrain synth` | **Self-hosted only** — on Rory Plans cloud, judgment runs server-side and the command says so instead of running. Optional **`--dry-run`**, **`--full`**, **`--lookback <n>`**, **`--project <id>`**. No clone needed — runs the Synthesis bundle shipped with the CLI and falls back to `~/.robrain/stack/.env` for `DATABASE_URL` + keys after `robrain up`. A robrain checkout (**`ROBRAIN_REPO`**, or cwd) takes precedence when present. |
 

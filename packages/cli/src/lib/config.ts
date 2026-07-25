@@ -83,6 +83,18 @@ export function isAuthenticated(): boolean {
   )
 }
 
+/**
+ * True when this install talks to the managed Rory Plans API rather than a
+ * local stack — i.e. there is no local Postgres for batch jobs to open.
+ * `selfHosted` wins: `robrain up` merges that flag in, so a user who has both
+ * a cloud login and a local stack still counts as self-hosted.
+ */
+export function isCloudInstall(): boolean {
+  const config = readConfig()
+  if (config.selfHosted) return false
+  return Boolean(config.thin || config.token)
+}
+
 export function getToken(): string | undefined {
   return readConfig().token
 }

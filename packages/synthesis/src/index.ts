@@ -57,7 +57,20 @@ const config = {
 
 function requireEnv(key: string): string {
   const v = process.env[key]
-  if (!v) throw new Error(`Missing env var: ${key}`)
+  if (!v) {
+    // Hints live inside the function on purpose: `config` above calls this
+    // during module init, before any module-level const below it is assigned.
+    const hints: Record<string, string> = {
+      DATABASE_URL:
+        'Synthesis reads the decision store directly, so it needs a Postgres URL.\n' +
+        '  • Self-hosted: start the stack with `npx robrain up` (writes ~/.robrain/stack/.env),\n' +
+        '    or run from a robrain checkout whose .env has DATABASE_URL (or set ROBRAIN_REPO to it).\n' +
+        '  • Rory Plans cloud: there is no local store — Synthesis runs server-side, and its\n' +
+        '    results arrive via the always-on summary and `npx robrain review`.',
+    }
+    const hint = hints[key]
+    throw new Error(`Missing env var: ${key}${hint ? `\n\n  ${hint}\n` : ''}`)
+  }
   return v
 }
 

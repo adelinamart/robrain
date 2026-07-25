@@ -65,8 +65,20 @@ export function applyStackEnvFallback(
   env: NodeJS.ProcessEnv,
   stackEnvPath = join(homedir(), '.robrain', 'stack', '.env'),
 ): void {
-  if (!existsSync(stackEnvPath)) return
-  const parsed = dotenvParse().parse(readFileSync(stackEnvPath))
+  applyEnvFileFallback(env, stackEnvPath)
+}
+
+/**
+ * Fill vars still unset/empty in `env` from an arbitrary `.env` file; no-op
+ * when it does not exist. Gaps only — never overrides what `env` already has.
+ *
+ * Lets a parent process see the same values a child that runs its own
+ * `loadEnv(<root>)` would (e.g. `robrain synth` deciding whether a store
+ * exists before spawning Synthesis against a checkout it resolved).
+ */
+export function applyEnvFileFallback(env: NodeJS.ProcessEnv, envPath: string): void {
+  if (!existsSync(envPath)) return
+  const parsed = dotenvParse().parse(readFileSync(envPath))
   for (const [key, value] of Object.entries(parsed)) {
     if (!isUnsetOrEmptyShell(env[key]) || value === '') continue
     env[key] = value
