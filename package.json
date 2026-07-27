@@ -1,6 +1,6 @@
 {
   "name": "robrain-monorepo",
-  "version": "2.4.8",
+  "version": "2.4.9",
   "description": "Institutional memory for AI coding agents \u2014 capture decisions, rejected alternatives, and rationale across sessions",
   "license": "Apache-2.0",
   "private": true,
@@ -23,7 +23,7 @@
     "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env down",
     "docker:build": "pnpm prepare-env && docker compose -f docker/docker-compose.yml --env-file .env build perception",
     "docker:up:build": "pnpm prepare-env && docker compose -f docker/docker-compose.yml --env-file .env up -d --build perception",
-    "publish:npm": "pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks"
+    "publish:npm": "pnpm --filter robrain build && node packages/cli/scripts/verify-release-artifacts.mjs && pnpm --filter @robrain/shared publish --access public --no-git-checks && pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -1,0 +1,8 @@
+{
+  // Type checking only: same options as the build, but tests included.
+  // The build config excludes `src/**/*.test.ts` so compiled tests stay out of
+  // dist/ (and the published tarball) — they still need to typecheck.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*"],
+  "exclude": []
+}

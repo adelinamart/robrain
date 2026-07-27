@@ -1,0 +1,12 @@
+{
+  // Build config for anything that produces a consumable artifact: the npm
+  // tarball (`prepack`) and git-path installs (`prepare`). Maps are off because
+  // `files` does not ship `src/`, so published `.js.map` / `.d.ts.map` would
+  // point at a `../src` that isn't in the tarball. Local dev uses `build`
+  // (plain tsconfig.json), which keeps maps.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "sourceMap": false,
+    "declarationMap": false
+  }
+}
