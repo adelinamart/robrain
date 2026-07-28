@@ -114,6 +114,15 @@ With this set, **no `ANTHROPIC_API_KEY` is required** — Perception, Sensing, a
 >
 > Synthesis uses Anthropic's ephemeral prompt cache on the default path; the OpenAI path simply skips that (OpenAI caches inputs automatically), so the only difference is cost behavior, not correctness.
 
+### Fully-local LLM (no cloud keys)
+
+Set `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`, and point OpenAI-compatible calls at Ollama / LM Studio / vLLM. When Perception runs in Docker, use **two** URLs in the shared `.env`:
+
+- `OPENAI_BASE_URL=http://host.docker.internal:<port>/v1` — Perception inside Docker
+- `OPENAI_HOST_BASE_URL=http://127.0.0.1:<port>/v1` — Sensing, Synthesis, and `robrain doctor` on the host
+
+`OPENAI_API_KEY` is optional for typical local servers. Step-by-step setup: [CLI — Fully-local LLM](cli.md#fully-local-llm-ollama--lm-studio--vllm).
+
 ### How memory gets back into your next session
 
 There are two retrieval paths, and the automatic one is the default:
