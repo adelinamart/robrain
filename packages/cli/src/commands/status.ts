@@ -2,9 +2,81 @@
 // robrain status — shows current state of the memory system
 
 import chalk from 'chalk'
-import { readConfig, isAuthenticated } from '../lib/config.js'
-import { gatherProjectInfo } from '../lib/project.js'
+import { readConfig, isAuthenticated, type RoMemoryConfig } from '../lib/config.js'
+import { findPinnedProjectId, gatherProjectInfo } from '../lib/project.js'
 import { cwd } from 'process'
+
+/**
+ * Whether this directory's project actually exists in the store. `unknown`
+ * keeps "we could not check" distinct from "it is not there" — never claim
+ * a project is missing because the API was down.
+ */
+export interface ProjectRegistration {
+  reachable: boolean
+  /** `auth_failed` is split out of `unknown`: same "cannot tell", but fixable. */
+  state:     'registered' | 'unregistered' | 'unknown' | 'auth_failed'
+  decisions?: number
+}
+
+export async function lookUpRegistration(
+  config: RoMemoryConfig,
+  projectId: string,
+): Promise<ProjectRegistration> {
+  if (!config.perceptionUrl) return { reachable: false, state: 'unknown' }
+  try {
+    const health = await fetch(`${config.perceptionUrl}/health`)
+    if (!health.ok) return { reachable: false, state: 'unknown' }
+  } catch {
+    return { reachable: false, state: 'unknown' }
+  }
+  try {
+    const res = await fetch(`${config.perceptionUrl}/projects`, {
+      headers: config.perceptionKey ? { Authorization: `Bearer ${config.perceptionKey}` } : {},
+    })
+    // /health is deliberately unauthenticated, so a bad key reaches us here as
+    // a healthy store that rejects the read — actionable, unlike plain unknown.
+    if (res.status === 401 || res.status === 403) return { reachable: true, state: 'auth_failed' }
+    if (!res.ok) return { reachable: true, state: 'unknown' }
+    const data = await res.json() as { projects?: Array<{ id: string; decision_count?: number }> }
+    // Only a well-formed list can prove absence. An unexpected shape (a cloud
+    // API that answers differently) must not read as "your project is gone" —
+    // that sends someone to re-init a project that already exists.
+    if (!Array.isArray(data.projects)) return { reachable: true, state: 'unknown' }
+    const row = data.projects.find(p => p.id === projectId)
+    if (!row) return { reachable: true, state: 'unregistered' }
+    return { reachable: true, state: 'registered', decisions: row.decision_count }
+  } catch {
+    return { reachable: true, state: 'unknown' }
+  }
+}
+
+/** One-line state for the `Memory:` row. Any follow-up goes in registrationHint. */
+export function describeRegistration(reg: ProjectRegistration): string {
+  if (reg.state === 'registered') {
+    const n = reg.decisions
+    if (typeof n !== 'number') return chalk.green('registered')
+    // 0 on a registered project is the silent-Sensing tell — call it out.
+    return chalk.green('registered') + chalk.dim(' · ')
+      + (n === 0 ? chalk.yellow('0 decisions') : `${n} decisions`)
+  }
+  if (reg.state === 'unregistered') {
+    return chalk.yellow('not registered') + chalk.dim(' — nothing is stored for this directory yet')
+  }
+  if (reg.state === 'auth_failed') {
+    return chalk.yellow('unknown') + chalk.dim(' — the memory store rejected this API key')
+  }
+  return chalk.dim('unknown — could not reach the memory store')
+}
+
+/**
+ * Remediation for the row above, printed on its own line: hand-aligning a
+ * continuation inside the value wraps badly in narrow terminals.
+ */
+export function registrationHint(reg: ProjectRegistration): string | null {
+  if (reg.state === 'unregistered') return 'Run `npx robrain init-project` from a project root.'
+  if (reg.state === 'auth_failed')  return 'Re-run `npx robrain install` to refresh credentials.'
+  return null
+}
 
 export async function statusCommand(): Promise<void> {
   console.log()
@@ -29,39 +101,34 @@ export async function statusCommand(): Promise<void> {
   console.log(chalk.dim('  Embeddings:  ') + (config.thin
     ? 'cloud (server-side)'
     : (config.embeddingProvider ?? 'not set')))
+  // Look up registration BEFORE printing the project block. "Current project:
+  // <id>" is computed locally (see below) and says nothing about whether that
+  // project exists — printing it bare reads as membership we never checked,
+  // which makes a clean uninstall look like a failed one.
+  const registration = await lookUpRegistration(config, info.id)
+
+  // The id is derived from the directory path unless an editor file pins one,
+  // so it is stable across reinstalls (and identical on two machines with the
+  // same path). Naming the exact source heads off "why is this the same id I
+  // had before I deleted everything?".
+  const pinned = findPinnedProjectId(cwd())
+  const idSource = pinned?.id === info.id
+    ? `pinned in ${pinned.source}`
+    : 'derived from this directory path'
+
   console.log()
   console.log(chalk.dim('  Current project'))
   console.log(chalk.dim('  ├ Name:      ') + info.name)
-  console.log(chalk.dim('  └ ID:        ') + info.id)
+  console.log(chalk.dim('  ├ ID:        ') + info.id + chalk.dim(`  (${idSource})`))
+  console.log(chalk.dim('  └ Memory:    ') + describeRegistration(registration))
+  const hint = registrationHint(registration)
+  if (hint) console.log(chalk.dim('               ') + hint)
   console.log()
 
-  // Ping Perception for live stats + decision count for this project (helps spot silent Sensing)
   if (config.perceptionUrl) {
-    try {
-      const res = await fetch(`${config.perceptionUrl}/health`)
-      if (res.ok) {
-        console.log(chalk.dim('  Perception:  ') + chalk.green('● connected'))
-      } else {
-        console.log(chalk.dim('  Perception:  ') + chalk.yellow('○ unreachable'))
-      }
-      try {
-        const pr = await fetch(`${config.perceptionUrl}/projects`, {
-          headers: config.perceptionKey ? { Authorization: `Bearer ${config.perceptionKey}` } : {},
-        })
-        if (pr.ok) {
-          const data = await pr.json() as {
-            projects?: Array<{ id: string; decision_count?: number }>
-          }
-          const row = data.projects?.find(p => p.id === info.id)
-          const n     = row?.decision_count
-          if (typeof n === 'number') {
-            console.log(chalk.dim('  Decisions:   ') + (n === 0 ? chalk.yellow(String(n)) : String(n)) + chalk.dim(` (active rows for project ${info.id})`))
-          }
-        }
-      } catch { /* ignore count */ }
-    } catch {
-      console.log(chalk.dim('  Perception:  ') + chalk.yellow('○ unreachable'))
-    }
+    console.log(chalk.dim('  Perception:  ') + (registration.reachable
+      ? chalk.green('● connected')
+      : chalk.yellow('○ unreachable')))
   }
 
   if (config.planningUrl) {

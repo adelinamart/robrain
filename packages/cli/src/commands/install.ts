@@ -14,7 +14,7 @@ import chalk    from 'chalk'
 import ora      from 'ora'
 import prompts  from 'prompts'
 import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
-import { validateToken, fetchProvisionedConfig, type ProvisionedConfig } from '../lib/auth.js'
+import { validateToken, fetchProvisionedConfig, type ProvisionedConfig, type PlanRequirement } from '../lib/auth.js'
 import {
   resolveEditorsForInstall,
   resolveLlmProviderFromEnv,
@@ -71,6 +71,29 @@ function resolveCodexHooksForInstall(
     console.log()
   }
   return dir
+}
+
+/**
+ * The account is real, the plan doesn't include RoBrain cloud. Says what to do
+ * about it — and that self-hosting is a complete, free alternative rather than
+ * a downgrade, since nothing here is a dead end.
+ */
+export function printPlanRequired(req: PlanRequirement): void {
+  const current = req.currentPlan ? ` (you're on ${req.currentPlan})` : ''
+  console.log()
+  console.log(chalk.yellow(`  RoBrain cloud isn't included in your plan${current}.`))
+  console.log(chalk.dim(`  It needs ${req.requiredPlan} or higher.`))
+  console.log()
+  if (req.trialAvailable) {
+    console.log('  ' + chalk.bold('Try it free for 14 days') + chalk.dim(' — no charge until the trial ends:'))
+  } else {
+    console.log('  ' + chalk.bold('Upgrade your plan:'))
+  }
+  console.log('  → ' + chalk.cyan('https://roryplans.ai/pricing'))
+  console.log()
+  console.log(chalk.dim('  Or self-host for free — same capture, same vetoes, your own Postgres:'))
+  console.log('  → ' + chalk.cyan('npx robrain up') + chalk.dim(' then ') + chalk.cyan('npx robrain install --self-hosted'))
+  console.log()
 }
 
 /**
@@ -178,6 +201,11 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   const spinner = ora({ text: 'Connecting to roryplans.ai...', color: 'green' }).start()
 
   const authResult = await validateToken(token)
+  if (authResult.planRequired) {
+    spinner.stop()
+    printPlanRequired(authResult.planRequired)
+    process.exit(1)
+  }
   if (!authResult.ok) {
     spinner.fail(chalk.red(`Authentication failed: ${authResult.error}`))
     console.log(chalk.dim('\n  Create an account at https://roryplans.ai'))
@@ -188,8 +216,18 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   // ── Step 3: Fetch provisioned config ───────────────────────
   spinner.start('Fetching provisioned API config...')
-  const provisioned = await fetchProvisionedConfig(token)
+  const provision = await fetchProvisionedConfig(token)
 
+  // A valid login on a plan without RoBrain cloud arrives here: the token is
+  // fine, there is simply nothing to provision. "Contact support" would be the
+  // wrong answer to a billing question.
+  if (provision.planRequired) {
+    spinner.stop()
+    printPlanRequired(provision.planRequired)
+    process.exit(1)
+  }
+
+  const provisioned = provision.config
   if (!provisioned) {
     spinner.fail('Could not fetch provisioned config. Contact support@roryplans.ai')
     process.exit(1)

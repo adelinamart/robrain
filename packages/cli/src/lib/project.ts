@@ -24,19 +24,28 @@ export function deriveProjectId(cwd: string): string {
   return createHash('sha256').update(cwd).digest('hex').slice(0, 12)
 }
 
-/** Read the project_id written by init-project from CLAUDE.md / AGENTS.md / Cursor rule */
-function readProjectIdFromEditorFiles(dir: string): string | null {
-  const candidates = [
-    join(dir, 'CLAUDE.md'),
-    join(dir, 'AGENTS.md'),
-    join(dir, '.cursor', 'rules', 'robrain.mdc'),
+/**
+ * The editor file pinning this directory's project_id, if any — with the file
+ * it came from, so callers can name it instead of guessing (init-project
+ * writes all three; the Cursor rule is easy to forget it exists).
+ */
+export function findPinnedProjectId(dir: string): { id: string; source: string } | null {
+  const candidates: Array<[label: string, path: string]> = [
+    ['CLAUDE.md',                 join(dir, 'CLAUDE.md')],
+    ['AGENTS.md',                 join(dir, 'AGENTS.md')],
+    ['.cursor/rules/robrain.mdc', join(dir, '.cursor', 'rules', 'robrain.mdc')],
   ]
-  for (const p of candidates) {
-    if (!existsSync(p)) continue
-    const match = readFileSync(p, 'utf8').match(/project_id="([^"]+)"/)
-    if (match?.[1]) return match[1].trim()
+  for (const [source, path] of candidates) {
+    if (!existsSync(path)) continue
+    const match = readFileSync(path, 'utf8').match(/project_id="([^"]+)"/)
+    if (match?.[1]) return { id: match[1].trim(), source }
   }
   return null
+}
+
+/** Read the project_id written by init-project from CLAUDE.md / AGENTS.md / Cursor rule */
+function readProjectIdFromEditorFiles(dir: string): string | null {
+  return findPinnedProjectId(dir)?.id ?? null
 }
 
 /** Collect all available context from the project root */

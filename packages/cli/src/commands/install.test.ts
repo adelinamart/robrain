@@ -35,13 +35,72 @@ const provisioned = {
   planningKey:       'cloud-planning-key',
   embeddingProvider: '',
 }
+
+type StubMode = 'ok' | 'plan_required'
+let validateMode: StubMode = 'ok'
+let provisionMode: StubMode = 'ok'
+
+function resetStubModes(): void {
+  validateMode = 'ok'
+  provisionMode = 'ok'
+}
+
+class ExitCalled extends Error {
+  constructor(public readonly code: number | undefined) {
+    super(`process.exit(${String(code)})`)
+  }
+}
+
+function clearConfigForTest(): void {
+  const configPath = join(fakeHome, '.robrain', 'config.json')
+  rmSync(configPath, { force: true })
+}
+
+async function runInstallExpectExit(opts: {
+  token: string
+  editor: string
+  repoRoot: string
+  skipInitProject: boolean
+}): Promise<{ code: number | undefined; output: string }> {
+  const lines: string[] = []
+  const originalLog = console.log
+  const originalError = console.error
+  const originalExit = process.exit
+  console.log = (...args: unknown[]) => { lines.push(args.join(' ')) }
+  console.error = (...args: unknown[]) => { lines.push(args.join(' ')) }
+  ;(process as unknown as { exit: (code?: number) => never }).exit = (code?: number): never => {
+    throw new ExitCalled(code)
+  }
+  try {
+    await installCommand(opts)
+  } catch (err) {
+    if (err instanceof ExitCalled) return { code: err.code, output: lines.join('\n') }
+    throw err
+  } finally {
+    console.log = originalLog
+    console.error = originalError
+    ;(process as unknown as { exit: (code?: number) => never }).exit = originalExit
+  }
+  return { code: 0, output: lines.join('\n') }
+}
+
 const stub = createServer((req, res) => {
   res.setHeader('content-type', 'application/json')
   if (req.url === '/robrain/auth/validate') {
+    if (validateMode === 'plan_required') {
+      res.statusCode = 402
+      res.end(JSON.stringify({ error: 'plan_required', plan: 'free', required_plan: 'Pro', trial_available: true }))
+      return
+    }
     res.end(JSON.stringify({ email: 'ade@roryplans.ai', perceptionUrl: provisioned.perceptionUrl, planningUrl: provisioned.planningUrl }))
     return
   }
   if (req.url === '/robrain/provision') {
+    if (provisionMode === 'plan_required') {
+      res.statusCode = 402
+      res.end(JSON.stringify({ error: 'plan_required', plan: 'free', required_plan: 'Pro', trial_available: false }))
+      return
+    }
     res.end(JSON.stringify(provisioned))
     return
   }
@@ -67,7 +126,50 @@ after(async () => {
 })
 
 describe('cloud install (thin client)', () => {
+  it('stops with pricing/self-host guidance when auth says plan_required', async () => {
+    resetStubModes()
+    clearConfigForTest()
+    validateMode = 'plan_required'
+
+    const { code, output } = await runInstallExpectExit({
+      token:           'test-token',
+      editor:          'claude-code',
+      repoRoot:        fakeRepo,
+      skipInitProject: true,
+    })
+
+    assert.equal(code, 1)
+    assert.match(output, /RoBrain cloud isn't included in your plan/)
+    assert.match(output, /Try it free for 14 days/)
+    assert.match(output, /https:\/\/roryplans\.ai\/pricing/)
+    assert.match(output, /npx robrain up/)
+    assert.equal(existsSync(join(fakeHome, '.robrain', 'config.json')), false)
+    resetStubModes()
+  })
+
+  it('stops with plan guidance when provisioning says plan_required', async () => {
+    resetStubModes()
+    clearConfigForTest()
+    provisionMode = 'plan_required'
+
+    const { code, output } = await runInstallExpectExit({
+      token:           'test-token',
+      editor:          'claude-code',
+      repoRoot:        fakeRepo,
+      skipInitProject: true,
+    })
+
+    assert.equal(code, 1)
+    assert.match(output, /RoBrain cloud isn't included in your plan/)
+    assert.match(output, /Upgrade your plan:/)
+    assert.match(output, /https:\/\/roryplans\.ai\/pricing/)
+    assert.match(output, /npx robrain install --self-hosted/)
+    assert.equal(existsSync(join(fakeHome, '.robrain', 'config.json')), false)
+    resetStubModes()
+  })
+
   it('completes without any embedding prompt and wires Sensing in thin mode', async () => {
+    resetStubModes()
     // Hang-guard: if any prompt fires, it consumes this Error (prompts treats an
     // injected Error as a cancel) instead of blocking on stdin — and the config
     // assertions below then fail on the old prompt-path fallbacks.
