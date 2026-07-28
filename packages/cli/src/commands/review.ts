@@ -13,7 +13,8 @@
 import chalk   from 'chalk'
 import ora     from 'ora'
 import prompts from 'prompts'
-import { readConfig, isAuthenticated } from '../lib/config.js'
+import { readConfig, isAuthenticated, isCloudInstall } from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo }           from '../lib/project.js'
 import { cwd }                         from 'process'
 
@@ -100,8 +101,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
     })
 
     if (!res.ok) {
-      spinner.fail(`Could not fetch decisions (${res.status})`)
-      process.exit(1)
+      failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
     }
 
     const data = await res.json() as { decisions: StoredDecision[] }
@@ -138,8 +138,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
       )
     }
   } catch {
-    spinner.fail('Could not reach Perception API')
-    process.exit(1)
+    failPerceptionUnreachable(spinner, { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
 
   spinner.stop()

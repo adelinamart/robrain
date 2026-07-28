@@ -33,7 +33,8 @@ import {
 import { dirname, join, resolve, sep } from 'path'
 import { homedir }                 from 'os'
 import { cwd }                     from 'process'
-import { readConfig }              from '../lib/config.js'
+import { readConfig, isCloudInstall } from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo, type ProjectInfo } from '../lib/project.js'
 import {
   defaultMemoryDir,
@@ -135,18 +136,12 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
       headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
     })
     if (!res.ok) {
-      spinner.fail(`Could not fetch decisions (${res.status}). Is Perception running?`)
-      console.log(chalk.dim(`  Expected at: ${percUrl}`))
-      console.log(chalk.dim('  Start with: pnpm docker:up\n'))
-      process.exit(1)
+      failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
     }
     const data = await res.json() as { decisions: Decision[] }
     decisions  = data.decisions ?? []
   } catch {
-    spinner.fail('Could not reach Perception API')
-    console.log(chalk.dim(`\n  Expected at: ${percUrl}`))
-    console.log(chalk.dim('  Start with: pnpm docker:up\n'))
-    process.exit(1)
+    failPerceptionUnreachable(spinner, { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
   spinner.stop()
 

@@ -13,7 +13,8 @@
 import chalk from 'chalk'
 import ora from 'ora'
 import { cwd } from 'process'
-import { readConfig } from '../lib/config.js'
+import { readConfig, isCloudInstall } from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo } from '../lib/project.js'
 
 interface VetoMatch {
@@ -35,6 +36,7 @@ export async function checkCommand(text: string): Promise<void> {
   const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
+  const ctx = { cloud: isCloudInstall(), perceptionUrl: percUrl }
   const spinner = ora({ text: 'Scanning prior rejections...', color: 'green' }).start()
 
   let matches: VetoMatch[]
@@ -48,17 +50,13 @@ export async function checkCommand(text: string): Promise<void> {
       body: JSON.stringify({ project_id: info.id, text }),
     })
     if (!res.ok) {
-      spinner.fail(`Veto scan failed (${res.status}). Is Perception running?`)
-      console.log(chalk.dim(`  Expected at: ${percUrl}`))
-      console.log(chalk.dim('  Start with: robrain up\n'))
-      process.exit(2)
+      // exit 2 = "could not scan" (distinct from 1 = a rejection matched).
+      failPerception(spinner, res.status, ctx, 'scan for prior rejections', 2)
     }
     const data = await res.json() as { matches?: VetoMatch[] }
     matches = data.matches ?? []
   } catch {
-    spinner.fail('Could not reach Perception API')
-    console.log(chalk.dim(`\n  Expected at: ${percUrl} — start with: robrain up\n`))
-    process.exit(2)
+    failPerceptionUnreachable(spinner, ctx, 2)
   }
 
   spinner.stop()

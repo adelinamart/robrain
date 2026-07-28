@@ -14,7 +14,8 @@
 
 import chalk   from 'chalk'
 import ora     from 'ora'
-import { readConfig } from '../lib/config.js'
+import { readConfig, isCloudInstall } from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo } from '../lib/project.js'
 import { cwd, exit } from 'process'
 import { execSync } from 'child_process'
@@ -69,9 +70,7 @@ export async function explainCommand(
     })
 
     if (!res.ok) {
-      spinner.fail(`Could not reach Perception API (${res.status})`)
-      console.log(chalk.dim(`  Make sure Perception is running: pnpm docker:up\n`))
-      exit(1)
+      failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
     }
 
     const data = await res.json() as { decisions: typeof decisions }
@@ -89,9 +88,7 @@ export async function explainCommand(
     }
 
   } catch {
-    spinner.fail('Could not reach Perception API')
-    console.log(chalk.dim(`\n  Make sure Perception is running: pnpm docker:up\n`))
-    exit(1)
+    failPerceptionUnreachable(spinner, { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
 
   spinner.stop()

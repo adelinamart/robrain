@@ -14,7 +14,8 @@ import chalk from 'chalk'
 import { writeFileSync }     from 'fs'
 import { resolve }           from 'path'
 import { cwd }               from 'process'
-import { readConfig }        from '../lib/config.js'
+import { readConfig, isCloudInstall }        from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable, consoleFailSink } from '../lib/perception-errors.js'
 import { gatherProjectInfo, type ProjectInfo } from '../lib/project.js'
 
 export const INTERCHANGE_FORMAT = 'robrain-memory/v1'
@@ -140,10 +141,7 @@ export async function exportInterchangeCommand(opts: ExportInterchangeOptions): 
         headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
       })
       if (!res.ok) {
-        console.error(chalk.red(`  ✗ Could not fetch decisions (${res.status}). Is Perception running?`))
-        console.error(chalk.dim(`    Expected at: ${percUrl}`))
-        console.error(chalk.dim('    Start with: pnpm docker:up'))
-        process.exit(1)
+        failPerception(consoleFailSink(), res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
       }
       const data = await res.json() as { decisions: SourceDecision[] }
       const page = data.decisions ?? []
@@ -151,10 +149,7 @@ export async function exportInterchangeCommand(opts: ExportInterchangeOptions): 
       if (page.length < pageSize) break
     }
   } catch {
-    console.error(chalk.red('  ✗ Could not reach Perception API'))
-    console.error(chalk.dim(`    Expected at: ${percUrl}`))
-    console.error(chalk.dim('    Start with: pnpm docker:up'))
-    process.exit(1)
+    failPerceptionUnreachable(consoleFailSink(), { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
 
   const jsonl = toInterchangeJsonl(decisions)

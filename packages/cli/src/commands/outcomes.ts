@@ -15,7 +15,8 @@ import chalk from 'chalk'
 import ora   from 'ora'
 import { execFileSync }                 from 'child_process'
 import { cwd }                          from 'process'
-import { readConfig, isAuthenticated }  from '../lib/config.js'
+import { readConfig, isAuthenticated, isCloudInstall } from '../lib/config.js'
+import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo }            from '../lib/project.js'
 
 // ── Pure matching core (tested in outcomes.test.ts) ───────────
@@ -188,10 +189,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
         headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
       })
       if (!res.ok) {
-        spinner.fail(`Could not fetch decisions (${res.status}). Is Perception running?`)
-        console.log(chalk.dim(`  Expected at: ${percUrl}`))
-        console.log(chalk.dim('  Start with: pnpm docker:up\n'))
-        process.exit(1)
+        failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
       }
       const data = await res.json() as { decisions: StoredDecision[] }
       const page = data.decisions ?? []
@@ -200,10 +198,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
     }
     decisions = all.filter(d => !d.invalidated_at)
   } catch {
-    spinner.fail('Could not reach Perception API')
-    console.log(chalk.dim(`\n  Expected at: ${percUrl}`))
-    console.log(chalk.dim('  Start with: pnpm docker:up\n'))
-    process.exit(1)
+    failPerceptionUnreachable(spinner, { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
   spinner.stop()
 
@@ -327,9 +322,6 @@ export async function outcomesRecordCommand(decisionId: string, opts: OutcomesRe
       process.exit(1)
     }
   } catch {
-    spinner.fail('Could not reach Perception API')
-    console.log(chalk.dim(`\n  Expected at: ${percUrl}`))
-    console.log(chalk.dim('  Start with: pnpm docker:up\n'))
-    process.exit(1)
+    failPerceptionUnreachable(spinner, { cloud: isCloudInstall(), perceptionUrl: percUrl })
   }
 }
