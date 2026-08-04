@@ -82,7 +82,11 @@ export function printPlanRequired(req: PlanRequirement): void {
   const current = req.currentPlan ? ` (you're on ${req.currentPlan})` : ''
   console.log()
   console.log(chalk.yellow(`  RoBrain cloud isn't included in your plan${current}.`))
-  console.log(chalk.dim(`  It needs ${req.requiredPlan} or higher.`))
+  console.log(chalk.dim(
+    req.requiredPlan
+      ? `  It needs ${req.requiredPlan} or higher.`
+      : '  It comes with every paid plan.',
+  ))
   console.log()
   if (req.trialAvailable) {
     console.log('  ' + chalk.bold('Try it free for 14 days') + chalk.dim(' — no charge until the trial ends:'))

@@ -21,8 +21,12 @@ export interface AuthResult {
 export interface PlanRequirement {
   /** Plan the account is on today, when the API reports it (e.g. "free"). */
   currentPlan?:   string
-  /** Minimum plan that includes RoBrain cloud. */
-  requiredPlan:   string
+  /**
+   * Minimum plan that includes RoBrain cloud, when the API names one. Left
+   * unset otherwise — cloud ships with every paid plan, so there is no single
+   * tier name the CLI can safely assume on the API's behalf.
+   */
+  requiredPlan?:  string
   /** Only false when the API says the trial is used up or unavailable. */
   trialAvailable: boolean
 }
@@ -55,7 +59,7 @@ export function detectPlanRequirement(status: number, body: unknown): PlanRequir
   if (!looksLikePlan) return null
   return {
     currentPlan:    typeof b.plan === 'string' ? b.plan : undefined,
-    requiredPlan:   typeof b.required_plan === 'string' ? b.required_plan : 'Pro',
+    ...(typeof b.required_plan === 'string' ? { requiredPlan: b.required_plan } : {}),
     trialAvailable: b.trial_available !== false,
   }
 }

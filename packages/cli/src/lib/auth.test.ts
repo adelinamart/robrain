@@ -17,7 +17,9 @@ describe('detectPlanRequirement — entitlement vs. everything else', () => {
   it('reads a 403 carrying a plan error code', () => {
     const req = detectPlanRequirement(403, { code: 'upgrade_required' })
     assert.ok(req)
-    assert.equal(req.requiredPlan, 'Pro')   // default when the API does not name one
+    // Unset when the API names no tier — the CLI must not invent one, since
+    // cloud is included with every paid plan rather than a single named tier.
+    assert.equal(req.requiredPlan, undefined)
   })
 
   it('reads a 403 whose message names the plan, without a code', () => {
