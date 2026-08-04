@@ -150,11 +150,12 @@ again in `prepublishOnly`; the second run is a cheap no-op re-check.
 
 **`prepack` cleans `dist/` first.** `tsc` never removes stale output, so the
 tsconfig test exclusion alone would leave previously-compiled `*.test.js` in a
-release machine's `dist/` and ship them. `prepack` is
-`rm -rf dist && tsc --sourceMap false --declarationMap false` — the clean makes
-the exclusion real, and dropping the maps avoids shipping `.js.map` /
-`.d.ts.map` that point at a `../src` the tarball does not contain. Plain `build`
-and `prepare` keep maps, so local dev and the git-pin path are unaffected.
+release machine's `dist/` and ship them. Both `prepack` (npm tarball) and
+`prepare` (git-path installs) run `rm -rf dist && tsc -p tsconfig.publish.json`:
+the clean makes the exclusion real, and `tsconfig.publish.json` turns off
+`sourceMap` / `declarationMap` so no `.js.map` / `.d.ts.map` ships pointing at a
+`../src` the tarball does not contain. Plain `build` uses `tsconfig.json` and
+keeps maps, so local dev is unaffected.
 
 Smoke:
 
