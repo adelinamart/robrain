@@ -18,5 +18,9 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Tests run from source via `bun test src`; keeping them out of the build
+  // keeps compiled tests out of dist/ and therefore out of the npm tarball.
+  // `tsconfig.typecheck.json` re-includes them for type checking.
+  "exclude": ["src/**/*.test.ts"]
 }

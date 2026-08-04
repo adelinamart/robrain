@@ -108,16 +108,59 @@ git push origin v2.3.8 && gh run watch
 
 ### 3. Publish npm
 
-From repo root (release guard runs automatically in `prepublishOnly`):
+Two packages ship to npm every release: **`@robrain/shared`** (consumed by the
+cloud repo as a normal registry dependency) and **`robrain`** (the CLI).
+
+> **One-time setup:** the `@robrain` scope is an npm **organization**, created on
+> https://www.npmjs.com/org/create with the same account that owns the `robrain`
+> CLI package (`npm owner ls robrain`). Orgs cannot be created from the CLI. Use
+> the free *Unlimited public packages* plan. Verify with `npm org ls robrain`.
+> Scoped packages default to restricted on publish, which a free org cannot
+> host — hence `publishConfig.access: "public"` in `packages/shared/package.json`
+> **and** `--access public` on the publish command.
+
+Preflight — confirm the shared tarball has `dist/*` (no `*.test.js`, no
+`*.map`), `schema.sql`, `README.md`, `LICENSE`, and `package.json`, and nothing
+else:
+
+```bash
+pnpm --filter @robrain/shared exec npm pack --dry-run
+```
+
+Then from repo root:
 
 ```bash
 pnpm publish:npm
-# equivalent: pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks
+# equivalent: pnpm --filter robrain build && node packages/cli/scripts/verify-release-artifacts.mjs && pnpm --filter @robrain/shared publish --access public --no-git-checks && pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks
 ```
+
+With 2FA on the account, npm prompts for an OTP **per package** — two prompts.
+
+**Why the guard runs up front.** `@robrain/shared` has no coupling to the Docker
+image, so the GHCR golden rule does not gate it, and publishing it first means a
+cloud repin never waits on a CLI publish failure. But the CLI's own
+`prepublishOnly` guard runs *last* in the chain — if it failed there,
+`@robrain/shared@X.Y.Z` would already be public with no matching CLI, and npm
+blocks reusing a version for 24h after an unpublish. The only way out would be
+bumping everything to X.Y.Z+1, leaving an orphan version the cloud could pin and
+breaking the lockstep invariant. So `publish:npm` builds the CLI and runs
+`verify-release-artifacts.mjs` standalone *before* the first publish. It runs
+again in `prepublishOnly`; the second run is a cheap no-op re-check.
+`ROBRAIN_SKIP_RELEASE_GUARD=1` still bypasses both.
+
+**`prepack` cleans `dist/` first.** `tsc` never removes stale output, so the
+tsconfig test exclusion alone would leave previously-compiled `*.test.js` in a
+release machine's `dist/` and ship them. Both `prepack` (npm tarball) and
+`prepare` (git-path installs) run `rm -rf dist && tsc -p tsconfig.publish.json`:
+the clean makes the exclusion real, and `tsconfig.publish.json` turns off
+`sourceMap` / `declarationMap` so no `.js.map` / `.d.ts.map` ships pointing at a
+`../src` the tarball does not contain. Plain `build` uses `tsconfig.json` and
+keeps maps, so local dev is unaffected.
 
 Smoke:
 
 ```bash
+npm view @robrain/shared version   # → X.Y.Z
 npx robrain@X.Y.Z --version
 npx robrain@X.Y.Z up          # only if no conflicting stack already running (see below)
 cd packages/cli && pnpm pack:verify
@@ -234,7 +277,7 @@ git tag vX.Y.Z → push tag → wait publish-perception-image.yml ✓
        ↓
 docker pull ghcr.io/.../robrain-perception:X.Y.Z  (verify)
        ↓
-pnpm publish:npm   (release guard must pass)
+pnpm publish:npm   (@robrain/shared, then robrain — release guard must pass)
        ↓
 mcp-publisher publish   (login github only if 401)
        ↓
