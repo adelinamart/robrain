@@ -53,8 +53,12 @@ pnpm install && pnpm build
 pnpm docker:up                 # first run: creates .env; Perception won't start yet
 # open .env, add ANTHROPIC_API_KEY + your embedding key (e.g. OPENAI_API_KEY)
 pnpm docker:up                 # second run: Perception now boots
-npx robrain install --self-hosted --repo-root "$(pwd)"
+pnpm robrain install --self-hosted --repo-root "$(pwd)"
 ```
+
+`pnpm robrain` runs the CLI you just built (`node packages/cli/bin/robrain.js`).
+Use it instead of `npx robrain` everywhere in this clone — `npx` resolves to the
+published package or a stale global install, not your working tree.
 
 </details>
 
@@ -83,7 +87,7 @@ Every paid plan qualifies — individual standard or annual, Teams, and enterpri
 
 OpenAI-only: set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` instead of Anthropic — see [Concepts — Prefer not to use Anthropic](docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only).
 
-Upgrading a self-hosted install on a new release — no-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `npx robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
+Upgrading a self-hosted install on a new release — no-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `pnpm robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 ## Quickstart
 
@@ -201,9 +205,9 @@ Every retrieved context, agent reply, and verdict is committed in [packages/veto
 
 ## Security
 
-The memory corpus is guarded by `PERCEPTION_API_KEY` — a random secret in the repo-root `.env` that every client (Sensing MCP, CLI, Synthesis) sends as a Bearer token and Perception verifies on every request except `/health`. It is not issued by any service: `pnpm docker:up` generates one automatically on first run, or set your own (e.g. `openssl rand -hex 32`). `npx robrain install --self-hosted` copies the same value into your editor configs so clients authenticate.
+The memory corpus is guarded by `PERCEPTION_API_KEY` — a random secret in the repo-root `.env` that every client (Sensing MCP, CLI, Synthesis) sends as a Bearer token and Perception verifies on every request except `/health`. It is not issued by any service: `pnpm docker:up` generates one automatically on first run, or set your own (e.g. `openssl rand -hex 32`). Installing (`pnpm robrain install --self-hosted` from a clone, `npx robrain install --self-hosted` otherwise) copies the same value into your editor configs so clients authenticate.
 
-Perception refuses to start when the key is empty — running unauthenticated requires an explicit opt-in. **Upgrading from a version that ran without a key:** add one to `.env` (or re-run `pnpm docker:up` to auto-fill it), then re-run `npx robrain install --self-hosted` so editors pick it up. Details and the opt-in flag are documented in [`.env.example`](.env.example).
+Perception refuses to start when the key is empty — running unauthenticated requires an explicit opt-in. **Upgrading from a version that ran without a key:** add one to `.env` (or re-run `pnpm docker:up` to auto-fill it), then re-run install (`pnpm robrain install --self-hosted` from a clone, `npx robrain install --self-hosted` otherwise) so editors pick it up. Details and the opt-in flag are documented in [`.env.example`](.env.example).
 
 Also on by default: secrets redaction (API keys, tokens, private keys, connection-string passwords are scrubbed at capture and again at ingest, before anything is embedded or stored), and a fully-local mode where extraction and embeddings run on an OpenAI-compatible local server (Ollama / LM Studio / vLLM) — see [CLI — Fully-local LLM](docs/cli.md#fully-local-llm-ollama--lm-studio--vllm) and [`.env.example`](.env.example).
 

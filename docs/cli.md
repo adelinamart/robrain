@@ -271,7 +271,7 @@ From the **robrain repo root** (same directory as `docker/` and `.env`):
 git pull
 pnpm install && pnpm build
 pnpm docker:up:build
-npx robrain install --self-hosted --repo-root "$(pwd)"
+pnpm robrain install --self-hosted --repo-root "$(pwd)"
 ```
 
 | Step | Why it matters |
@@ -299,7 +299,7 @@ For the **clone path**, a global CLI update alone is not enough — Perception s
 cd /path/to/robrain
 git pull && pnpm install && pnpm build
 pnpm docker:up:build
-npx robrain install --self-hosted --repo-root "$(pwd)"
+pnpm robrain install --self-hosted --repo-root "$(pwd)"
 ```
 
 ### Verify after upgrading
