@@ -33,7 +33,9 @@ Two ways to run RoBrain — pick one:
 
 ### Option 1 · Self-hosted (free, open source)
 
-No clone needed — `robrain up` pulls the published Perception image and generates credentials into `~/.robrain/stack/.env`:
+No clone needed — `robrain up` pulls the published Perception image and generates credentials into `~/.robrain/stack/.env`.
+
+Default path uses Anthropic (extraction) + OpenAI (embeddings). Other setups (OpenAI-only, Gemini, other embeddings, fully local) — [Concepts — Prefer a different provider setup?](docs/concepts.md#prefer-a-different-provider-setup).
 
 ```bash
 export ANTHROPIC_API_KEY=... OPENAI_API_KEY=...   # or add them to ~/.robrain/stack/.env after the first run
@@ -51,7 +53,7 @@ git clone https://github.com/adelinamart/robrain
 cd robrain
 pnpm install && pnpm build
 pnpm docker:up                 # first run: creates .env; Perception won't start yet
-# open .env, add ANTHROPIC_API_KEY + your embedding key (e.g. OPENAI_API_KEY)
+# open .env, add LLM + embedding keys for the provider path you chose (default: ANTHROPIC_API_KEY + OPENAI_API_KEY)
 pnpm docker:up                 # second run: Perception now boots
 pnpm robrain install --self-hosted --repo-root "$(pwd)"
 ```
@@ -59,6 +61,13 @@ pnpm robrain install --self-hosted --repo-root "$(pwd)"
 `pnpm robrain` runs the CLI you just built (`node packages/cli/bin/robrain.js`).
 Use it instead of `npx robrain` everywhere in this clone — `npx` resolves to the
 published package or a stale global install, not your working tree.
+
+</details>
+
+<details>
+<summary>Upgrading a self-hosted install</summary>
+
+No-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `pnpm robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 </details>
 
@@ -84,10 +93,6 @@ npx robrain install          # no flags — cloud mode
 Sign in at [roryplans.ai](https://roryplans.ai), create an API token on your profile page, and paste it when the installer asks. That's the whole setup: no Docker, no database, no LLM or embedding keys — extraction and search run on our side. Your editors (Claude Code, Cursor, Copilot, Codex CLI) are wired automatically, and teammates on your Rory Plans team share the same memory.
 
 Every paid plan qualifies — individual standard or annual, Teams, and enterprise. Solo subscribers get a private memory space; teams share one. Self-hosting stays free and fully supported (see Install above); the [comparison table](#self-hosted-vs-rory-plans-cloud) shows what each tier adds.
-
-OpenAI-only: set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` instead of Anthropic — see [Concepts — Prefer not to use Anthropic](docs/concepts.md#prefer-not-to-use-anthropic-run-openai-only).
-
-Upgrading a self-hosted install on a new release — no-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `pnpm robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 ## Quickstart
 

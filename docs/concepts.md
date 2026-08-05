@@ -97,7 +97,20 @@ RoBrain uses one LLM for decision extraction/classification and Synthesis, plus 
 
 **Cheapest recommended combo:** `ANTHROPIC_API_KEY` (Haiku) + `EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` (`text-embedding-3-small`).
 
-### Prefer not to use Anthropic? Run OpenAI-only.
+### Prefer a different provider setup?
+
+The default self-hosted combo is Anthropic (extraction) + OpenAI (embeddings). You only need the keys for the path you pick:
+
+| Path | What you set |
+|------|----------------|
+| **OpenAI-only** | `LLM_PROVIDER=openai` + `OPENAI_API_KEY` (no Anthropic) |
+| **Gemini** | same `OPENAI_*` variables as OpenAI-only, different values + `OPENAI_BASE_URL` |
+| **Other embeddings** | keep Anthropic (or OpenAI) for the LLM; set `EMBEDDING_PROVIDER=voyage` or `cohere` + that provider’s key |
+| **Fully local** | same `OPENAI_*` variables, pointed at Ollama / LM Studio / vLLM |
+
+#### OpenAI-only (no Anthropic)
+
+<a id="prefer-not-to-use-anthropic-run-openai-only"></a>
 
 The reasoning LLM is pluggable. Set **`LLM_PROVIDER=openai`** and decision extraction + Synthesis use OpenAI chat-completions instead of Haiku — so the whole stack runs on a single OpenAI key (embeddings already default to OpenAI):
 
@@ -114,9 +127,29 @@ With this set, **no `ANTHROPIC_API_KEY` is required** — Perception, Sensing, a
 >
 > Synthesis uses Anthropic's ephemeral prompt cache on the default path; the OpenAI path simply skips that (OpenAI caches inputs automatically), so the only difference is cost behavior, not correctness.
 
-### Fully-local LLM (no cloud keys)
+#### Gemini (same OPENAI_* variables)
 
-Set `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`, and point OpenAI-compatible calls at Ollama / LM Studio / vLLM. When Perception runs in Docker, use **two** URLs in the shared `.env`:
+RoBrain has no separate Gemini provider. Google’s Gemini API speaks the OpenAI client protocol, so you use **the same env vars as OpenAI-only** — only the values change:
+
+```
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=<GEMINI_API_KEY>
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+OPENAI_LLM_MODEL=gemini-3.5-flash-lite
+OPENAI_EMBEDDING_MODEL=gemini-embedding-001
+OPENAI_EMBEDDING_DIMENSIONS=1536
+```
+
+`OPENAI_API_KEY` holds the Gemini key; `OPENAI_BASE_URL` is what routes those calls to Google instead of `api.openai.com`. Set embedding dimensions to **1536** (pgvector’s fixed width). Any other OpenAI-compatible endpoint works the same way: keep the `OPENAI_*` names, swap base URL / key / model names.
+
+#### Other embedding providers
+
+Embeddings are chosen separately from the LLM via **`EMBEDDING_PROVIDER`**: `openai` (default), `voyage`, or `cohere`. Perception and Sensing must use the **same** provider and model or vector search breaks. Set the matching key (`OPENAI_API_KEY`, `VOYAGE_API_KEY`, or `COHERE_API_KEY`). See [`.env.example`](../.env.example).
+
+#### Fully-local LLM (no cloud keys)
+
+Set `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`, and point OpenAI-compatible calls at Ollama / LM Studio / vLLM — again the **same `OPENAI_*` variable names**, just a local base URL. When Perception runs in Docker, use **two** URLs in the shared `.env`:
 
 - `OPENAI_BASE_URL=http://host.docker.internal:<port>/v1` — Perception inside Docker
 - `OPENAI_HOST_BASE_URL=http://127.0.0.1:<port>/v1` — Sensing, Synthesis, and `robrain doctor` on the host
