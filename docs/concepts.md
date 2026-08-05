@@ -136,7 +136,7 @@ LLM_PROVIDER=openai
 EMBEDDING_PROVIDER=openai
 OPENAI_API_KEY=<GEMINI_API_KEY>
 OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-OPENAI_LLM_MODEL=gemini-3.6-flash
+OPENAI_LLM_MODEL=gemini-3.5-flash-lite
 OPENAI_EMBEDDING_MODEL=gemini-embedding-001
 OPENAI_EMBEDDING_DIMENSIONS=1536
 ```

@@ -67,7 +67,7 @@ published package or a stale global install, not your working tree.
 <details>
 <summary>Upgrading a self-hosted install</summary>
 
-No-clone stack: re-run `npx robrain@latest up` then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `pnpm robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
+No-clone stack: re-run `npx robrain@latest up` (pulls the new Perception image and applies startup DB migrations) then `npx robrain@latest install --self-hosted`. From a clone: `git pull` → `pnpm install && pnpm build` → `pnpm docker:up:build` → `pnpm robrain install --self-hosted --repo-root "$(pwd)"` → fully restart editors. Full checklist: [CLI reference — Upgrading](docs/cli.md#upgrading).
 
 </details>
 
