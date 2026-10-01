@@ -45,7 +45,25 @@ export interface ExtractDecisionLlmConfig {
   openaiApiKey?:    string
   openaiModel:      string
   openaiBaseUrl?:   string
+  /**
+   * Appended to the shared system prompt for this call only. Self-hosted
+   * callers pass SELF_HOSTED_USER_RULE_OVERRIDE here; the base prompt stays
+   * byte-identical so the published default (and cloud re-extraction) is
+   * unchanged.
+   */
+  extraSystemRules?: string
 }
+
+/**
+ * Self-hosted-only extraction rule. A user-stated revision must be captured
+ * even when the assistant refuses it or restates an older rule — otherwise
+ * the revision is swallowed and the conflict never surfaces for review.
+ * Passed via ExtractDecisionLlmConfig.extraSystemRules, never baked into the
+ * shared default, so it does not alter cloud extraction behaviour.
+ */
+export const SELF_HOSTED_USER_RULE_OVERRIDE = `User-stated rule wins:
+- A durable rule is a standing instruction for future work in this repo or team (e.g. "from now on", "always", "never", "we no longer"). An instruction scoped to the current task, file, or step (e.g. "don't use that file", "stop logging here", "don't add tests for this one") is not durable; apply the rules above to it.
+- If the user states a durable rule in this turn, extract that rule even when the assistant refuses it, cites an older rule, or says it will not follow the new one. In that case do not return null, and do not extract the older rule the assistant restates.`
 
 /** Thrown when the selected provider's API key is missing — callers usually log-and-skip rather than record a failure. */
 export class LlmKeyMissingError extends Error {
@@ -107,6 +125,10 @@ export async function extractDecisionLlm(
 User: ${userMessage}
 Claude: ${claudeReply}`
 
+  const systemPrompt = cfg.extraSystemRules
+    ? `${DECISION_EXTRACTION_SYSTEM_PROMPT}\n\n${cfg.extraSystemRules}`
+    : DECISION_EXTRACTION_SYSTEM_PROMPT
+
   let rawText: string
   if (cfg.provider === 'openai') {
     const baseUrl = cfg.openaiBaseUrl ?? resolveOpenAiBaseUrl()
@@ -116,7 +138,7 @@ Claude: ${claudeReply}`
     rawText = await openaiChat({
       apiKey:    cfg.openaiApiKey ?? '',
       model:     cfg.openaiModel,
-      system:    DECISION_EXTRACTION_SYSTEM_PROMPT,
+      system:    systemPrompt,
       user:      userPrompt,
       maxTokens: 300,
       baseUrl,
@@ -129,7 +151,7 @@ Claude: ${claudeReply}`
     rawText = await anthropicChat({
       apiKey:    cfg.anthropicApiKey.trim(),
       model:     cfg.anthropicModel,
-      system:    DECISION_EXTRACTION_SYSTEM_PROMPT,
+      system:    systemPrompt,
       user:      userPrompt,
       maxTokens: 300,
     })

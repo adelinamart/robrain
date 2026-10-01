@@ -68,7 +68,7 @@ Coding is the first vertical because the feedback loops are tight — reverts, i
 
 Memory alone lets you ask *"what did we decide in March?"* Judgment answers harder questions: *are we contradicting ourselves? did our stance drift without anyone noticing? is the agent about to re-litigate something we already ruled out?*
 
-- **Contradiction-catching** — **Synthesis** scans the full corpus for incompatible pairs the write path never linked (different files, different sessions, different vocabulary); the write path itself dedups near-duplicates. Rory Plans cloud adds write-time reversal detection and surfaces conflicts and `rejected[]` vetoes at task boundaries before the agent suggests code.
+- **Contradiction-catching** — At write time, self-hosted Perception drops an exact restatement (whitespace and a trailing period aside; case and symbols such as `>=` count), and a close paraphrase from an earlier session when a one-word model check calls it the same decision. Any other close sentence is saved, including a refinement. When the check says the two cannot both be true, the new rule is saved even if it also matches an older row word for word; both rows are flagged for `robrain review`, tagged `conflict:newer` / `conflict:older` in the always-on summary until resolved, and the agent gets a `conflict_notice` on its next Sensing call. Newer means stated later: turn order within a session, the turn timestamp across sessions. **Synthesis** still scans the corpus for incompatible pairs that write-time never linked (different vocabulary, or below the similarity floor). Rory Plans cloud adds write-time supersession and surfaces conflicts and `rejected[]` vetoes at task boundaries before the agent suggests code.
 - **Synthesis as the judgment layer** — drift detection, contradiction passes, and entity promotion turn hundreds of isolated rows into `planning_blocks`, relation edges, and `robrain review` queues. See [Synthesis](#synthesis) below.
 - **`rejected[]` as substrate** — structured vetoes are the input pre-task warnings need. Capture stores them; judgment (retrieval, Synthesis, Control) acts on them.
 
@@ -184,7 +184,7 @@ Why isn't retrieval just another MCP tool? You usually don't need to run anythin
 
 | Pillar | When it runs | What it does |
 |--------|----------------|--------------|
-| **Capture** | Every session (Sensing → Perception) | Extracts decisions + `rejected[]`; dedups near-duplicates at write time (cloud adds write-time reversal detection); fills the always-on summary |
+| **Capture** | Every session (Sensing → Perception) | Extracts decisions + `rejected[]`; drops restatements, keeps refinements, flags close contradictions at write time (cloud adds write-time supersession); fills the always-on summary |
 | **Judgment** | On demand or on a schedule (Synthesis + review) | Reads the **whole** corpus — drift, cross-session contradictions, entity promotion |
 
 Capture without judgment leaves contradictions buried in hundreds of rows. Judgment without capture has nothing to judge. RoBrain ships both.
@@ -222,7 +222,7 @@ It also writes a **compiled-truth** summary per topic into **`planning_blocks`**
 
 #### Pass 2 — Which decisions contradict each other but were never compared?
 
-At **write time**, Perception mainly compares a new decision to neighbours that share **files** or are **semantically very similar** to the new embedding. It can **miss** pairs that are architecturally incompatible but live in different parts of the repo — e.g. session 12: *all external API calls must be idempotent* vs session 47: *use fire-and-forget for webhook delivery* (different files, never linked at insert time).
+At **write time**, Perception compares a new decision to the closest same-scope neighbors. An exact restatement is dropped, and so is a very close paraphrase from an earlier session that the model calls the same decision. Any other close sentence is saved, and a model `contradicts` flags both rows immediately. That still misses pairs that are architecturally incompatible but sit below the similarity floor or outside the few neighbors checked — e.g. session 12: *all external API calls must be idempotent* vs session 47: *use fire-and-forget for webhook delivery* (different files, never linked at insert time).
 
 Synthesis runs a **corpus-wide** pass: find candidate pairs (same **scope**, high embedding similarity, no relation row yet), ask a small model to classify the pair, then write **`decision_relations`** accordingly:
 

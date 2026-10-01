@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- excerpt — survives session_turns cascade deletion
   source_turn_sequence INTEGER,
   source_excerpt      TEXT,
+  -- When the user stated it (Sensing turn timestamp). Orders a clash as
+  -- conflict:newer / conflict:older across sessions; created_at is commit
+  -- order and can invert two turns. NULL on older rows → created_at.
+  source_turn_at      TIMESTAMPTZ,
 
   -- Quality-loop counters: times injected vs times judged used in the reply
   injected_count      INTEGER NOT NULL DEFAULT 0,
@@ -121,13 +125,14 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
 
 -- Additive upgrade guard: databases whose decisions table predates the trust
 -- columns (CREATE TABLE IF NOT EXISTS no-ops there) get them here so the
--- partial index below always has its column. Mirrors migration 003; fresh
--- installs already created them above — idempotent either way.
+-- partial index below always has its column. Mirrors migrations 003 and
+-- 006; fresh installs already created them above — idempotent either way.
 ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS trust_score            NUMERIC(3,2),
   ADD COLUMN IF NOT EXISTS trust_flags            JSONB,
   ADD COLUMN IF NOT EXISTS quarantined_at         TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS source_turn_at         TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_decisions_project     ON context_system.decisions(project_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decisions(session_id);
