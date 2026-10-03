@@ -11,6 +11,8 @@ export interface RouteDecisionOutcome {
   persisted: boolean
   /** Show in MCP tool JSON so the editor surfaces Perception failures (e.g. unregistered project). */
   userFacing?: string
+  /** Heads-up for the agent to say when this save clashes with an older decision. */
+  conflictNotice?: string
 }
 
 function parsePerceptionUserMessage(status: number, rawText: string): string {
@@ -26,7 +28,14 @@ function parsePerceptionUserMessage(status: number, rawText: string): string {
 
 // ── Route decision signal → Perception API ─────────────────
 
-/** Returns persisted=true when Perception stored a new row (`written`) or intentionally merged away a duplicate (`deduped`). */
+/**
+ * Returns persisted=true when Perception stored the row or intentionally
+ * kept an existing one (`written`, `deduped`). `conflict_flagged`,
+ * `auto_resolved_supersession`, and `quarantined` count too, so
+ * flush-on-close does not send them again. This router also talks to
+ * cloud Perception, so that retry stop applies there. Cloud write-time
+ * supersession itself is unchanged.
+ */
 export async function routeDecisionSignal(
   signal: DecisionSignal,
   projectId: string,
@@ -84,8 +93,15 @@ export async function routeDecisionSignal(
       }
     }
 
-    if (payload.action === 'written' || payload.action === 'deduped') {
-      return { persisted: true }
+    if (
+      payload.action === 'written' ||
+      payload.action === 'deduped' ||
+      payload.action === 'conflict_flagged' ||
+      payload.action === 'auto_resolved_supersession' ||
+      payload.action === 'quarantined'
+    ) {
+      const notice = payload.conflict_notice?.trim()
+      return { persisted: true, ...(notice ? { conflictNotice: notice } : {}) }
     }
 
     const softFallback = [payload.message].filter(Boolean).join(' ')
@@ -131,6 +147,9 @@ export async function routeReplyScore(score: ReplyScore): Promise<void> {
 
 // ── Route raw flush turns → Perception (needs_classification) ─
 
+// A conflict flagged on this path has no one to tell: flush-on-close runs
+// after the last turn, and thin mode does not hold heads-ups for the next
+// call. The flag is still written, so `robrain review` surfaces it.
 export async function routeFlushTurns(
   turns: Array<import('@robrain/shared').SessionTurn>,
   projectId: string,

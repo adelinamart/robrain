@@ -513,6 +513,8 @@ Increment sequence by 1 after each successful call.
 
 If topic_shift=true is returned, note it for follow-up context retrieval.
 
+If the user states a durable rule that clashes with a stored one, still record the turn as usual; RoBrain saves both. If conflict_notice is returned, tell the user that sentence before you finish; it can refer to a rule from an earlier turn. It is a heads-up, not a reason to undo the change or to stop. In the summary, a rule tagged conflict:newer is an unresolved clash with one tagged conflict:older: follow the newer one until the user resolves it in \`robrain review\`.
+
 ### Session end (last thing)
 \`\`\`
 sensing_end_session(session_id="<stored session_id>", summary="one sentence: what was accomplished")

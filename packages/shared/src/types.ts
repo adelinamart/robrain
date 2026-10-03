@@ -96,13 +96,18 @@ export interface IngestSignalRequest {
 
 export interface IngestSignalResponse {
   accepted: boolean
-  decision_id?: string             // set when action is 'written'
-  action: 'written' | 'discarded' | 'deduped' | 'queued_for_contradiction_check'
+  decision_id?: string             // set when action is 'written' or 'conflict_flagged'
+  action: 'written' | 'discarded' | 'deduped' | 'queued_for_contradiction_check' | 'conflict_flagged' | 'auto_resolved_supersession' | 'quarantined'
   message?: string
   /** When action is `deduped`: existing row that blocked a near-duplicate insert. */
   matched_decision_id?: string
   matched_reviewed?: boolean
   similarity?: number
+  /** Set when the new decision clashes with a saved one. The agent should tell the user this sentence. */
+  conflict_notice?: string
+  conflicts_with_id?: string
+  /** Text of the conflicts_with_id row. It can be the later-stated of the two when turns commit out of order. */
+  prior_decision?: string
 }
 
 /** POST /scores — Control → Perception (feedback loop) */

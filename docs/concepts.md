@@ -68,7 +68,7 @@ Coding is the first vertical because the feedback loops are tight — reverts, i
 
 Memory alone lets you ask *"what did we decide in March?"* Judgment answers harder questions: *are we contradicting ourselves? did our stance drift without anyone noticing? is the agent about to re-litigate something we already ruled out?*
 
-- **Contradiction-catching** — **Synthesis** scans the full corpus for incompatible pairs the write path never linked (different files, different sessions, different vocabulary); the write path itself dedups near-duplicates. Rory Plans cloud adds write-time reversal detection and surfaces conflicts and `rejected[]` vetoes at task boundaries before the agent suggests code.
+- **Contradiction-catching** — Self-hosted Perception keeps a new rule. It drops one only when the wording is the same sentence already stored, or when a close paraphrase from an earlier session is one the model calls the same decision. A rule that clashes with a stored one is saved, and both are flagged for `robrain review`. Until you resolve the pair, the summary marks the later-stated rule `conflict:newer` and the earlier one `conflict:older`, and the agent hears about it on its next Sensing call. A rephrase inside the same session is kept. A clash Synthesis finds later, including from a distant session, gets those same tags on purpose, and the agent follows the later-stated rule until review resolves the pair. The model check runs only when a stored rule is already close. **Synthesis** still searches the rest of the corpus for pairs this check never linked. Rory Plans cloud adds write-time supersession and surfaces conflicts and `rejected[]` vetoes at task boundaries before the agent suggests code.
 - **Synthesis as the judgment layer** — drift detection, contradiction passes, and entity promotion turn hundreds of isolated rows into `planning_blocks`, relation edges, and `robrain review` queues. See [Synthesis](#synthesis) below.
 - **`rejected[]` as substrate** — structured vetoes are the input pre-task warnings need. Capture stores them; judgment (retrieval, Synthesis, Control) acts on them.
 
@@ -184,7 +184,7 @@ Why isn't retrieval just another MCP tool? You usually don't need to run anythin
 
 | Pillar | When it runs | What it does |
 |--------|----------------|--------------|
-| **Capture** | Every session (Sensing → Perception) | Extracts decisions + `rejected[]`; dedups near-duplicates at write time (cloud adds write-time reversal detection); fills the always-on summary |
+| **Capture** | Every session (Sensing → Perception) | Extracts decisions + `rejected[]`; drops restatements, keeps refinements, flags close contradictions at write time (cloud adds write-time supersession); fills the always-on summary |
 | **Judgment** | On demand or on a schedule (Synthesis + review) | Reads the **whole** corpus — drift, cross-session contradictions, entity promotion |
 
 Capture without judgment leaves contradictions buried in hundreds of rows. Judgment without capture has nothing to judge. RoBrain ships both.
@@ -222,13 +222,15 @@ It also writes a **compiled-truth** summary per topic into **`planning_blocks`**
 
 #### Pass 2 — Which decisions contradict each other but were never compared?
 
-At **write time**, Perception mainly compares a new decision to neighbours that share **files** or are **semantically very similar** to the new embedding. It can **miss** pairs that are architecturally incompatible but live in different parts of the repo — e.g. session 12: *all external API calls must be idempotent* vs session 47: *use fire-and-forget for webhook delivery* (different files, never linked at insert time).
+At **write time**, Perception keeps a new decision unless it repeats a stored sentence, or a close paraphrase from an earlier session that the model calls the same decision. A clash is saved and both rows are flagged. Pairs that use different words, or that this check never saw, are left for Synthesis — e.g. session 12: *all external API calls must be idempotent* vs session 47: *use fire-and-forget for webhook delivery* (different files, never linked at insert time).
 
 Synthesis runs a **corpus-wide** pass: find candidate pairs (same **scope**, high embedding similarity, no relation row yet), ask a small model to classify the pair, then write **`decision_relations`** accordingly:
 
 - **`conflicts_with`** (+ **`conflict_flag`**) when the model says they cannot both be true.
 - **`extends`** when the second decision **builds on** the first without contradicting it (direction: newer message in the prompt extends the earlier one, stored as an edge for graph consumers).
 - **`related_to`** when they are compatible peers on the same topic.
+
+A `conflicts_with` pair is tagged `conflict:newer` / `conflict:older` whether Perception caught it while saving the rule or Synthesis caught it later, including when the two rules come from distant sessions. The tag follows when each rule was stated. The agent is told to follow the later-stated rule until `robrain review` resolves the pair.
 
 Confirmed contradictions are **flagged for `robrain review`** — resolving them stays a human call in the self-hosted version. Guard-railed **auto-resolution** (newer decision wins under confidence + approval guards) is part of Rory Plans cloud; see the [comparison table](#free--self-hosted-vs-rory-plans-cloud).
 

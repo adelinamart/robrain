@@ -72,10 +72,39 @@ export interface OpenAiChatParams {
    * false for prose / single-word replies (e.g. the contradiction classifier).
    */
   json?:     boolean
+  /** Aborts the call across all retry attempts (e.g. AbortSignal.timeout). */
+  signal?:   AbortSignal
+  /** Called once on success with the provider-reported token counts. */
+  onUsage?:  (usage: ChatUsage) => void
+}
+
+/** Token counts and attempts for one successful chat call. Missing counts are 0. */
+export interface ChatUsage {
+  inputTokens:  number
+  outputTokens: number
+  /** 1 when the first request succeeded; higher after 429 / 5xx retries. */
+  attempts:     number
 }
 
 const OPENAI_MAX_ATTEMPTS  = 4
 const OPENAI_BASE_DELAY_MS = 400
+
+/** Backoff before the next attempt. Rejects with the signal's reason as soon as it aborts. */
+function waitBeforeRetry(attempt: number, signal: AbortSignal | undefined): Promise<void> {
+  signal?.throwIfAborted()
+  const delayMs = OPENAI_BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 150)
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 /**
  * Minimal OpenAI chat-completions call returning the assistant's text.
@@ -111,12 +140,19 @@ export async function openaiChat(params: OpenAiChatParams): Promise<string> {
       method:  'POST',
       headers,
       body,
+      signal:  params.signal,
     })
 
     if (res.ok) {
       const data = await res.json() as {
         choices?: Array<{ message?: { content?: string } }>
+        usage?:   { prompt_tokens?: number; completion_tokens?: number }
       }
+      params.onUsage?.({
+        inputTokens:  data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        attempts:     attempt + 1,
+      })
       return data.choices?.[0]?.message?.content ?? ''
     }
 
@@ -125,8 +161,7 @@ export async function openaiChat(params: OpenAiChatParams): Promise<string> {
     if (!retriable || attempt >= OPENAI_MAX_ATTEMPTS - 1) {
       throw new Error(`OpenAI chat failed: ${lastErr}`)
     }
-    const delay = OPENAI_BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 150)
-    await new Promise(r => setTimeout(r, delay))
+    await waitBeforeRetry(attempt, params.signal)
   }
 
   throw new Error(`OpenAI chat failed: ${lastErr}`)
@@ -140,6 +175,10 @@ export interface AnthropicChatParams {
   maxTokens: number
   /** Sampling temperature. Unset = API default; pass 0 for reproducibility-sensitive callers (e.g. VetoBench). */
   temperature?: number
+  /** Aborts the call across all retry attempts (e.g. AbortSignal.timeout). */
+  signal?:   AbortSignal
+  /** Called once on success with the provider-reported token counts. */
+  onUsage?:  (usage: ChatUsage) => void
 }
 
 /**
@@ -171,12 +210,19 @@ export async function anthropicChat(params: AnthropicChatParams): Promise<string
         'Content-Type':      'application/json',
       },
       body,
+      signal:  params.signal,
     })
 
     if (res.ok) {
       const data = await res.json() as {
         content?: Array<{ type?: string; text?: string }>
+        usage?:   { input_tokens?: number; output_tokens?: number }
       }
+      params.onUsage?.({
+        inputTokens:  data.usage?.input_tokens ?? 0,
+        outputTokens: data.usage?.output_tokens ?? 0,
+        attempts:     attempt + 1,
+      })
       const block = data.content?.[0]
       return block?.type === 'text' ? (block.text ?? '') : ''
     }
@@ -186,8 +232,7 @@ export async function anthropicChat(params: AnthropicChatParams): Promise<string
     if (!retriable || attempt >= OPENAI_MAX_ATTEMPTS - 1) {
       throw new Error(`Anthropic chat failed: ${lastErr}`)
     }
-    const delay = OPENAI_BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 150)
-    await new Promise(r => setTimeout(r, delay))
+    await waitBeforeRetry(attempt, params.signal)
   }
 
   throw new Error(`Anthropic chat failed: ${lastErr}`)

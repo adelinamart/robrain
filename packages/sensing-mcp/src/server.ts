@@ -24,6 +24,7 @@ import {
   routeFlushTurns,
 } from './router.js'
 import { config, isThinMode } from './config.js'
+import { MAX_PENDING_CONFLICT_NOTICES, rememberConflictNotice } from './pending-notices.js'
 import { SessionRegistry } from './session-registry.js'
 
 // ── Active session registry (survives restarts via file mirror) ──
@@ -32,6 +33,27 @@ export const sessionRegistry = new SessionRegistry(config.sessionRegistryPath)
 
 /** Last Perception POST /signals failure for diagnostics (sensing_get_status). */
 let lastDecisionShipFailure: string | null = null
+
+/**
+ * Self-hosted conflict heads-ups waiting for the session's next
+ * sensing_record_turn (or sensing_end_session). The save runs in the
+ * background so record_turn never waits on model calls; the heads-up
+ * arrives one turn late. In memory only — lost on restart, while the
+ * flag itself stays in Perception for `robrain review`.
+ */
+const pendingConflictNotices = new Map<string, string[]>()
+
+function holdConflictNotice(sessionId: string, notice: string): void {
+  // A save that finishes after end_session has nowhere to deliver.
+  if (!sessionRegistry.get(sessionId)) return
+  rememberConflictNotice(pendingConflictNotices, sessionId, notice, MAX_PENDING_CONFLICT_NOTICES)
+}
+
+function takeConflictNotice(sessionId: string): string | null {
+  const held = pendingConflictNotices.get(sessionId)
+  pendingConflictNotices.delete(sessionId)
+  return held?.length ? held.join(' ') : null
+}
 
 function generateSessionId(): string {
   return `${new Date().toISOString()}-${randomBytes(2).toString('hex')}`
@@ -103,12 +125,19 @@ export function buildServer(): McpServer {
   // TOOL 2 — sensing_record_turn
   // Called after every user + Claude exchange.
   // Returns immediately (buffer write is synchronous).
-  // topic_shift is the only result computed inline.
+  // topic_shift is the only result computed inline. A self-hosted
+  // conflict heads-up from an earlier turn's save rides along.
   // ─────────────────────────────────────────────────────────────
+
+  const recordTurnDescription =
+    'Record a completed conversation turn (user message + Claude reply). Call this after every exchange. Survives server restarts — keep using the same session_id even if the server reconnected mid-conversation. Returns whether a topic shift was detected — if true, call your context injection tool.' +
+    (isThinMode()
+      ? ''
+      : ' A new durable rule from the user is still recorded when it conflicts with an older one. If conflict_notice is set, tell the user that sentence; it can refer to a rule from an earlier turn. Both decisions were saved. It is a heads-up, not a stop.')
 
   server.tool(
     'sensing_record_turn',
-    'Record a completed conversation turn (user message + Claude reply). Call this after every exchange. Survives server restarts — keep using the same session_id even if the server reconnected mid-conversation. Returns whether a topic shift was detected — if true, call your context injection tool.',
+    recordTurnDescription,
     {
       session_id:       z.string().describe('Session identifier from sensing_start_session'),
       sequence:         z.number().int().describe('Turn number within the session, starting at 1'),
@@ -190,34 +219,13 @@ export function buildServer(): McpServer {
       // with needs_classification=true (same signal shape as flush-on-close);
       // server-side calibrated re-extraction classifies it. Failed ships stay
       // unclassified so the end_session flush retries them.
+      // Self-hosted: a conflict heads-up from this save is held for the next call.
       const projectId = session.project_id
-      setImmediate(async () => {
-        try {
-          if (isThinMode()) {
-            const errors = await routeFlushTurns([turn], projectId)
-            if (errors.length === 0) {
-              lastDecisionShipFailure = null
-              streamBuffer.markClassified(session_id, sequence)
-            } else {
-              lastDecisionShipFailure = `${session_id} seq ${sequence}: ${errors.join('; ')}`
-            }
-            return
-          }
-          const decisionSignal = await classifyDecision(turn, projectId)
-          if (decisionSignal) {
-            const outcome = await routeDecisionSignal(decisionSignal, projectId)
-            if (outcome.persisted) {
-              lastDecisionShipFailure = null
-              streamBuffer.markClassified(session_id, sequence)
-            } else {
-              lastDecisionShipFailure =
-                outcome.userFacing ??
-                `${session_id} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
-            }
-          }
-        } catch (err) {
-          console.error('[Sensing] Decision classifier error:', err)
-        }
+      const conflictNotice = takeConflictNotice(session_id)
+      setImmediate(() => {
+        void (isThinMode()
+          ? shipThinModeTurn(turn, projectId, session_id, sequence)
+          : shipRecordedTurn(turn, projectId, session_id, sequence))
       })
 
       // Reply scorer — non-blocking
@@ -249,6 +257,7 @@ export function buildServer(): McpServer {
             task_description: taskDescription,
             secrets_redacted: secretsRedacted,
             sequence,
+            ...(conflictNotice ? { conflict_notice: conflictNotice } : {}),
           }),
         }],
       }
@@ -296,6 +305,7 @@ export function buildServer(): McpServer {
 
       sessionRegistry.remove(session_id)
       clearSessionEmbeddings(session_id)
+      const conflictNotice = takeConflictNotice(session_id)
 
       console.error(`[Sensing] Session ended: ${session_id} — flushing ${flushed} turn(s) in background`)
 
@@ -307,6 +317,7 @@ export function buildServer(): McpServer {
             flushed,
             pending: flushed,
             summary: summary ?? null,
+            ...(conflictNotice ? { conflict_notice: conflictNotice } : {}),
           }),
         }],
       }
@@ -357,6 +368,49 @@ export function buildServer(): McpServer {
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+async function shipThinModeTurn(
+  turn: SessionTurn,
+  projectId: string,
+  sessionId: string,
+  sequence: number,
+): Promise<void> {
+  try {
+    const errors = await routeFlushTurns([turn], projectId)
+    if (errors.length === 0) {
+      lastDecisionShipFailure = null
+      streamBuffer.markClassified(sessionId, sequence)
+    } else {
+      lastDecisionShipFailure = `${sessionId} seq ${sequence}: ${errors.join('; ')}`
+    }
+  } catch (err) {
+    console.error('[Sensing] Decision classifier error:', err)
+  }
+}
+
+async function shipRecordedTurn(
+  turn: SessionTurn,
+  projectId: string,
+  sessionId: string,
+  sequence: number,
+): Promise<void> {
+  try {
+    const decisionSignal = await classifyDecision(turn, projectId)
+    if (!decisionSignal) return
+    const outcome = await routeDecisionSignal(decisionSignal, projectId)
+    if (outcome.persisted) {
+      lastDecisionShipFailure = null
+      streamBuffer.markClassified(sessionId, sequence)
+      if (outcome.conflictNotice) holdConflictNotice(sessionId, outcome.conflictNotice)
+      return
+    }
+    lastDecisionShipFailure =
+      outcome.userFacing ??
+      `${sessionId} seq ${sequence}: Perception did not persist signal (see Sensing stderr / Perception logs)`
+  } catch (err) {
+    console.error('[Sensing] Decision classifier error:', err)
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   // Promise.race abandons the loser — attach .catch so a late reject cannot crash the process.
