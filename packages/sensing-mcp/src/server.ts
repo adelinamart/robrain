@@ -24,6 +24,7 @@ import {
   routeFlushTurns,
 } from './router.js'
 import { config, isThinMode } from './config.js'
+import { MAX_PENDING_CONFLICT_NOTICES, rememberConflictNotice } from './pending-notices.js'
 import { SessionRegistry } from './session-registry.js'
 
 // ── Active session registry (survives restarts via file mirror) ──
@@ -45,9 +46,7 @@ const pendingConflictNotices = new Map<string, string[]>()
 function holdConflictNotice(sessionId: string, notice: string): void {
   // A save that finishes after end_session has nowhere to deliver.
   if (!sessionRegistry.get(sessionId)) return
-  const held = pendingConflictNotices.get(sessionId) ?? []
-  if (!held.includes(notice)) held.push(notice)
-  pendingConflictNotices.set(sessionId, held)
+  rememberConflictNotice(pendingConflictNotices, sessionId, notice, MAX_PENDING_CONFLICT_NOTICES)
 }
 
 function takeConflictNotice(sessionId: string): string | null {

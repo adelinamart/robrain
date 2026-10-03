@@ -8,6 +8,7 @@
 // are marked conflict_flag so review shows the clash immediately. Synthesis
 // still scans the rest of the corpus.
 
+import { createHash } from 'node:crypto'
 import { THRESHOLDS } from '@robrain/shared'
 
 /**
@@ -83,6 +84,138 @@ export function textNearIdentical(left: string, right: string): boolean {
   const normalizedRight = normalizeText(right)
   if (normalizedLeft.length === 0 || normalizedRight.length === 0) return false
   return normalizedLeft === normalizedRight
+}
+
+/** Provenance snapshot stored on the decision row and compared on a retry. */
+export const TURN_CAPTURE_EXCERPT_CHARS = 300
+
+/**
+ * Excerpt POST /signals stores for a turn. Sensing's source_excerpt wins
+ * when it sent one; otherwise the user message. Only the first
+ * TURN_CAPTURE_EXCERPT_CHARS characters are kept.
+ */
+export function turnSourceExcerpt(sourceExcerpt: string | undefined, userMessage: string): string | null {
+  const raw = sourceExcerpt !== undefined ? sourceExcerpt : userMessage
+  const sliced = raw.slice(0, TURN_CAPTURE_EXCERPT_CHARS)
+  return sliced.length > 0 ? sliced : null
+}
+
+/**
+ * True when two excerpts are the same stored prefix. An empty excerpt
+ * matches nothing. Comparison is exact. The stored value is only the first
+ * TURN_CAPTURE_EXCERPT_CHARS characters, so two different messages that
+ * share that prefix still match. Used when the stored row has no turn hash.
+ */
+export function sameTurnExcerpt(storedExcerpt: string | null, incomingExcerpt: string | null): boolean {
+  if (!storedExcerpt || !incomingExcerpt) return false
+  return storedExcerpt === incomingExcerpt
+}
+
+/** User message plus assistant reply, the two texts a retry sends again. */
+export interface TurnIdentity {
+  sourceExcerpt: string | null
+  sourceTurnHash: string | null
+}
+
+/**
+ * SHA-256 of the user message and the assistant reply. Lengths are written
+ * first so the boundary between the two texts cannot collide. A short
+ * agreement such as "yes" still differs when the reply that holds the
+ * decision differs. A real retry sends both texts again, so it hashes the
+ * same. The full texts are hashed, not the 300-character excerpt.
+ */
+export function turnSourceHash(userMessage: string, assistantReply: string): string {
+  return createHash('sha256')
+    .update(String(userMessage.length))
+    .update('\0')
+    .update(userMessage)
+    .update('\0')
+    .update(String(assistantReply.length))
+    .update('\0')
+    .update(assistantReply)
+    .digest('hex')
+}
+
+/**
+ * True when a stored row is a re-send of this turn. The agent picks the
+ * sequence number, so the number alone is not enough. Rows that have a
+ * turn hash match on that hash. Rows saved before the hash column existed
+ * fall back to the excerpt, which still collides on a bare "yes".
+ */
+export function sameTurnCapture(stored: TurnIdentity, incoming: TurnIdentity): boolean {
+  if (stored.sourceTurnHash) return stored.sourceTurnHash === incoming.sourceTurnHash
+  return sameTurnExcerpt(stored.sourceExcerpt, incoming.sourceExcerpt)
+}
+
+export function withTurnIdentity<Capture extends {
+  source_excerpt: string | null
+  source_turn_hash: string | null
+}>(capture: Capture): Capture & TurnIdentity {
+  return {
+    ...capture,
+    sourceExcerpt: capture.source_excerpt,
+    sourceTurnHash: capture.source_turn_hash,
+  }
+}
+
+export function findMatchingTurnCapture<Capture extends TurnIdentity>(
+  captures: readonly Capture[],
+  incoming: TurnIdentity,
+): Capture | undefined {
+  return captures.find((capture) => sameTurnCapture(capture, incoming))
+}
+
+export type NeighborCheckStartup =
+  | { action: 'ok' }
+  | { action: 'refuse'; message: string }
+  | { action: 'warn'; message: string }
+
+function chatKeyPresent(apiKey: string | undefined): boolean {
+  return Boolean(apiKey?.trim())
+}
+
+/**
+ * What to do about the chat model the neighbor check will call.
+ * A hosted provider with no key refuses to start. A local OpenAI-compatible
+ * server is allowed to start, and warns once: if it does not answer with
+ * one word, cross-session paraphrases are saved.
+ */
+export function neighborCheckStartup(input: {
+  llmProvider: 'anthropic' | 'openai'
+  anthropicApiKey: string
+  openaiApiKey: string | undefined
+  usingLocalChatServer: boolean
+  localChatBaseUrl: string
+}): NeighborCheckStartup {
+  if (input.llmProvider === 'anthropic' && !chatKeyPresent(input.anthropicApiKey)) {
+    return {
+      action: 'refuse',
+      message:
+        '[RoBrain Perception OSS] Refusing to start: ANTHROPIC_API_KEY is empty.\n' +
+        '  Set ANTHROPIC_API_KEY in .env, or run with LLM_PROVIDER=openai + OPENAI_API_KEY to avoid Anthropic.\n' +
+        '  The neighbor check uses this same chat key. Without a chat model, a close paraphrase from an earlier session is saved instead of deduped.',
+    }
+  }
+  if (input.llmProvider === 'openai' && !chatKeyPresent(input.openaiApiKey) && !input.usingLocalChatServer) {
+    return {
+      action: 'refuse',
+      message:
+        '[RoBrain Perception OSS] Refusing to start: LLM_PROVIDER=openai but OPENAI_API_KEY is empty.\n' +
+        '  Set OPENAI_API_KEY in .env (same key also works for EMBEDDING_PROVIDER=openai),\n' +
+        '  or set OPENAI_BASE_URL to a local OpenAI-compatible server (Ollama / LM Studio / vLLM).\n' +
+        '  The neighbor check uses this same chat key. Without a chat model, a close paraphrase from an earlier session is saved instead of deduped.',
+    }
+  }
+  if (input.llmProvider === 'openai' && input.usingLocalChatServer) {
+    return {
+      action: 'warn',
+      message:
+        `[RoBrain Perception OSS] WARNING: the write-time neighbor check uses a local chat server (${input.localChatBaseUrl}).\n` +
+        '  Cross-session paraphrase dedup runs only when that server answers with one word: same, contradicts, refines, or different.\n' +
+        '  A timeout, an error, or any other reply saves the decision, so near-duplicates collect in the summary and in robrain review.',
+    }
+  }
+  return { action: 'ok' }
 }
 
 /**
@@ -242,7 +375,7 @@ export interface StatedAt {
  * sequence decides. Otherwise the turn timestamp decides, then insert
  * time, then row id. Both timestamps are compared at microsecond
  * resolution, the same order as the timestamptz tuple in the conflict_role
- * CASE in regenerateSummary. The id is only the last key when those
+ * CASE in rankSummaryDecisions. The id is only the last key when those
  * instants are equal. Keep the two in step.
  */
 export function statedAfter(later: StatedAt, earlier: StatedAt): boolean {

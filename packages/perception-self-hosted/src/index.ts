@@ -28,7 +28,8 @@ import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
 import { filterVetoMatches, type VetoScanRow } from './veto-scan.js'
-import { chronologyInstantSql, conflictNotice, NEIGHBOR_RELATION_PROMPT, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, type NeighborVerdict } from './write-conflict.js'
+import { commitDecisionWrite, loadTurnCaptures, rankSummaryDecisions, type TurnCapture } from './decision-sql.js'
+import { chronologyInstantSql, conflictNotice, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type TurnIdentity } from './write-conflict.js'
 
 const { Pool } = pg
 
@@ -78,28 +79,26 @@ if (!config.apiKey && config.allowUnauth) {
   console.warn('[RoBrain Perception OSS] WARNING: running without auth (ALLOW_UNAUTHENTICATED=true).')
 }
 
-// Require the selected reasoning provider's key — extraction can't run without it.
-if (config.llmProvider === 'anthropic' && !config.anthropicApiKey) {
-  console.error(
-    '[RoBrain Perception OSS] Refusing to start: ANTHROPIC_API_KEY is empty.\n' +
-    '  Set ANTHROPIC_API_KEY in .env, or run with LLM_PROVIDER=openai + OPENAI_API_KEY to avoid Anthropic.'
-  )
-  process.exit(1)
-}
-// A non-default OPENAI_BASE_URL means a local OpenAI-compatible server
-// (Ollama / LM Studio / vLLM) — those usually run keyless, so only require
-// OPENAI_API_KEY when talking to api.openai.com itself.
+// The neighbor check uses this same chat provider. A hosted key that is
+// missing refuses to start. A local OpenAI-compatible server may start
+// without a key, and then warns that paraphrase dedup depends on a one-word reply.
 const usingLocalOpenAi = config.openaiBaseUrl !== DEFAULT_OPENAI_BASE_URL
-if (config.llmProvider === 'openai' && !config.openaiApiKey && !usingLocalOpenAi) {
-  console.error(
-    '[RoBrain Perception OSS] Refusing to start: LLM_PROVIDER=openai but OPENAI_API_KEY is empty.\n' +
-    '  Set OPENAI_API_KEY in .env (same key also works for EMBEDDING_PROVIDER=openai),\n' +
-    '  or set OPENAI_BASE_URL to a local OpenAI-compatible server (Ollama / LM Studio / vLLM).'
-  )
+const chatStartup = neighborCheckStartup({
+  llmProvider:           config.llmProvider,
+  anthropicApiKey:      config.anthropicApiKey,
+  openaiApiKey:          config.openaiApiKey,
+  usingLocalChatServer:  config.llmProvider === 'openai' && usingLocalOpenAi,
+  localChatBaseUrl:      config.openaiBaseUrl,
+})
+if (chatStartup.action === 'refuse') {
+  console.error(chatStartup.message)
   process.exit(1)
 }
 if (usingLocalOpenAi) {
   console.log(`[RoBrain Perception OSS] OpenAI-compatible base URL override: ${config.openaiBaseUrl}`)
+}
+if (chatStartup.action === 'warn') {
+  console.warn(chatStartup.message)
 }
 // Perception previously hardcoded text-embedding-3-small; installs that set
 // OPENAI_EMBEDDING_MODEL for Sensing change Perception's behavior on upgrade.
@@ -248,8 +247,6 @@ const MAX_REASON_TEXT = 4_000
 const MAX_FILES = 200
 const MAX_FILE_PATH = 1_000
 const MAX_REJECTED = 50
-const MAX_EXCERPT = 300               // provenance snapshot of the originating user message
-
 const ExtractedSchema = z.object({
   decision:   z.string().max(MAX_DECISION_TEXT).nullable(),
   rationale:  z.string().max(MAX_RATIONALE_TEXT).nullable(),
@@ -329,8 +326,12 @@ app.post('/signals', writeRateLimit, async (c) => {
     const sourceTurnSequence = signal.source_turn_sequence ?? signal.turn.sequence
     const receivedAt = new Date()
     const sourceTurnAt = statedTurnTime(signal.turn.timestamp, receivedAt)
-    const priorTurnCapture = await findTurnCapture(pool, projectId, signal.turn.session_id, sourceTurnSequence)
-    if (priorTurnCapture) return turnCaptureDedupResponse(c, priorTurnCapture, signal.turn.session_id, sourceTurnSequence)
+    const sourceExcerpt = turnSourceExcerpt(signal.source_excerpt, signal.turn.user_message)
+    const sourceTurnHash = turnSourceHash(signal.turn.user_message, signal.turn.claude_reply)
+    const incomingTurn: TurnIdentity = { sourceExcerpt, sourceTurnHash }
+    const priorTurnCaptures = await loadTurnCaptures(pool, S, projectId, signal.turn.session_id, sourceTurnSequence)
+    const priorTurnResponse = settleTurnCapture(c, priorTurnCaptures, incomingTurn, signal.turn.session_id, sourceTurnSequence)
+    if (priorTurnResponse) return priorTurnResponse
 
     const trustSensingExtract =
       Boolean(
@@ -452,82 +453,42 @@ app.post('/signals', writeRateLimit, async (c) => {
       })
     }
 
-    // Provenance snapshot — excerpt of the originating user message survives
-    // session_turns cascade deletion. Derive from the turn when Sensing didn't send one.
-    const sourceExcerpt = (signal.source_excerpt ?? signal.turn.user_message ?? '').slice(0, MAX_EXCERPT) || null
-
-    // The INSERT and its conflict flag + edge commit together: an unflagged
-    // row left by a failed second write would let a retry dedup against it
-    // and discard the revision. The turn lock serializes a flush racing the
-    // in-session save of the same turn; the loser sees the winner's row.
-    const writeClient = await pool.connect()
-    let decisionId: string | undefined
-    let decisionSourceTurnAt: string | null | undefined
-    let decisionCreatedAt: string | undefined
-    try {
-      await writeClient.query('BEGIN')
-      await writeClient.query(
-        'SELECT pg_advisory_xact_lock(hashtext($1), $2)',
-        [`${projectId}:${signal.turn.session_id}`, sourceTurnSequence],
-      )
-      const racedTurnCapture = await findTurnCapture(writeClient, projectId, signal.turn.session_id, sourceTurnSequence)
-      if (racedTurnCapture) {
-        await writeClient.query('ROLLBACK')
-        return turnCaptureDedupResponse(c, racedTurnCapture, signal.turn.session_id, sourceTurnSequence)
-      }
-      const { rows } = await writeClient.query<{ id: string; source_turn_at: string | null; created_at: string }>(`
-      INSERT INTO ${S}.decisions (
-        project_id, session_id, decision, rationale,
-        rejected, files_affected, confidence, scope, source, embedding,
-        source_turn_sequence, source_excerpt,
-        trust_score, trust_flags, quarantined_at, source_turn_at
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $9, $10::vector, $11, $12,
-                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16)
-      RETURNING id,
-        ${chronologyInstantSql('source_turn_at')} AS source_turn_at,
-        ${chronologyInstantSql('created_at')} AS created_at
-    `, [
-        projectId,
-        signal.turn.session_id,
-        extracted.decision,
-        extracted.rationale ?? null,
-        JSON.stringify(extracted.rejected ?? []),
-        signal.files_affected,
-        extracted.confidence,
-        signal.scope,
-        'sensing',
-        JSON.stringify(embedding),
-        sourceTurnSequence,
-        sourceExcerpt,
-        trust.score,
-        JSON.stringify(trust.flags),
-        quarantine,
-        sourceTurnAt,
-      ])
-
-      decisionId = rows[0]?.id
-      decisionSourceTurnAt = rows[0]?.source_turn_at
-      decisionCreatedAt = rows[0]?.created_at
-
-      if (conflictNeighbor && decisionId && !quarantine) {
-        await writeClient.query(
-          `UPDATE ${S}.decisions SET conflict_flag = true, updated_at = now() WHERE id = ANY($1::text[])`,
-          [[decisionId, conflictNeighbor.id]],
-        )
-        await writeClient.query(
-          `INSERT INTO ${S}.decision_relations (from_id, to_id, relation)
-         VALUES ($1, $2, 'conflicts_with')
-         ON CONFLICT DO NOTHING`,
-          [decisionId, conflictNeighbor.id],
-        )
-      }
-      await writeClient.query('COMMIT')
-    } catch (transactionError) {
-      await writeClient.query('ROLLBACK').catch(() => {})
-      throw transactionError
-    } finally {
-      writeClient.release()
+    // The insert, both conflict flags, and the edge commit together. The turn
+    // lock serializes a flush racing the in-session save; a loser whose
+    // turn hash matches rolls back, so a retry cannot land a second row.
+    // The hash was taken before extraction so this insert and the
+    // turn-capture match use the same texts.
+    const written = await commitDecisionWrite(pool, S, {
+      projectId,
+      sessionId:          signal.turn.session_id,
+      decision:           extracted.decision,
+      rationale:          extracted.rationale ?? null,
+      rejected:           extracted.rejected ?? [],
+      filesAffected:      signal.files_affected,
+      confidence:         extracted.confidence,
+      scope:              signal.scope,
+      embedding,
+      sourceTurnSequence,
+      sourceExcerpt,
+      sourceTurnHash,
+      trustScore:         trust.score,
+      trustFlags:         trust.flags,
+      quarantine,
+      sourceTurnAt,
+      conflictWithId:     conflictNeighbor?.id ?? null,
+    })
+    if (written.status === 'deduped') {
+      return turnCaptureDedupResponse(c, written.matched, signal.turn.session_id, sourceTurnSequence)
     }
+    if (priorTurnCaptures.length === 0 && written.captures.length > 0) {
+      const rowLabel = written.captures.length === 1 ? '1 row' : `${written.captures.length} rows`
+      console.warn(
+        `[Perception OSS] POST /signals sequence ${sourceTurnSequence} in session ${signal.turn.session_id} gained ${rowLabel} with different turn text while this save was in flight; saving this decision too`,
+      )
+    }
+    const decisionId = written.id
+    const decisionSourceTurnAt = written.sourceTurnAt
+    const decisionCreatedAt = written.createdAt
 
     if (quarantine) {
       // No summary regen: quarantined rows are excluded from the always-on
@@ -1172,10 +1133,11 @@ app.post('/corrections', async (c) => {
       source_turn_sequence: number | null
       source_turn_at: Date | null
       source_excerpt: string | null
+      source_turn_hash: string | null
       rejected: Array<{ option: string; reason: string }>
       files_affected: string[]
     }>(
-      `SELECT session_id, scope, source_turn_sequence, source_turn_at, source_excerpt, rejected, files_affected
+      `SELECT session_id, scope, source_turn_sequence, source_turn_at, source_excerpt, source_turn_hash, rejected, files_affected
        FROM ${S}.decisions WHERE id = $1 LIMIT 1`,
       [body.decision_id],
     )
@@ -1225,9 +1187,9 @@ app.post('/corrections', async (c) => {
       INSERT INTO ${S}.decisions (
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
-        supersedes_id, embedding, source_turn_sequence, source_excerpt,
+        supersedes_id, embedding, source_turn_sequence, source_excerpt, source_turn_hash,
         trust_score, trust_flags, quarantined_at, source_turn_at
-      ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10,
+      ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10,$17,
                 $13,$14::jsonb,CASE WHEN $15::boolean THEN now() END,$16)
     `, [
       projectId,
@@ -1246,6 +1208,7 @@ app.post('/corrections', async (c) => {
       JSON.stringify(trust.flags),
       quarantine,
       src.source_turn_at,
+      src.source_turn_hash,
     ])
 
     if (quarantine) {
@@ -1428,34 +1391,32 @@ app.post('/projects/:id/regenerate-summary', async (c) => {
 // OSS extraction — prompt and provider switch live in @robrain/shared
 // (extract-decision.ts), the same module Sensing's classifier uses, so
 // flush-on-close re-extraction can no longer drift from the Sensing prompt.
-interface TurnCapture {
-  id: string
-  reviewed_at: Date | null
-}
-
 /**
- * Row already stored for this session turn, in any state. Extraction yields
- * at most one decision per turn, so a hit means the signal is a re-send
- * (flush after a lost response, or a flush racing the in-session save). A
- * quarantined, invalidated, or review-corrected row still counts, so a
- * retry never brings back a row the user already handled.
+ * Dedup when this payload repeats a stored turn. The match is a hash of
+ * the user message and the assistant reply, so a reused number whose user
+ * text is only "yes" still keeps a decision taken from a different reply.
+ * A row saved before that hash existed falls back to the excerpt. A
+ * sequence hit that does not match is logged and saved. A row that appears
+ * only inside the write transaction is logged at that call site.
  */
-async function findTurnCapture(
-  queryable: pg.Pool | pg.PoolClient,
-  projectId: string,
+function settleTurnCapture(
+  c: Context,
+  captures: readonly TurnCapture[],
+  incomingTurn: TurnIdentity,
   sessionId: string,
   sourceTurnSequence: number,
-): Promise<TurnCapture | undefined> {
-  const { rows } = await queryable.query<TurnCapture>(`
-    SELECT id, reviewed_at
-    FROM ${S}.decisions
-    WHERE session_id = $1
-      AND project_id = $2
-      AND source_turn_sequence = $3
-    ORDER BY created_at
-    LIMIT 1
-  `, [sessionId, projectId, sourceTurnSequence])
-  return rows[0]
+): Response | undefined {
+  const matched = findMatchingTurnCapture(
+    captures.map((capture) => withTurnIdentity(capture)),
+    incomingTurn,
+  )
+  if (matched) return turnCaptureDedupResponse(c, matched, sessionId, sourceTurnSequence)
+  if (captures.length === 0) return undefined
+  const rowLabel = captures.length === 1 ? '1 row' : `${captures.length} rows`
+  console.warn(
+    `[Perception OSS] POST /signals sequence ${sourceTurnSequence} in session ${sessionId} was reused with different turn text; saving the new decision (${rowLabel} already stored)`,
+  )
+  return undefined
 }
 
 function turnCaptureDedupResponse(c: Context, capture: TurnCapture, sessionId: string, sourceTurnSequence: number): Response {
@@ -1567,9 +1528,6 @@ function scheduleRegenerateSummary(projectId: string): void {
   )
 }
 
-/** Three unresolved pairs; leaves at least 9 of the 15 high-signal slots for other rules. */
-const MAX_PINNED_CONFLICT_ROWS = 6
-
 async function regenerateSummary(projectId: string): Promise<void> {
   // Two-tier selection:
   //  - High-signal (≤15): approved, has rejected alternatives, scope=global,
@@ -1586,102 +1544,13 @@ async function regenerateSummary(projectId: string): Promise<void> {
   // Unresolved clashes (both rows still flagged, joined by a conflicts_with
   // edge) are tagged conflict:newer / conflict:older. Without the tag an
   // older [approved] rule outranks the new revision and the next session
-  // follows the old rule again. Only the most recent pairs are pinned
-  // (MAX_PINNED_CONFLICT_ROWS) so a review backlog cannot push approved
-  // rules out of the 15 high-signal slots; older pairs keep their tags
-  // wherever they still appear. A flag raised by a revert/incident outcome
-  // has no counterpart, so it is neither pinned nor tagged.
-  //
-  // Newer means stated later, not inserted later: extraction runs per turn
-  // in the background, so a slow earlier turn can commit after a later one.
-  // Same session: turn sequence. Otherwise Sensing's turn timestamp, then
-  // created_at, then row id when both instants are equal. timestamptz is
-  // microseconds, so this CASE keeps that precision. statedAfter compares
-  // the same instants as fixed-width UTC text, which sorts identically and
-  // does not round them through a JavaScript Date. Keep the two in step.
-  const { rows } = await pool.query<{
-    decision: string
-    rationale: string | null
-    rejected: Array<{ option: string; reason: string }>
-    reviewed_at: Date | null
-    scope: string
-    conflict_role: 'newer' | 'older' | null
-  }>(`
-    WITH active AS (
-      SELECT d.id, d.decision, d.rationale, d.rejected, d.scope,
-             d.reviewed_at, d.created_at,
-             clash.conflict_role, clash.pair_stated_at
-      FROM ${S}.decisions d
-      JOIN ${S}.sessions s ON s.id = d.session_id
-      LEFT JOIN LATERAL (
-        SELECT CASE
-                 WHEN other.session_id = d.session_id
-                  AND other.source_turn_sequence IS NOT NULL
-                  AND d.source_turn_sequence IS NOT NULL
-                  AND other.source_turn_sequence <> d.source_turn_sequence
-                 THEN CASE WHEN other.source_turn_sequence > d.source_turn_sequence THEN 'older' ELSE 'newer' END
-                 WHEN (COALESCE(other.source_turn_at, other.created_at), other.created_at, other.id)
-                    > (COALESCE(d.source_turn_at, d.created_at), d.created_at, d.id)
-                 THEN 'older'
-                 ELSE 'newer'
-               END AS conflict_role,
-               GREATEST(
-                 COALESCE(other.source_turn_at, other.created_at),
-                 COALESCE(d.source_turn_at, d.created_at)
-               ) AS pair_stated_at
-        FROM ${S}.decision_relations r
-        JOIN ${S}.decisions other
-          ON other.id = CASE WHEN r.from_id = d.id THEN r.to_id ELSE r.from_id END
-        WHERE d.conflict_flag
-          AND (r.from_id = d.id OR r.to_id = d.id)
-          AND r.relation = 'conflicts_with'
-          AND other.conflict_flag
-          AND other.invalidated_at IS NULL
-          AND other.quarantined_at IS NULL
-        ORDER BY COALESCE(other.source_turn_at, other.created_at) DESC, other.created_at DESC
-        LIMIT 1
-      ) clash ON true
-      WHERE s.project_id = $1
-        AND d.invalidated_at IS NULL
-        -- Trust gate: quarantined rows never reach the always-on summary.
-        AND d.quarantined_at IS NULL
-    ),
-    pinned_conflicts AS (
-      SELECT id
-      FROM active
-      WHERE conflict_role IS NOT NULL
-      ORDER BY pair_stated_at DESC, created_at DESC
-      LIMIT $2
-    ),
-    high_signal AS (
-      SELECT *, 1 AS tier
-      FROM active
-      WHERE reviewed_at IS NOT NULL
-         OR jsonb_array_length(rejected) > 0
-         OR scope = 'global'
-         OR id IN (SELECT id FROM pinned_conflicts)
-      ORDER BY
-        (id IN (SELECT id FROM pinned_conflicts))::int DESC,
-        (reviewed_at IS NOT NULL)::int DESC,
-        (jsonb_array_length(rejected) > 0)::int DESC,
-        created_at DESC
-      LIMIT 15
-    ),
-    recent_fill AS (
-      SELECT *, 2 AS tier
-      FROM active
-      WHERE id NOT IN (SELECT id FROM high_signal)
-      ORDER BY created_at DESC
-      LIMIT 5
-    )
-    SELECT decision, rationale, rejected, reviewed_at, scope, conflict_role
-    FROM (
-      SELECT * FROM high_signal
-      UNION ALL
-      SELECT * FROM recent_fill
-    ) merged
-    ORDER BY tier ASC, created_at DESC
-  `, [projectId, MAX_PINNED_CONFLICT_ROWS])
+  // follows the old rule again. Only the most recent pairs are pinned, so
+  // a review backlog cannot push approved rules out of the 15 high-signal
+  // slots; older pairs keep their tags wherever they still appear. A flag
+  // raised by a revert/incident outcome has no counterpart, so it is
+  // neither pinned nor tagged. Which side is newer is decided in
+  // rankSummaryDecisions.
+  const rows = await rankSummaryDecisions(pool, S, projectId)
 
   if (!rows.length) return
 

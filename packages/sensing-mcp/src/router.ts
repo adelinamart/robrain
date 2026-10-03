@@ -28,7 +28,14 @@ function parsePerceptionUserMessage(status: number, rawText: string): string {
 
 // ── Route decision signal → Perception API ─────────────────
 
-/** Returns persisted=true when Perception stored a new row (`written`) or intentionally merged away a duplicate (`deduped`). */
+/**
+ * Returns persisted=true when Perception stored the row or intentionally
+ * kept an existing one (`written`, `deduped`). `conflict_flagged`,
+ * `auto_resolved_supersession`, and `quarantined` count too, so
+ * flush-on-close does not send them again. This router also talks to
+ * cloud Perception, so that retry stop applies there. Cloud write-time
+ * supersession itself is unchanged.
+ */
 export async function routeDecisionSignal(
   signal: DecisionSignal,
   projectId: string,

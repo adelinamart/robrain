@@ -4,13 +4,20 @@ import {
   conflictNotice,
   decideSaveDisposition,
   dedupAfterNeighborCheck,
+  findMatchingTurnCapture,
   MAX_TURN_CLOCK_LEAD_MS,
+  neighborCheckStartup,
   parseNeighborVerdict,
   planDecisionSave,
+  sameTurnCapture,
+  sameTurnExcerpt,
   similarityBelowEveryFloor,
   statedAfter,
   statedTurnTime,
   textNearIdentical,
+  TURN_CAPTURE_EXCERPT_CHARS,
+  turnSourceExcerpt,
+  turnSourceHash,
   type NeighborVerdict,
   type SaveNeighbor,
   type StatedAt,
@@ -534,5 +541,196 @@ describe('planDecisionSave', () => {
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
     assert.deepEqual(plan, { kind: 'write' })
     assert.equal(askedDecisions.length, 0)
+  })
+})
+
+describe('turn capture', () => {
+  const storedExcerpt = 'Always use bubble sort in this repo.'
+
+  it('builds the stored excerpt from the user message when Sensing sent none', () => {
+    assert.equal(
+      turnSourceExcerpt(undefined, 'From now on, name test files *.spec.ts'),
+      'From now on, name test files *.spec.ts',
+    )
+  })
+
+  it('prefers the excerpt Sensing sent', () => {
+    assert.equal(
+      turnSourceExcerpt('please only ever use pnpm here', 'a longer user message'),
+      'please only ever use pnpm here',
+    )
+  })
+
+  it('keeps only the stored prefix and treats an empty turn as no excerpt', () => {
+    const userMessage = `${'a'.repeat(TURN_CAPTURE_EXCERPT_CHARS)} differs after the cut`
+    const excerpt = turnSourceExcerpt(undefined, userMessage)
+    assert.equal(excerpt?.length, TURN_CAPTURE_EXCERPT_CHARS)
+    assert.equal(turnSourceExcerpt(undefined, ''), null)
+    assert.equal(turnSourceExcerpt('', 'still unused when an excerpt was sent empty'), null)
+  })
+
+  it('dedups a retry whose excerpt matches, including a row behind an older different one', () => {
+    const captures = [
+      { id: 'older', reviewedAt: null, sourceExcerpt: 'Use MySQL', sourceTurnHash: null },
+      { id: 'reviewed', reviewedAt: new Date(), sourceExcerpt: storedExcerpt, sourceTurnHash: null },
+    ]
+    const matched = findMatchingTurnCapture(captures, { sourceExcerpt: storedExcerpt, sourceTurnHash: null })
+    assert.equal(matched?.id, 'reviewed')
+    assert.equal(sameTurnExcerpt(storedExcerpt, storedExcerpt), true)
+  })
+
+  it('does not treat a reused sequence as the same turn when the text differs', () => {
+    const captures = [{ id: 'older', sourceExcerpt: 'Never use bubble sort in this repo.', sourceTurnHash: null }]
+    assert.equal(
+      findMatchingTurnCapture(captures, { sourceExcerpt: storedExcerpt, sourceTurnHash: null }),
+      undefined,
+    )
+    assert.equal(sameTurnExcerpt('Never use bubble sort in this repo.', storedExcerpt), false)
+  })
+
+  it('does not dedup when either excerpt is missing', () => {
+    assert.equal(sameTurnExcerpt(null, storedExcerpt), false)
+    assert.equal(sameTurnExcerpt(storedExcerpt, null), false)
+    assert.equal(sameTurnExcerpt(null, null), false)
+    assert.equal(
+      findMatchingTurnCapture([], { sourceExcerpt: storedExcerpt, sourceTurnHash: null }),
+      undefined,
+    )
+  })
+
+  it('hashes the user message and the assistant reply, and keeps the boundary between them', () => {
+    const agreed = turnSourceHash('yes', 'Use MySQL for this service.')
+    assert.equal(agreed, turnSourceHash('yes', 'Use MySQL for this service.'))
+    assert.notEqual(agreed, turnSourceHash('yes', 'Use Postgres for this service.'))
+    assert.notEqual(turnSourceHash('ab', 'c'), turnSourceHash('a', 'bc'))
+  })
+
+  it('saves a reused sequence when the user says yes to a different reply', () => {
+    const mysqlHash = turnSourceHash('yes', 'Use MySQL for this service.')
+    const postgresHash = turnSourceHash('yes', 'Use Postgres for this service.')
+    const captures = [{ id: 'mysql', sourceExcerpt: 'yes', sourceTurnHash: mysqlHash }]
+    assert.equal(
+      findMatchingTurnCapture(captures, { sourceExcerpt: 'yes', sourceTurnHash: postgresHash }),
+      undefined,
+    )
+    assert.equal(
+      findMatchingTurnCapture(captures, { sourceExcerpt: 'yes', sourceTurnHash: mysqlHash })?.id,
+      'mysql',
+    )
+    assert.equal(
+      sameTurnCapture(
+        { sourceExcerpt: 'yes', sourceTurnHash: mysqlHash },
+        { sourceExcerpt: 'yes', sourceTurnHash: postgresHash },
+      ),
+      false,
+    )
+  })
+
+  it('does not treat a shared 300-character prefix as the same turn when the rest differs', () => {
+    const prefix = 'a'.repeat(TURN_CAPTURE_EXCERPT_CHARS)
+    const firstHash = turnSourceHash(`${prefix} mysql`, 'ok')
+    const secondHash = turnSourceHash(`${prefix} postgres`, 'ok')
+    assert.equal(
+      findMatchingTurnCapture(
+        [{ id: 'first', sourceExcerpt: prefix, sourceTurnHash: firstHash }],
+        { sourceExcerpt: prefix, sourceTurnHash: secondHash },
+      ),
+      undefined,
+    )
+  })
+
+  it('falls back to the excerpt when the stored row has no turn hash', () => {
+    const incomingHash = turnSourceHash('yes', 'Use Postgres for this service.')
+    assert.equal(
+      findMatchingTurnCapture(
+        [{ id: 'legacy', sourceExcerpt: 'yes', sourceTurnHash: null }],
+        { sourceExcerpt: 'yes', sourceTurnHash: incomingHash },
+      )?.id,
+      'legacy',
+    )
+    assert.equal(
+      findMatchingTurnCapture(
+        [{ id: 'legacy', sourceExcerpt: 'yes', sourceTurnHash: null }],
+        { sourceExcerpt: 'do it', sourceTurnHash: turnSourceHash('do it', 'Use Postgres for this service.') },
+      ),
+      undefined,
+    )
+  })
+
+  it('keeps case and does not fold punctuation, unlike the decision-sentence check', () => {
+    assert.equal(sameTurnExcerpt(storedExcerpt, 'always use bubble sort in this repo.'), false)
+  })
+})
+
+describe('neighborCheckStartup', () => {
+  const localChatBaseUrl = 'http://127.0.0.1:11434/v1'
+
+  it('refuses to start when the hosted Anthropic key is missing', () => {
+    const startup = neighborCheckStartup({
+      llmProvider: 'anthropic',
+      anthropicApiKey: '   ',
+      openaiApiKey: 'sk-embed-only',
+      usingLocalChatServer: false,
+      localChatBaseUrl,
+    })
+    assert.equal(startup.action, 'refuse')
+    if (startup.action === 'refuse') {
+      assert.match(startup.message, /ANTHROPIC_API_KEY is empty/)
+      assert.match(startup.message, /close paraphrase/)
+    }
+  })
+
+  it('refuses a hosted OpenAI chat with no key', () => {
+    const startup = neighborCheckStartup({
+      llmProvider: 'openai',
+      anthropicApiKey: '',
+      openaiApiKey: '',
+      usingLocalChatServer: false,
+      localChatBaseUrl,
+    })
+    assert.equal(startup.action, 'refuse')
+    if (startup.action === 'refuse') assert.match(startup.message, /OPENAI_API_KEY is empty/)
+  })
+
+  it('warns when the neighbor check uses a local chat server', () => {
+    const startup = neighborCheckStartup({
+      llmProvider: 'openai',
+      anthropicApiKey: '',
+      openaiApiKey: undefined,
+      usingLocalChatServer: true,
+      localChatBaseUrl,
+    })
+    assert.equal(startup.action, 'warn')
+    if (startup.action === 'warn') {
+      assert.match(startup.message, /local chat server/)
+      assert.match(startup.message, /same, contradicts, refines, or different/)
+    }
+  })
+
+  it('stays quiet when a hosted chat key is set', () => {
+    assert.deepEqual(neighborCheckStartup({
+      llmProvider: 'anthropic',
+      anthropicApiKey: 'sk-ant-present',
+      openaiApiKey: undefined,
+      usingLocalChatServer: false,
+      localChatBaseUrl,
+    }), { action: 'ok' })
+    assert.deepEqual(neighborCheckStartup({
+      llmProvider: 'openai',
+      anthropicApiKey: '',
+      openaiApiKey: 'sk-present',
+      usingLocalChatServer: false,
+      localChatBaseUrl,
+    }), { action: 'ok' })
+  })
+
+  it('does not warn about a local embedding URL when chat stays on Anthropic', () => {
+    assert.deepEqual(neighborCheckStartup({
+      llmProvider: 'anthropic',
+      anthropicApiKey: 'sk-ant-present',
+      openaiApiKey: undefined,
+      usingLocalChatServer: false,
+      localChatBaseUrl,
+    }), { action: 'ok' })
   })
 })
