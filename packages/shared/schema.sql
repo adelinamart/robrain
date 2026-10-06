@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- SHA-256 of the user message and the assistant reply. Same-sequence
   -- dedup matches this, so a reused turn whose user text is only "yes"
   -- still keeps a decision that came from a different reply. NULL on rows
-  -- saved before migration 007; those fall back to source_excerpt.
+  -- saved before migration 007; those are not retries, so a reused
+  -- sequence is saved.
   source_turn_hash    TEXT,
   -- When the user stated it (Sensing turn timestamp). Orders a clash as
   -- conflict:newer / conflict:older across sessions; created_at is commit

@@ -353,9 +353,19 @@ describe('dedupAfterNeighborCheck', () => {
 describe('planDecisionSave', () => {
   const incomingDecision = 'Use MySQL for every service'
 
-  function neighbor(decision: string, similarity: number, sameSession = false): SaveNeighbor {
-    return { decision, similarity, sameSession }
+  function neighbor(
+    decision: string,
+    similarity: number,
+    sameSession = false,
+    conflictPartnerIds: readonly string[] = [],
+  ): SaveNeighbor {
+    return { id: decision, decision, similarity, sameSession, conflictPartnerIds }
   }
+
+  const storedMysql = 'Use MySQL for every service.'
+  const storedPostgres = 'Use Postgres for every service'
+  const storedRedis = 'Use Redis for caching'
+  const storedSqlite = 'Use SQLite for local tests'
 
   function scriptedChecker(verdictsByDecision: Record<string, NeighborVerdict>) {
     const askedDecisions: string[] = []
@@ -366,7 +376,7 @@ describe('planDecisionSave', () => {
     return { askedDecisions, checkContradiction }
   }
 
-  it('saves the rule when both checks fail and an unchecked neighbor clears the duplicate floor', async () => {
+  it('asks every close neighbor and saves the rule when every check fails', async () => {
     const neighbors = [
       neighbor('Use Postgres for sessions', 0.92),
       neighbor('Use Redis for caching', 0.9),
@@ -375,18 +385,18 @@ describe('planDecisionSave', () => {
     const { askedDecisions, checkContradiction } = scriptedChecker({})
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
     assert.deepEqual(plan, { kind: 'write' })
-    assert.equal(askedDecisions.length, 2)
+    assert.equal(askedDecisions.length, 3)
   })
 
-  it('never dedups against a neighbor past the question cap', async () => {
+  it('never dedups a restatement while another close neighbor has no answer', async () => {
     const neighbors = [
-      neighbor('Use Postgres for sessions', 0.92, true),
-      neighbor('Use Redis for caching', 0.9, true),
+      neighbor('We use MySQL for all services', 0.92),
+      neighbor('MySQL for each of our services', 0.9),
       neighbor('Use SQLite for local tests', 0.87),
     ]
     const { checkContradiction } = scriptedChecker({
-      'Use Postgres for sessions': 'restatement',
-      'Use Redis for caching': 'restatement',
+      'We use MySQL for all services': 'restatement',
+      'MySQL for each of our services': 'restatement',
     })
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
     assert.deepEqual(plan, { kind: 'write' })
@@ -402,7 +412,7 @@ describe('planDecisionSave', () => {
       'Use Redis for caching': 'restatement',
     })
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
-    assert.deepEqual(plan, { kind: 'conflict', neighbor: neighbors[0] })
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: ['Use Postgres for sessions'] })
   })
 
   it('drops a cross-session neighbor the model calls the same decision', async () => {
@@ -438,7 +448,7 @@ describe('planDecisionSave', () => {
       'Use Postgres for every service': 'contradiction',
     })
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
-    assert.deepEqual(plan, { kind: 'conflict', neighbor: neighbors[1] })
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: ['Use Postgres for every service'] })
     assert.deepEqual(askedDecisions, ['Use Postgres for every service'])
   })
 
@@ -451,7 +461,7 @@ describe('planDecisionSave', () => {
       'Use Postgres for every service': 'contradiction',
     })
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
-    assert.deepEqual(plan, { kind: 'conflict', neighbor: neighbors[0] })
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: ['Use Postgres for every service'] })
   })
 
   it('flags a farther contradiction over a closer cross-session restatement', async () => {
@@ -464,7 +474,137 @@ describe('planDecisionSave', () => {
       'Use Postgres for every service':    'contradiction',
     })
     const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
-    assert.deepEqual(plan, { kind: 'conflict', neighbor: neighbors[1] })
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: ['Use Postgres for every service'] })
+  })
+
+  it('links an exact old rule to its stored clash when that clash is not among the neighbors', async () => {
+    const neighbors = [
+      neighbor(storedMysql, 0.99, false, [storedPostgres]),
+      neighbor(storedRedis, 0.95),
+      neighbor(storedSqlite, 0.9),
+    ]
+    const { checkContradiction } = scriptedChecker({ [storedRedis]: 'distinct', [storedSqlite]: 'distinct' })
+    const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [storedPostgres] })
+  })
+
+  it('links an exact old rule found past the closest rows, even when closer paraphrases are called the same', async () => {
+    const neighbors = [
+      neighbor('We use MySQL for all services', 0.96),
+      neighbor('MySQL for each of our services', 0.95),
+    ]
+    const clashedCopies = [{ id: 'mysql-far', decision: storedMysql, conflictPartnerIds: [storedPostgres] }]
+    const { checkContradiction } = scriptedChecker({
+      'We use MySQL for all services': 'restatement',
+      'MySQL for each of our services': 'restatement',
+    })
+    const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction, clashedCopies)
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [storedPostgres] })
+  })
+
+  it('links the stored clash even when the model calls it distinct or the same', async () => {
+    for (const verdict of ['distinct', 'restatement'] as const) {
+      const neighbors = [
+        neighbor(storedMysql, 0.99, false, [storedPostgres]),
+        neighbor(storedPostgres, 0.9, false, [storedMysql]),
+      ]
+      const { askedDecisions, checkContradiction } = scriptedChecker({ [storedPostgres]: verdict })
+      const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
+      assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [storedPostgres] }, verdict)
+      assert.deepEqual(askedDecisions, [storedPostgres])
+    }
+  })
+
+  it('links every open clash partner of an exact copy, without asking about them', async () => {
+    const neighbors = [neighbor(storedMysql, 0.99, false, ['postgres', 'sqlite', 'cockroach'])]
+    const { askedDecisions, checkContradiction } = scriptedChecker({})
+    const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: ['postgres', 'sqlite', 'cockroach'] })
+    assert.equal(askedDecisions.length, 0)
+  })
+
+  it('links a clash partner that sits below the similarity floor', async () => {
+    const neighbors = [
+      neighbor(storedMysql, 0.99, false, [storedPostgres]),
+      neighbor(storedPostgres, 0.7, false, [storedMysql]),
+    ]
+    const { askedDecisions, checkContradiction } = scriptedChecker({})
+    const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [storedPostgres] })
+    assert.equal(askedDecisions.length, 0)
+  })
+
+  it('links the clash of a paraphrase the model calls the same, in either session', async () => {
+    for (const sameSession of [false, true]) {
+      const neighbors = [neighbor('We use MySQL for all services', 0.96, sameSession, [storedPostgres])]
+      const plan = await planDecisionSave(incomingDecision, neighbors, async () => 'restatement')
+      assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [storedPostgres] })
+    }
+  })
+
+  it('links every contradicting neighbor, closest first, then inherited partners', async () => {
+    const neighbors = [
+      neighbor(storedMysql, 0.99, false, ['cockroach']),
+      neighbor(storedPostgres, 0.93),
+      neighbor('Use SQLite for every service', 0.9),
+    ]
+    const { checkContradiction } = scriptedChecker({
+      [storedPostgres]: 'contradiction',
+      'Use SQLite for every service': 'contradiction',
+    })
+    const plan = await planDecisionSave(incomingDecision, neighbors, checkContradiction)
+    assert.deepEqual(plan, {
+      kind: 'conflict',
+      conflictWithIds: [storedPostgres, 'Use SQLite for every service', 'cockroach'],
+    })
+  })
+
+  it('never links the new row to a copy of itself', async () => {
+    const neighbors = [neighbor(storedMysql, 0.99, false, ['mysql-copy'])]
+    const clashedCopies = [{ id: 'mysql-copy', decision: 'Use MySQL for every service', conflictPartnerIds: [storedMysql] }]
+    const plan = await planDecisionSave(incomingDecision, neighbors, async () => 'unknown', clashedCopies)
+    assert.deepEqual(plan, { kind: 'dedup', neighbor: neighbors[0] })
+  })
+
+  it('ignores a clashed row whose text is not the same sentence', async () => {
+    const clashedCopies = [{ id: 'postgres', decision: storedPostgres, conflictPartnerIds: ['mysql'] }]
+    const plan = await planDecisionSave(incomingDecision, [], async () => 'unknown', clashedCopies)
+    assert.deepEqual(plan, { kind: 'write' })
+  })
+
+  it('dedups an exact old rule whose clash was resolved', async () => {
+    const neighbors = [neighbor(storedMysql, 0.99, false, [])]
+    const plan = await planDecisionSave(incomingDecision, neighbors, async () => 'unknown')
+    assert.deepEqual(plan, { kind: 'dedup', neighbor: neighbors[0] })
+  })
+
+  it('saves an exact copy when another close neighbor has no answer', async () => {
+    const neighbors = [neighbor(storedMysql, 0.99), neighbor(storedRedis, 0.9)]
+    const plan = await planDecisionSave(incomingDecision, neighbors, async () => 'unknown')
+    assert.deepEqual(plan, { kind: 'write' })
+  })
+
+  it('saves an exact copy when a close row was left past the scan', async () => {
+    const closeRows = [
+      neighbor(storedMysql, 0.99),
+      ...['A', 'B', 'C', 'D'].map((suffix) => neighbor(`Use MySQL replica ${suffix}`, 0.9)),
+    ]
+    const { askedDecisions, checkContradiction } = scriptedChecker(Object.fromEntries(
+      closeRows.slice(1).map((row) => [row.decision, 'distinct' as const]),
+    ))
+    const cutShort = await planDecisionSave(
+      incomingDecision,
+      [...closeRows, neighbor('Use MySQL replica E', 0.85)],
+      checkContradiction,
+    )
+    assert.deepEqual(cutShort, { kind: 'write' })
+    assert.equal(askedDecisions.length, 4)
+    const complete = await planDecisionSave(
+      incomingDecision,
+      [...closeRows, neighbor('Use MySQL replica E', 0.7)],
+      checkContradiction,
+    )
+    assert.deepEqual(complete, { kind: 'dedup', neighbor: closeRows[0] })
   })
 
   it('still dedups the same sentence when the other checked neighbors do not contradict it', async () => {
@@ -485,7 +625,7 @@ describe('planDecisionSave', () => {
     const neighbors = [neighbor(earlierDecision, 0.98, true)]
     const { askedDecisions, checkContradiction } = scriptedChecker({ [earlierDecision]: 'contradiction' })
     const plan = await planDecisionSave('Only allow dependency versions <= 20', neighbors, checkContradiction)
-    assert.deepEqual(plan, { kind: 'conflict', neighbor: neighbors[0] })
+    assert.deepEqual(plan, { kind: 'conflict', conflictWithIds: [earlierDecision] })
     assert.deepEqual(askedDecisions, [earlierDecision])
   })
 
@@ -569,12 +709,13 @@ describe('turn capture', () => {
     assert.equal(turnSourceExcerpt('', 'still unused when an excerpt was sent empty'), null)
   })
 
-  it('dedups a retry whose excerpt matches, including a row behind an older different one', () => {
+  it('dedups a retry whose hash matches, including a row behind an older different one', () => {
+    const storedHash = turnSourceHash(storedExcerpt, 'keep it')
     const captures = [
-      { id: 'older', reviewedAt: null, sourceExcerpt: 'Use MySQL', sourceTurnHash: null },
-      { id: 'reviewed', reviewedAt: new Date(), sourceExcerpt: storedExcerpt, sourceTurnHash: null },
+      { id: 'older', reviewedAt: null, sourceExcerpt: 'Use MySQL', sourceTurnHash: turnSourceHash('Use MySQL', 'other') },
+      { id: 'reviewed', reviewedAt: new Date(), sourceExcerpt: storedExcerpt, sourceTurnHash: storedHash },
     ]
-    const matched = findMatchingTurnCapture(captures, { sourceExcerpt: storedExcerpt, sourceTurnHash: null })
+    const matched = findMatchingTurnCapture(captures, { sourceExcerpt: storedExcerpt, sourceTurnHash: storedHash })
     assert.equal(matched?.id, 'reviewed')
     assert.equal(sameTurnExcerpt(storedExcerpt, storedExcerpt), true)
   })
@@ -639,21 +780,28 @@ describe('turn capture', () => {
     )
   })
 
-  it('falls back to the excerpt when the stored row has no turn hash', () => {
+  it('saves a later turn when the stored row has no turn hash', () => {
     const incomingHash = turnSourceHash('yes', 'Use Postgres for this service.')
     assert.equal(
       findMatchingTurnCapture(
         [{ id: 'legacy', sourceExcerpt: 'yes', sourceTurnHash: null }],
         { sourceExcerpt: 'yes', sourceTurnHash: incomingHash },
-      )?.id,
-      'legacy',
-    )
-    assert.equal(
-      findMatchingTurnCapture(
-        [{ id: 'legacy', sourceExcerpt: 'yes', sourceTurnHash: null }],
-        { sourceExcerpt: 'do it', sourceTurnHash: turnSourceHash('do it', 'Use Postgres for this service.') },
       ),
       undefined,
+    )
+    assert.equal(
+      sameTurnCapture(
+        { sourceExcerpt: 'yes', sourceTurnHash: null },
+        { sourceExcerpt: 'yes', sourceTurnHash: incomingHash },
+      ),
+      false,
+    )
+    assert.equal(
+      sameTurnCapture(
+        { sourceExcerpt: 'yes', sourceTurnHash: turnSourceHash('yes', 'Use MySQL for this service.') },
+        { sourceExcerpt: 'yes', sourceTurnHash: null },
+      ),
+      false,
     )
   })
 

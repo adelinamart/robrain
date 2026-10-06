@@ -3,7 +3,7 @@
 // already applies to DB_SCHEMA.
 
 import type pg from 'pg'
-import { chronologyInstantSql, findMatchingTurnCapture, withTurnIdentity } from './write-conflict.js'
+import { chronologyInstantSql, findMatchingTurnCapture, textNearIdentical, withTurnIdentity, type ClashedCopy } from './write-conflict.js'
 
 /** Three unresolved pairs; leaves at least 9 of the 15 high-signal slots for other rules. */
 export const MAX_PINNED_CONFLICT_ROWS = 6
@@ -38,7 +38,7 @@ function checkedSchema(schema: string): string {
  * A quarantined, invalidated, or review-corrected row still counts.
  * No LIMIT: the caller matches on the turn hash, and the matching row may
  * sit behind an older row that reused the same sequence. A null hash is an
- * older row; that one still matches on the excerpt.
+ * older row and is not a retry match.
  */
 export async function loadTurnCaptures(
   queryable: pg.Pool | pg.PoolClient,
@@ -77,8 +77,8 @@ export interface DecisionWriteInput {
   trustFlags: unknown
   quarantine: boolean
   sourceTurnAt: Date
-  /** Set when the neighbor check found a contradiction. Ignored while quarantined. */
-  conflictWithId: string | null
+  /** Rows the new decision clashes with (see planDecisionSave). Ignored while quarantined. */
+  conflictWithIds: readonly string[]
 }
 
 export interface DecisionWriteHooks {
@@ -98,8 +98,8 @@ export type DecisionWriteResult =
 
 /**
  * Insert one decision, or roll back when this turn's hash is already stored.
- * A stored row with no hash still matches on the excerpt.
- * The lock, the duplicate check, the insert, both conflict flags, and the
+ * A stored row with no hash is not a retry, so the new decision is saved.
+ * The lock, the duplicate check, the insert, every conflict flag, and every
  * conflicts_with edge share the transaction: a failed flag or edge write leaves
  * no row for the next retry to treat as already captured.
  */
@@ -161,16 +161,16 @@ export async function commitDecisionWrite(
     ])
     const inserted = rows[0]
     if (!inserted) throw new Error('decision insert returned no row')
-    if (input.conflictWithId && !input.quarantine) {
+    if (input.conflictWithIds.length > 0 && !input.quarantine) {
       await client.query(
         `UPDATE ${safeSchema}.decisions SET conflict_flag = true, updated_at = now() WHERE id = ANY($1::text[])`,
-        [[inserted.id, input.conflictWithId]],
+        [[inserted.id, ...input.conflictWithIds]],
       )
       await client.query(
         `INSERT INTO ${safeSchema}.decision_relations (from_id, to_id, relation)
-         VALUES ($1, $2, 'conflicts_with')
+         SELECT $1, partner_id, 'conflicts_with' FROM unnest($2::text[]) AS partner_id
          ON CONFLICT DO NOTHING`,
-        [inserted.id, input.conflictWithId],
+        [inserted.id, input.conflictWithIds],
       )
     }
     await client.query('COMMIT')
@@ -187,6 +187,110 @@ export async function commitDecisionWrite(
   } finally {
     client.release()
   }
+}
+
+// Open clash partners of `d`: rows joined to it by conflicts_with that are
+// still active, while `d` itself is still flagged. The partner's own flag
+// is not required. "Keep this" in review clears only the kept row, so after
+// the user keeps one side the other side still stands against it, and a
+// later return to that other side must reopen the clash. Clearing `d`
+// (kept or approved) or invalidating the partner closes it.
+function openPartnerSql(safeSchema: string): { join: string; where: string } {
+  return {
+    join: `
+      JOIN ${safeSchema}.decision_relations r
+        ON (r.from_id = d.id OR r.to_id = d.id)
+       AND r.relation = 'conflicts_with'
+      JOIN ${safeSchema}.decisions other
+        ON other.id = CASE WHEN r.from_id = d.id THEN r.to_id ELSE r.from_id END`,
+    where: `
+      d.conflict_flag
+      AND other.id <> d.id
+      AND other.invalidated_at IS NULL
+      AND other.quarantined_at IS NULL`,
+  }
+}
+
+/** Open clash partners for the given decision ids. Ids with none are absent. */
+export async function loadConflictPartnerIds(
+  queryable: pg.Pool | pg.PoolClient,
+  schema: string,
+  decisionIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  if (decisionIds.length === 0) return new Map()
+  const safeSchema = checkedSchema(schema)
+  const openPartner = openPartnerSql(safeSchema)
+  const { rows } = await queryable.query<{ decision_id: string; partner_ids: string[] }>(`
+    SELECT d.id AS decision_id, array_agg(DISTINCT other.id ORDER BY other.id) AS partner_ids
+    FROM ${safeSchema}.decisions d
+    ${openPartner.join}
+    WHERE d.id = ANY($1::text[])
+      AND ${openPartner.where}
+    GROUP BY d.id
+  `, [decisionIds])
+  return new Map(rows.map((row) => [row.decision_id, row.partner_ids]))
+}
+
+/**
+ * Active same-scope rows in an open clash whose text matches `decision`
+ * (textNearIdentical). Found by text, not embedding rank, so a copy that
+ * is not among the closest rows still passes its clash to the new row.
+ */
+export async function loadClashedCopies(
+  queryable: pg.Pool | pg.PoolClient,
+  schema: string,
+  projectId: string,
+  scope: string,
+  decision: string,
+): Promise<ClashedCopy[]> {
+  const safeSchema = checkedSchema(schema)
+  const openPartner = openPartnerSql(safeSchema)
+  const { rows } = await queryable.query<{ id: string; decision: string; partner_ids: string[] }>(`
+    SELECT d.id, d.decision, array_agg(DISTINCT other.id ORDER BY other.id) AS partner_ids
+    FROM ${safeSchema}.decisions d
+    ${openPartner.join}
+    WHERE d.project_id = $1
+      AND d.scope = $2
+      AND d.invalidated_at IS NULL
+      AND d.quarantined_at IS NULL
+      AND ${openPartner.where}
+    GROUP BY d.id, d.decision
+  `, [projectId, scope])
+  return rows
+    .filter((row) => textNearIdentical(decision, row.decision))
+    .map((row) => ({ id: row.id, decision: row.decision, conflictPartnerIds: row.partner_ids }))
+}
+
+export interface StatedDecision {
+  id: string
+  session_id: string
+  decision: string
+  source_turn_sequence: number | null
+  /** CHRONOLOGY_INSTANT, or null on rows saved before turn timestamps. */
+  source_turn_at: string | null
+  /** CHRONOLOGY_INSTANT. */
+  created_at: string
+}
+
+/** Text and chronology of the given rows, for the conflict notice. */
+export async function loadStatedDecisions(
+  queryable: pg.Pool | pg.PoolClient,
+  schema: string,
+  decisionIds: readonly string[],
+): Promise<StatedDecision[]> {
+  if (decisionIds.length === 0) return []
+  const safeSchema = checkedSchema(schema)
+  const { rows } = await queryable.query<StatedDecision>(`
+    SELECT id, session_id, decision, source_turn_sequence,
+           ${chronologyInstantSql('source_turn_at')} AS source_turn_at,
+           ${chronologyInstantSql('created_at')} AS created_at
+    FROM ${safeSchema}.decisions
+    WHERE id = ANY($1::text[])
+  `, [decisionIds])
+  return rows.map((row) => ({
+    ...row,
+    source_turn_sequence: row.source_turn_sequence === null ? null : Number(row.source_turn_sequence),
+  }))
 }
 
 /** Serializes two saves of the same session turn for the rest of the transaction. */

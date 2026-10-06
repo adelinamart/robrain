@@ -5,8 +5,10 @@
 // or above the 0.85 duplicate floor that the model explicitly calls a
 // restatement. Every other close sentence is stored, including a
 // refinement. When the model says the two cannot both be true, both rows
-// are marked conflict_flag so review shows the clash immediately. Synthesis
-// still scans the rest of the corpus.
+// are marked conflict_flag so review shows the clash immediately. A copy
+// of a rule in an open clash is never dropped: it is stored and linked to
+// that clash, so it can be the newer side. Synthesis still scans the rest
+// of the corpus.
 
 import { createHash } from 'node:crypto'
 import { THRESHOLDS } from '@robrain/shared'
@@ -104,7 +106,8 @@ export function turnSourceExcerpt(sourceExcerpt: string | undefined, userMessage
  * True when two excerpts are the same stored prefix. An empty excerpt
  * matches nothing. Comparison is exact. The stored value is only the first
  * TURN_CAPTURE_EXCERPT_CHARS characters, so two different messages that
- * share that prefix still match. Used when the stored row has no turn hash.
+ * share that prefix still match. This is not the retry key: a row with no
+ * turn hash is saved again instead of matched on the excerpt.
  */
 export function sameTurnExcerpt(storedExcerpt: string | null, incomingExcerpt: string | null): boolean {
   if (!storedExcerpt || !incomingExcerpt) return false
@@ -138,13 +141,14 @@ export function turnSourceHash(userMessage: string, assistantReply: string): str
 
 /**
  * True when a stored row is a re-send of this turn. The agent picks the
- * sequence number, so the number alone is not enough. Rows that have a
- * turn hash match on that hash. Rows saved before the hash column existed
- * fall back to the excerpt, which still collides on a bare "yes".
+ * sequence number, so the number alone is not enough. Both sides must
+ * carry a turn hash, and the hashes must match. A row saved before the
+ * hash column existed has nothing to verify, so a later turn that reuses
+ * its sequence is saved.
  */
 export function sameTurnCapture(stored: TurnIdentity, incoming: TurnIdentity): boolean {
-  if (stored.sourceTurnHash) return stored.sourceTurnHash === incoming.sourceTurnHash
-  return sameTurnExcerpt(stored.sourceExcerpt, incoming.sourceExcerpt)
+  if (!stored.sourceTurnHash || !incoming.sourceTurnHash) return false
+  return stored.sourceTurnHash === incoming.sourceTurnHash
 }
 
 export function withTurnIdentity<Capture extends {
@@ -238,8 +242,13 @@ export function decideSaveDisposition(input: {
   return 'ask'
 }
 
-/** How many close neighbors get the relation question on one save. */
-export const MAX_CONTRADICTION_NEIGHBORS = 2
+/**
+ * How many of the closest same-scope rows a save examines. Every close one
+ * among them gets the relation question, so this also caps the chat calls.
+ * The caller fetches one extra row: when that row is still close, the scan
+ * was cut short and the save never dedups.
+ */
+export const NEIGHBOR_SCAN_LIMIT = 5
 
 /**
  * Neighbors are closest first. Below both the contradiction floor and
@@ -272,72 +281,108 @@ export function dedupAfterNeighborCheck(input: {
 }
 
 export interface SaveNeighbor {
+  id: string
   decision: string
   similarity: number
   sameSession: boolean
+  /**
+   * Active rows this row is still flagged against (see
+   * loadConflictPartnerIds). Empty when it has no open clash.
+   */
+  conflictPartnerIds?: readonly string[]
+}
+
+/**
+ * A stored row in an open clash, found by text rather than by embedding
+ * rank, so a copy past the closest rows still passes its clash on.
+ */
+export interface ClashedCopy {
+  id: string
+  decision: string
+  conflictPartnerIds: readonly string[]
 }
 
 export type SavePlan<Neighbor extends SaveNeighbor> =
   | { kind: 'dedup'; neighbor: Neighbor }
-  | { kind: 'conflict'; neighbor: Neighbor }
+  | { kind: 'conflict'; conflictWithIds: string[] }
   | { kind: 'write' }
 
 /**
  * Decide how POST /signals stores a new decision, given its same-scope
- * neighbors (closest first).
+ * neighbors (closest first, NEIGHBOR_SCAN_LIMIT plus one) and every stored
+ * row in an open clash whose text matches it.
  *
- * - Up to MAX_CONTRADICTION_NEIGHBORS close neighbors that are not the same
- *   sentence get the relation question, asked concurrently so the slow path
- *   costs one LLM round trip.
- * - Any checked contradiction wins, closest first, over every kind of
- *   duplicate. Going back to an older rule matches the older row word for
- *   word, and that row is usually the closest neighbor; the newer rule it
- *   clashes with sits behind it and must still be flagged.
- * - With no contradiction, the same sentence (whitespace and a trailing
- *   period aside) is dropped, and so is a cross-session restatement that
- *   clears 0.85. A refinement, a separate decision, and a same-session
- *   revision are saved.
- * - An `unknown` answer (failed or malformed check) never drops the rule.
- * - A neighbor past the question cap was never checked, so it never drops
- *   the rule either. A visible duplicate is reviewable; a silently
- *   dropped revision is not.
+ * - Every close neighbor that is not the same sentence gets the relation
+ *   question, concurrently, so the slow path costs one LLM round trip.
+ * - The new row is saved and linked, with no model call, to every open
+ *   clash partner of a row it matches word for word: that row already
+ *   stands against those partners, so the copy does too. The same holds
+ *   for a neighbor the model calls the same decision. Every neighbor the
+ *   model says it contradicts is linked as well. Linking wins over every
+ *   kind of duplicate, so going back to an older rule is stored as the
+ *   newer side of its clash instead of merging into the older row.
+ * - A duplicate is dropped only when nothing is linked, every question
+ *   came back with an answer, and no close row was left past the scan.
+ *   Then the same sentence (whitespace and a trailing period aside) is
+ *   dropped, and so is a cross-session restatement that clears 0.85.
+ *   A refinement, a separate decision, and a same-session revision are
+ *   saved. A visible duplicate is reviewable; a dropped revision is not.
  */
 export async function planDecisionSave<Neighbor extends SaveNeighbor>(
   incomingDecision: string,
   neighbors: readonly Neighbor[],
   compareWithNeighbor: (earlier: string, incoming: string) => Promise<NeighborVerdict>,
+  clashedCopies: readonly ClashedCopy[] = [],
 ): Promise<SavePlan<Neighbor>> {
-  const candidates: Neighbor[] = []
-  let textDuplicate: Neighbor | undefined
-  for (const neighbor of neighbors) {
+  const scanCutShort = neighbors
+    .slice(NEIGHBOR_SCAN_LIMIT)
+    .some((neighbor) => !similarityBelowEveryFloor(neighbor.similarity))
+  const askable: Neighbor[] = []
+  const textDuplicates: Neighbor[] = []
+  for (const neighbor of neighbors.slice(0, NEIGHBOR_SCAN_LIMIT)) {
     if (similarityBelowEveryFloor(neighbor.similarity)) break
     const disposition = decideSaveDisposition({
       similarity: neighbor.similarity,
       sameSession: neighbor.sameSession,
       nearIdentical: textNearIdentical(incomingDecision, neighbor.decision),
     })
-    if (disposition === 'dedup') {
-      textDuplicate ??= neighbor
-      continue
-    }
-    if (disposition === 'write') continue
-    if (candidates.length >= MAX_CONTRADICTION_NEIGHBORS) continue
-    candidates.push(neighbor)
+    if (disposition === 'dedup') textDuplicates.push(neighbor)
+    if (disposition === 'ask') askable.push(neighbor)
   }
 
   const verdicts = await Promise.all(
-    candidates.map((candidate) =>
-      compareWithNeighbor(candidate.decision, incomingDecision)
+    askable.map((neighbor) =>
+      compareWithNeighbor(neighbor.decision, incomingDecision)
         .catch((): NeighborVerdict => 'unknown'),
     ),
   )
-  const conflict = candidates[verdicts.indexOf('contradiction')]
-  if (conflict) return { kind: 'conflict', neighbor: conflict }
+
+  const copies: Array<{ id: string; conflictPartnerIds?: readonly string[] }> = [
+    ...textDuplicates,
+    ...clashedCopies.filter((copy) => textNearIdentical(incomingDecision, copy.decision)),
+  ]
+  const copyIds = new Set(copies.map((copy) => copy.id))
+  const conflictWithIds: string[] = []
+  const link = (decisionId: string): void => {
+    if (!copyIds.has(decisionId) && !conflictWithIds.includes(decisionId)) conflictWithIds.push(decisionId)
+  }
+  askable.forEach((neighbor, neighborIndex) => {
+    if (verdicts[neighborIndex] === 'contradiction') link(neighbor.id)
+  })
+  for (const copy of copies) copy.conflictPartnerIds?.forEach(link)
+  askable.forEach((neighbor, neighborIndex) => {
+    if (verdicts[neighborIndex] === 'restatement') neighbor.conflictPartnerIds?.forEach(link)
+  })
+  if (conflictWithIds.length > 0) return { kind: 'conflict', conflictWithIds }
+
+  const everyCheckAnswered = verdicts.every((verdict) => verdict === 'restatement' || verdict === 'distinct')
+  if (!everyCheckAnswered || scanCutShort) return { kind: 'write' }
+  const textDuplicate = textDuplicates[0]
   if (textDuplicate) return { kind: 'dedup', neighbor: textDuplicate }
-  const restatement = candidates.find((candidate, candidateIndex) => dedupAfterNeighborCheck({
-    similarity: candidate.similarity,
-    sameSession: candidate.sameSession,
-    verdict: verdicts[candidateIndex] ?? 'unknown',
+  const restatement = askable.find((neighbor, neighborIndex) => dedupAfterNeighborCheck({
+    similarity: neighbor.similarity,
+    sameSession: neighbor.sameSession,
+    verdict: verdicts[neighborIndex] ?? 'unknown',
   }))
   if (restatement) return { kind: 'dedup', neighbor: restatement }
   return { kind: 'write' }

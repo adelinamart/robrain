@@ -28,8 +28,8 @@ import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
 import { filterVetoMatches, type VetoScanRow } from './veto-scan.js'
-import { commitDecisionWrite, loadTurnCaptures, rankSummaryDecisions, type TurnCapture } from './decision-sql.js'
-import { chronologyInstantSql, conflictNotice, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type TurnIdentity } from './write-conflict.js'
+import { commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, rankSummaryDecisions, type StatedDecision, type TurnCapture } from './decision-sql.js'
+import { chronologyInstantSql, conflictNotice, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, NEIGHBOR_SCAN_LIMIT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type StatedAt, type TurnIdentity } from './write-conflict.js'
 
 const { Pool } = pg
 
@@ -387,7 +387,8 @@ app.post('/signals', writeRateLimit, async (c) => {
     // Embed the decision
     const embedding = await embed(`${extracted.decision}. ${extracted.rationale ?? ''}`)
 
-    // Closest same-scope neighbors. A checked contradiction is flagged in
+    // Closest same-scope neighbors, plus every row in an open clash with the
+    // same text. A clash (checked, or inherited from a copy) is flagged in
     // the same transaction as the insert; otherwise the same sentence
     // (whitespace and a trailing period aside) is dropped, and so is a
     // cross-session neighbor the model calls a restatement — see
@@ -419,20 +420,26 @@ app.post('/signals', writeRateLimit, async (c) => {
         AND d.quarantined_at IS NULL
         AND d.embedding IS NOT NULL
       ORDER BY d.embedding <=> $1::vector
-      LIMIT 5
+      LIMIT ${NEIGHBOR_SCAN_LIMIT + 1}
     `, [JSON.stringify(embedding), projectId, signal.scope])
 
+    const partnerIdsByDecision = await loadConflictPartnerIds(pool, S, nearest.map((neighbor) => neighbor.id))
+    const clashedCopies = quarantine
+      ? []
+      : await loadClashedCopies(pool, S, projectId, signal.scope, extracted.decision)
     const savePlan = await planDecisionSave(
       extracted.decision,
       nearest.map((neighbor) => ({
         ...neighbor,
         similarity:  Number(neighbor.similarity),
         sameSession: neighbor.session_id === currentSessionId,
+        conflictPartnerIds: partnerIdsByDecision.get(neighbor.id) ?? [],
       })),
       compareWithNeighbor,
+      clashedCopies,
     )
     const duplicate = savePlan.kind === 'dedup' ? savePlan.neighbor : undefined
-    const conflictNeighbor = savePlan.kind === 'conflict' ? savePlan.neighbor : undefined
+    const conflictWithIds = savePlan.kind === 'conflict' ? savePlan.conflictWithIds : []
 
     if (duplicate) {
       const simRounded = Number(Number(duplicate.similarity).toFixed(3))
@@ -453,7 +460,7 @@ app.post('/signals', writeRateLimit, async (c) => {
       })
     }
 
-    // The insert, both conflict flags, and the edge commit together. The turn
+    // The insert, every conflict flag, and every edge commit together. The turn
     // lock serializes a flush racing the in-session save; a loser whose
     // turn hash matches rolls back, so a retry cannot land a second row.
     // The hash was taken before extraction so this insert and the
@@ -475,7 +482,7 @@ app.post('/signals', writeRateLimit, async (c) => {
       trustFlags:         trust.flags,
       quarantine,
       sourceTurnAt,
-      conflictWithId:     conflictNeighbor?.id ?? null,
+      conflictWithIds,
     })
     if (written.status === 'deduped') {
       return turnCaptureDedupResponse(c, written.matched, signal.turn.session_id, sourceTurnSequence)
@@ -502,40 +509,41 @@ app.post('/signals', writeRateLimit, async (c) => {
       })
     }
 
-    if (conflictNeighbor && decisionId) {
-      // Flag + edge already committed in the write transaction above.
-      const simRounded = Number(Number(conflictNeighbor.similarity).toFixed(3))
+    if (conflictWithIds.length > 0 && decisionId) {
+      // Flags + edges already committed in the write transaction above.
       console.log(
-        `[Perception OSS] POST /signals conflict_flagged ${decisionId} vs ${conflictNeighbor.id} (similarity=${simRounded})`,
+        `[Perception OSS] POST /signals conflict_flagged ${decisionId} vs ${conflictWithIds.join(', ')}`,
       )
       scheduleRegenerateSummary(projectId)
-      const incomingStatedLater = decisionCreatedAt !== undefined && statedAfter(
-        {
-          id:           decisionId,
-          sessionId:    currentSessionId,
-          turnSequence: sourceTurnSequence,
-          turnAt:       decisionSourceTurnAt ?? null,
-          createdAt:    decisionCreatedAt,
-        },
-        {
-          id:           conflictNeighbor.id,
-          sessionId:    conflictNeighbor.session_id,
-          turnSequence: conflictNeighbor.source_turn_sequence,
-          turnAt:       conflictNeighbor.source_turn_at,
-          createdAt:    conflictNeighbor.created_at,
-        },
+      const incoming: StatedAt = {
+        id:           decisionId,
+        sessionId:    currentSessionId,
+        turnSequence: sourceTurnSequence,
+        turnAt:       decisionSourceTurnAt ?? null,
+        createdAt:    decisionCreatedAt,
+      }
+      // The notice names the partner stated last: that is the rule the new
+      // one now outranks, or the one that still outranks it.
+      const partners = await loadStatedDecisions(pool, S, conflictWithIds)
+      const latestPartner = partners.reduce<StatedDecision | undefined>(
+        (latest, partner) => latest && !statedAfter(statedAtOf(partner), statedAtOf(latest)) ? latest : partner,
+        undefined,
       )
-      const notice = incomingStatedLater
-        ? conflictNotice(conflictNeighbor.decision, extracted.decision)
-        : conflictNotice(extracted.decision, conflictNeighbor.decision)
+      if (!latestPartner) {
+        return c.json({ accepted: true, action: 'conflict_flagged', decision_id: decisionId })
+      }
+      const notice = statedAfter(incoming, statedAtOf(latestPartner))
+        ? conflictNotice(latestPartner.decision, extracted.decision)
+        : conflictNotice(extracted.decision, latestPartner.decision)
+      const partnerNeighbor = nearest.find((neighbor) => neighbor.id === latestPartner.id)
       return c.json({
         accepted:          true,
         action:            'conflict_flagged',
         decision_id:       decisionId,
-        conflicts_with_id: conflictNeighbor.id,
-        prior_decision:    conflictNeighbor.decision,
+        conflicts_with_id: latestPartner.id,
+        prior_decision:    latestPartner.decision,
         conflict_notice:   notice,
-        similarity:        simRounded,
+        ...(partnerNeighbor ? { similarity: Number(Number(partnerNeighbor.similarity).toFixed(3)) } : {}),
       })
     }
 
@@ -1395,9 +1403,9 @@ app.post('/projects/:id/regenerate-summary', async (c) => {
  * Dedup when this payload repeats a stored turn. The match is a hash of
  * the user message and the assistant reply, so a reused number whose user
  * text is only "yes" still keeps a decision taken from a different reply.
- * A row saved before that hash existed falls back to the excerpt. A
- * sequence hit that does not match is logged and saved. A row that appears
- * only inside the write transaction is logged at that call site.
+ * A row saved before that hash existed is not a retry, so the new decision
+ * is saved. A sequence hit that does not match is logged and saved. A row
+ * that appears only inside the write transaction is logged at that call site.
  */
 function settleTurnCapture(
   c: Context,
@@ -1417,6 +1425,16 @@ function settleTurnCapture(
     `[Perception OSS] POST /signals sequence ${sourceTurnSequence} in session ${sessionId} was reused with different turn text; saving the new decision (${rowLabel} already stored)`,
   )
   return undefined
+}
+
+function statedAtOf(row: StatedDecision): StatedAt {
+  return {
+    id:           row.id,
+    sessionId:    row.session_id,
+    turnSequence: row.source_turn_sequence,
+    turnAt:       row.source_turn_at,
+    createdAt:    row.created_at,
+  }
 }
 
 function turnCaptureDedupResponse(c: Context, capture: TurnCapture, sessionId: string, sourceTurnSequence: number): Response {
