@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- excerpt — survives session_turns cascade deletion
   source_turn_sequence INTEGER,
   source_excerpt      TEXT,
+  -- SHA-256 of the user message and the assistant reply. Same-sequence
+  -- dedup matches this, so a reused turn whose user text is only "yes"
+  -- still keeps a decision that came from a different reply. NULL on rows
+  -- saved before migration 007; those are not retries, so a reused
+  -- sequence is saved.
+  source_turn_hash    TEXT,
+  -- When the user stated it (Sensing turn timestamp). Orders a clash as
+  -- conflict:newer / conflict:older across sessions; created_at is commit
+  -- order and can invert two turns. NULL on older rows → created_at.
+  source_turn_at      TIMESTAMPTZ,
+  -- decisionTextKey(decision), set by Perception. Finds an exact copy of a
+  -- rule in an open clash by index. NULL on rows saved before migration 008
+  -- until the startup backfill reaches them; the lookup still reads those.
+  decision_text_key   TEXT,
 
   -- Quality-loop counters: times injected vs times judged used in the reply
   injected_count      INTEGER NOT NULL DEFAULT 0,
@@ -121,13 +135,16 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
 
 -- Additive upgrade guard: databases whose decisions table predates the trust
 -- columns (CREATE TABLE IF NOT EXISTS no-ops there) get them here so the
--- partial index below always has its column. Mirrors migration 003; fresh
--- installs already created them above — idempotent either way.
+-- partial index below always has its column. Mirrors migrations 003, 006,
+-- 007, and 008; fresh installs already created them above — idempotent either way.
 ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS trust_score            NUMERIC(3,2),
   ADD COLUMN IF NOT EXISTS trust_flags            JSONB,
   ADD COLUMN IF NOT EXISTS quarantined_at         TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS source_turn_at         TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS source_turn_hash       TEXT,
+  ADD COLUMN IF NOT EXISTS decision_text_key      TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_decisions_project     ON context_system.decisions(project_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decisions(session_id);
@@ -136,6 +153,8 @@ CREATE INDEX IF NOT EXISTS idx_decisions_conflict     ON context_system.decision
 CREATE INDEX IF NOT EXISTS idx_decisions_active       ON context_system.decisions(project_id) WHERE invalidated_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_unreviewed   ON context_system.decisions(project_id) WHERE invalidated_at IS NULL AND reviewed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_quarantined  ON context_system.decisions(project_id) WHERE quarantined_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_decisions_clash_text_key ON context_system.decisions(project_id, scope, decision_text_key)
+  WHERE conflict_flag AND invalidated_at IS NULL AND quarantined_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_embedding    ON context_system.decisions USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 

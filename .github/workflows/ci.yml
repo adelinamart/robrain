@@ -8,6 +8,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: robrain
+          POSTGRES_PASSWORD: robrain
+          POSTGRES_DB: robrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U robrain"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +45,8 @@ jobs:
       - run: pnpm -r typecheck
 
       - run: pnpm -r test
+        env:
+          PERCEPTION_TEST_DATABASE_URL: postgres://robrain:robrain@127.0.0.1:5432/robrain
 
       # Published CLI tarball shape — vendor bundle present, no workspace: deps,
       # resolveInstalledSensingMcpDir() finds vendor/ from compiled dist/lib.

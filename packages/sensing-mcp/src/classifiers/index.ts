@@ -14,7 +14,7 @@ import type {
   ExtractedDecision,
   Scope,
 } from '@robrain/shared'
-import { extractDecisionLlm, LlmKeyMissingError } from '@robrain/shared'
+import { extractDecisionLlm, LlmKeyMissingError, SELF_HOSTED_USER_RULE_OVERRIDE } from '@robrain/shared'
 import { config, isThinMode } from '../config.js'
 import { embed, cosineDistance } from '../embeddings.js'
 
@@ -63,9 +63,14 @@ const IMPLICIT_ACTION_PATTERNS = [
 ]
 
 // "let's standardize on X"-style commitments must come from the user,
-// otherwise they're a suggestion, not a decision.
+// otherwise they're a suggestion, not a decision. Standing rules ("never
+// use X", "from now on …") belong here too: a reversal of a stored rule is
+// usually phrased this way and must reach extraction in the same turn.
 const IMPLICIT_USER_COMMITMENT_PATTERNS = [
   /\blet['’]s\s+(standardize|standardise|use|go with|stick with|adopt)\b/i,
+  /\b(from now on|going forward)\b/i,
+  /\b(always|never)\s+(use|write|add|call|prefer|put|name|run|import|suggest|commit|push|merge|install|mock)\b/i,
+  /\b(don['’]t|do not|stop|no longer)\s+(use|using|write|writing|add|adding|call|calling|suggest|suggesting|import|importing)\b/i,
 ]
 
 export async function classifyDecision(
@@ -126,6 +131,7 @@ async function extractDecision(turn: SessionTurn): Promise<ExtractedDecision> {
       openaiApiKey:    config.openaiApiKey,
       openaiModel:     config.openaiLlmModel,
       openaiBaseUrl:   config.openaiBaseUrl,
+      extraSystemRules: SELF_HOSTED_USER_RULE_OVERRIDE,
     })
     lastClassifierFailure = null
     return extracted
