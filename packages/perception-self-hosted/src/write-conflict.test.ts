@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   conflictNotice,
   decideSaveDisposition,
+  decisionTextKey,
   dedupAfterNeighborCheck,
   findMatchingTurnCapture,
   MAX_TURN_CLOCK_LEAD_MS,
@@ -89,6 +90,16 @@ describe('textNearIdentical', () => {
     const mysqlDecision = postgresDecision.replace('Postgres', 'MySQL')
     assert.equal(postgresDecision.split(' ').length, 24)
     assert.equal(textNearIdentical(postgresDecision, mysqlDecision), false)
+  })
+
+  it('matches exactly when the stored text keys are equal and not empty', () => {
+    const composed = 'Use the caf\u00e9 schema'
+    const decomposed = 'Use  the cafe\u0301 schema.'
+    assert.equal(decisionTextKey(composed), decisionTextKey(decomposed))
+    assert.equal(textNearIdentical(composed, decomposed), true)
+    assert.notEqual(decisionTextKey('Use pnpm'), decisionTextKey('use pnpm'))
+    assert.equal(decisionTextKey('  . '), '')
+    assert.equal(textNearIdentical('  . ', ' .'), false)
   })
 
   it('never drops a long sentence that only gains one word', () => {

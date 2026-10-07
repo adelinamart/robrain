@@ -17,8 +17,8 @@ import { fileURLToPath } from 'node:url'
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import pg from 'pg'
-import { CHRONOLOGY_INSTANT, chronologyInstantSql, findMatchingTurnCapture, planDecisionSave, statedAfter, turnSourceHash, withTurnIdentity, type StatedAt } from './write-conflict.js'
-import { commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, lockTurnCapture, rankSummaryDecisions, type DecisionWriteInput, type DecisionWriteResult } from './decision-sql.js'
+import { CHRONOLOGY_INSTANT, chronologyInstantSql, decisionTextKey, findMatchingTurnCapture, planDecisionSave, statedAfter, turnSourceHash, withTurnIdentity, type StatedAt } from './write-conflict.js'
+import { backfillDecisionTextKeys, commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, lockTurnCapture, rankSummaryDecisions, type DecisionWriteInput, type DecisionWriteResult } from './decision-sql.js'
 
 const databaseUrl = process.env.PERCEPTION_TEST_DATABASE_URL
 const schema = 'perception_itest'
@@ -388,6 +388,61 @@ if (databaseUrl) {
     assert.deepEqual(await loadClashedCopies(pool, schema, 'proj-partners', 'team', 'use mysql for every service'), [])
     assert.deepEqual(await loadClashedCopies(pool, schema, 'proj-partners', 'team', 'Use SQLite for every service'), [])
     assert.deepEqual(await loadClashedCopies(pool, schema, 'proj-partners', 'user', 'Use MySQL for every service'), [])
+  })
+
+  it('finds a clashed copy by its text key, and still reads a row whose key is not filled yet', async () => {
+    await registerProject('proj-text-key', ['session-text-key'])
+    for (const [id, decision] of [
+      ['key-mysql-legacy', 'Use MySQL for every service'],
+      ['key-postgres', 'Use Postgres for every service'],
+      ['key-cockroach', 'Use CockroachDB for every service'],
+    ] as const) {
+      await insertDecision({
+        id,
+        projectId: 'proj-text-key',
+        sessionId: 'session-text-key',
+        decision,
+        createdAt: '2026-01-01T00:00:00.000000Z',
+        conflictFlag: true,
+      })
+    }
+    await linkConflict('key-postgres', 'key-mysql-legacy')
+    await linkConflict('key-cockroach', 'key-postgres')
+    const written = await commitDecisionWrite(pool, schema, decisionWrite({
+      projectId: 'proj-text-key',
+      sessionId: 'session-text-key',
+      decision: ' Use MySQL for every service. ',
+      sourceExcerpt: 'go back to MySQL',
+      sourceTurnSequence: 9,
+      conflictWithIds: ['key-cockroach'],
+    }))
+    assert.equal(written.status, 'inserted')
+    if (written.status !== 'inserted') return
+    const { rows: keyed } = await pool.query<{ decision_text_key: string | null }>(
+      `SELECT decision_text_key FROM ${schema}.decisions WHERE id = $1`,
+      [written.id],
+    )
+    assert.equal(keyed[0]?.decision_text_key, decisionTextKey('Use MySQL for every service'))
+
+    const beforeBackfill = await loadClashedCopies(pool, schema, 'proj-text-key', 'team', 'Use MySQL for every service')
+    assert.deepEqual(beforeBackfill.map((copy) => copy.id).sort(), ['key-mysql-legacy', written.id].sort())
+
+    const filled = await backfillDecisionTextKeys(pool, schema, 1)
+    assert.ok(filled >= 3)
+    const { rows: missing } = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM ${schema}.decisions WHERE decision_text_key IS NULL`,
+    )
+    assert.equal(missing[0]?.count, '0')
+    assert.equal(await backfillDecisionTextKeys(pool, schema), 0)
+
+    const afterBackfill = await loadClashedCopies(pool, schema, 'proj-text-key', 'team', 'Use MySQL for every service')
+    assert.deepEqual(afterBackfill.map((copy) => copy.id).sort(), ['key-mysql-legacy', written.id].sort())
+    assert.deepEqual(
+      afterBackfill.find((copy) => copy.id === 'key-mysql-legacy')?.conflictPartnerIds,
+      ['key-postgres'],
+    )
+    assert.deepEqual(await loadClashedCopies(pool, schema, 'proj-text-key', 'team', 'Use Postgres for all services'), [])
+    assert.deepEqual(await loadClashedCopies(pool, schema, 'proj-text-key', 'team', ' . '), [])
   })
 
   it('stores a return to an older rule as conflict:newer against every open partner', async () => {

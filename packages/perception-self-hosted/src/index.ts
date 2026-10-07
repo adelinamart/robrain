@@ -28,8 +28,8 @@ import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
 import { filterVetoMatches, type VetoScanRow } from './veto-scan.js'
-import { commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, rankSummaryDecisions, type StatedDecision, type TurnCapture } from './decision-sql.js'
-import { chronologyInstantSql, conflictNotice, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, NEIGHBOR_SCAN_LIMIT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type StatedAt, type TurnIdentity } from './write-conflict.js'
+import { backfillDecisionTextKeys, commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, rankSummaryDecisions, type StatedDecision, type TurnCapture } from './decision-sql.js'
+import { chronologyInstantSql, conflictNotice, decisionTextKey, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, NEIGHBOR_SCAN_LIMIT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type StatedAt, type TurnIdentity } from './write-conflict.js'
 
 const { Pool } = pg
 
@@ -423,10 +423,12 @@ app.post('/signals', writeRateLimit, async (c) => {
       LIMIT ${NEIGHBOR_SCAN_LIMIT + 1}
     `, [JSON.stringify(embedding), projectId, signal.scope])
 
-    const partnerIdsByDecision = await loadConflictPartnerIds(pool, S, nearest.map((neighbor) => neighbor.id))
-    const clashedCopies = quarantine
-      ? []
-      : await loadClashedCopies(pool, S, projectId, signal.scope, extracted.decision)
+    const [partnerIdsByDecision, clashedCopies] = await Promise.all([
+      loadConflictPartnerIds(pool, S, nearest.map((neighbor) => neighbor.id)),
+      quarantine
+        ? Promise.resolve([])
+        : loadClashedCopies(pool, S, projectId, signal.scope, extracted.decision),
+    ])
     const savePlan = await planDecisionSave(
       extracted.decision,
       nearest.map((neighbor) => ({
@@ -1196,9 +1198,9 @@ app.post('/corrections', async (c) => {
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source,
         supersedes_id, embedding, source_turn_sequence, source_excerpt, source_turn_hash,
-        trust_score, trust_flags, quarantined_at, source_turn_at
+        trust_score, trust_flags, quarantined_at, source_turn_at, decision_text_key
       ) VALUES ($1,$2,$3,$4,$11::jsonb,$12::text[],1.0,$5,$6,$7,$8::vector,$9,$10,$17,
-                $13,$14::jsonb,CASE WHEN $15::boolean THEN now() END,$16)
+                $13,$14::jsonb,CASE WHEN $15::boolean THEN now() END,$16,$18)
     `, [
       projectId,
       src.session_id,
@@ -1217,6 +1219,7 @@ app.post('/corrections', async (c) => {
       quarantine,
       src.source_turn_at,
       src.source_turn_hash,
+      decisionTextKey(correctedDecision),
     ])
 
     if (quarantine) {
@@ -1614,6 +1617,13 @@ applySqlMigrations(pool, S)
     serve({ fetch: app.fetch, port: config.port }, () => {
       console.log(`[RoBrain Perception OSS] Running on port ${config.port} — mode: ${config.ossMode ? 'self-hosted' : 'cloud'}`)
     })
+    // In the background: until a row has its key, the clashed-copy lookup
+    // still reads it, so saves stay correct while this runs.
+    backfillDecisionTextKeys(pool, S)
+      .then((filled) => {
+        if (filled > 0) console.log(`[RoBrain Perception OSS] decision_text_key filled on ${filled} older rows`)
+      })
+      .catch((err) => console.error('[RoBrain Perception OSS] decision_text_key backfill failed; older rows are still read without it:', err))
   })
   .catch((err) => {
     console.error('[RoBrain Perception OSS] Startup migration failed:', err)

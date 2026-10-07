@@ -82,10 +82,18 @@ function normalizeText(text: string): string {
  * operator, or one swapped word in a long sentence, must reach the model.
  */
 export function textNearIdentical(left: string, right: string): boolean {
-  const normalizedLeft = normalizeText(left)
-  const normalizedRight = normalizeText(right)
-  if (normalizedLeft.length === 0 || normalizedRight.length === 0) return false
-  return normalizedLeft === normalizedRight
+  const leftKey = decisionTextKey(left)
+  return leftKey.length > 0 && leftKey === decisionTextKey(right)
+}
+
+/**
+ * Stored in decisions.decision_text_key so the clashed-copy lookup can use
+ * an index. Two decisions are textNearIdentical exactly when their keys are
+ * equal and not empty. Computed here, not in SQL, so both sides use the
+ * same NFC and whitespace rules.
+ */
+export function decisionTextKey(decision: string): string {
+  return normalizeText(decision)
 }
 
 /** Provenance snapshot stored on the decision row and compared on a retry. */

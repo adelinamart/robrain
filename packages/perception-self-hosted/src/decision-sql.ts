@@ -3,7 +3,7 @@
 // already applies to DB_SCHEMA.
 
 import type pg from 'pg'
-import { chronologyInstantSql, findMatchingTurnCapture, textNearIdentical, withTurnIdentity, type ClashedCopy } from './write-conflict.js'
+import { chronologyInstantSql, decisionTextKey, findMatchingTurnCapture, textNearIdentical, withTurnIdentity, type ClashedCopy } from './write-conflict.js'
 
 /** Three unresolved pairs; leaves at least 9 of the 15 high-signal slots for other rules. */
 export const MAX_PINNED_CONFLICT_ROWS = 6
@@ -135,9 +135,9 @@ export async function commitDecisionWrite(
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source, embedding,
         source_turn_sequence, source_excerpt, source_turn_hash,
-        trust_score, trust_flags, quarantined_at, source_turn_at
+        trust_score, trust_flags, quarantined_at, source_turn_at, decision_text_key
       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, 'sensing', $9::vector, $10, $11, $12,
-                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16)
+                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16, $17)
       RETURNING id,
         ${chronologyInstantSql('source_turn_at')} AS source_turn_at,
         ${chronologyInstantSql('created_at')} AS created_at
@@ -158,6 +158,7 @@ export async function commitDecisionWrite(
       JSON.stringify(input.trustFlags),
       input.quarantine,
       input.sourceTurnAt,
+      decisionTextKey(input.decision),
     ])
     const inserted = rows[0]
     if (!inserted) throw new Error('decision insert returned no row')
@@ -235,6 +236,8 @@ export async function loadConflictPartnerIds(
  * Active same-scope rows in an open clash whose text matches `decision`
  * (textNearIdentical). Found by text, not embedding rank, so a copy that
  * is not among the closest rows still passes its clash to the new row.
+ * The index on decision_text_key picks the candidates before partners are
+ * joined. A row with no key yet is read too, and textNearIdentical decides.
  */
 export async function loadClashedCopies(
   queryable: pg.Pool | pg.PoolClient,
@@ -243,22 +246,75 @@ export async function loadClashedCopies(
   scope: string,
   decision: string,
 ): Promise<ClashedCopy[]> {
+  const textKey = decisionTextKey(decision)
+  if (textKey.length === 0) return []
   const safeSchema = checkedSchema(schema)
   const openPartner = openPartnerSql(safeSchema)
+  const candidateWhere = `
+        project_id = $1
+        AND scope = $2
+        AND conflict_flag
+        AND invalidated_at IS NULL
+        AND quarantined_at IS NULL`
+  // Two branches, not OR, so both use idx_decisions_clash_text_key as an
+  // index condition instead of filtering every clashed row in the scope.
+  // MATERIALIZED builds that list before the partner join. Inlined, Postgres
+  // reads every clash edge even when the list is empty.
   const { rows } = await queryable.query<{ id: string; decision: string; partner_ids: string[] }>(`
+    WITH copies AS MATERIALIZED (
+      SELECT id, decision, conflict_flag
+      FROM ${safeSchema}.decisions
+      WHERE ${candidateWhere}
+        AND decision_text_key = $3
+      UNION ALL
+      SELECT id, decision, conflict_flag
+      FROM ${safeSchema}.decisions
+      WHERE ${candidateWhere}
+        AND decision_text_key IS NULL
+    )
     SELECT d.id, d.decision, array_agg(DISTINCT other.id ORDER BY other.id) AS partner_ids
-    FROM ${safeSchema}.decisions d
+    FROM copies d
     ${openPartner.join}
-    WHERE d.project_id = $1
-      AND d.scope = $2
-      AND d.invalidated_at IS NULL
-      AND d.quarantined_at IS NULL
-      AND ${openPartner.where}
+    WHERE ${openPartner.where}
     GROUP BY d.id, d.decision
-  `, [projectId, scope])
+  `, [projectId, scope, textKey])
   return rows
     .filter((row) => textNearIdentical(decision, row.decision))
     .map((row) => ({ id: row.id, decision: row.decision, conflictPartnerIds: row.partner_ids }))
+}
+
+/**
+ * Fills decision_text_key on rows saved before migration 008, in batches.
+ * Only rows still NULL are written, so it is safe beside live saves.
+ * Returns how many rows it filled.
+ */
+export async function backfillDecisionTextKeys(
+  queryable: pg.Pool | pg.PoolClient,
+  schema: string,
+  batchSize = 500,
+): Promise<number> {
+  const safeSchema = checkedSchema(schema)
+  let filled = 0
+  let afterId = ''
+  for (;;) {
+    const { rows } = await queryable.query<{ id: string; decision: string }>(`
+      SELECT id, decision
+      FROM ${safeSchema}.decisions
+      WHERE decision_text_key IS NULL AND id > $1
+      ORDER BY id
+      LIMIT $2
+    `, [afterId, batchSize])
+    const lastRow = rows[rows.length - 1]
+    if (!lastRow) return filled
+    const result = await queryable.query(`
+      UPDATE ${safeSchema}.decisions d
+      SET decision_text_key = batch.text_key
+      FROM unnest($1::text[], $2::text[]) AS batch(id, text_key)
+      WHERE d.id = batch.id AND d.decision_text_key IS NULL
+    `, [rows.map((row) => row.id), rows.map((row) => decisionTextKey(row.decision))])
+    filled += result.rowCount ?? 0
+    afterId = lastRow.id
+  }
 }
 
 export interface StatedDecision {
