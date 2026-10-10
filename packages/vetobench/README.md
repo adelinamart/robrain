@@ -146,8 +146,22 @@ done
 
 Caveats, same rules as above: five runs; n=10; expect variance. The
 veto-absence check is a string match against the retrieved context, so it
-cannot distinguish extraction loss from retrieval misses — archiving Mem0's
-full store per run would separate them; PRs welcome. Two
+cannot distinguish extraction loss from retrieval misses in those historical
+archives. New runs include a post-ingestion store snapshot under
+`adapter_reports.mem0.store_snapshot` when `--archive` is used. Compare its
+memory text with the per-scenario contexts before attributing a missing veto to
+extraction or retrieval; IDs identify the stored records. A paraphrase can
+defeat a string match in either place. This does not automatically judge
+extraction fidelity.
+
+Snapshots explicitly request more than the SDK's default 20 memories. Up to
+10,000 memories are archived; `status: "capped"` means absence is inconclusive.
+A store-read failure aborts initialization rather than recording an empty store.
+Each new adapter instance uses a fresh SQLite `:memory:` store: the OSS
+`memory` provider otherwise defaults to a persistent database shared across
+runs. Existing databases are neither read nor deleted. These changes do not
+retroactively establish store contents or isolation for the historical series;
+rerun it before drawing new comparisons. Two
 practical notes for re-runners: the adapter needs `OPENAI_API_KEY` (Mem0
 OSS's default LLM and embedder), and `mem0ai` depends on the native
 `better-sqlite3` module — use a Node LTS with prebuilt binaries (v20/v22);

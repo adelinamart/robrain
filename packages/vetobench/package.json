@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "bench": "pnpm build && node dist/run.js",
     "bench:live": "pnpm build && node dist/run.js --live",
-    "test": "pnpm build && node --test dist/score.test.js dist/adapters.test.js"
+    "test": "pnpm build && node --test dist/score.test.js dist/adapters.test.js dist/mem0-adapter.test.js"
   },
   "dependencies": {
     "@robrain/shared": "workspace:*",

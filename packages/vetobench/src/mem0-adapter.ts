@@ -29,43 +29,81 @@
 // welcome.
 // ─────────────────────────────────────────────────────────────
 
-import { Memory } from 'mem0ai/oss'
+import type { Memory } from 'mem0ai/oss'
 import { RETRIEVAL_K } from './adapters.js'
 import { decisionAsTranscript } from './transcripts.js'
 import type { CorpusDecision, MemoryAdapter, Scenario } from './types.js'
 
 const USER_ID = 'vetobench-team'
+export const STORE_SNAPSHOT_LIMIT = 10_000
+type Mem0Client = Pick<Memory, 'add' | 'search' | 'getAll'>
+type MemoryFactory = (config: ConstructorParameters<typeof Memory>[0]) => Promise<Mem0Client>
 
-export function makeMem0Adapter(k: number = RETRIEVAL_K): MemoryAdapter {
-  let memory: Memory | null = null
+const createMemory: MemoryFactory = async config => {
+  const { Memory } = await import('mem0ai/oss')
+  return new Memory(config)
+}
+
+export function makeMem0Adapter(k: number = RETRIEVAL_K, factory: MemoryFactory = createMemory): MemoryAdapter {
+  let memory: Mem0Client | null = null
+  let storeReport: unknown = null
 
   return {
     name: 'mem0',
     description: `Mem0 OSS (infer:true extraction) — top-${k} semantic search over the same decision prose.`,
 
     async init(corpus: CorpusDecision[]): Promise<void> {
+      memory = null
+      storeReport = null
       const apiKey = process.env.OPENAI_API_KEY
       if (!apiKey) throw new Error('mem0 adapter needs OPENAI_API_KEY (Mem0 OSS default LLM + embedder)')
+      const embeddingModel = process.env.MEM0_EMBEDDING_MODEL ?? 'text-embedding-3-small'
+      const extractionModel = process.env.MEM0_LLM_MODEL ?? 'gpt-4o-mini'
 
-      memory = new Memory({
+      const client = await factory({
         embedder: {
           provider: 'openai',
-          config: { apiKey, model: process.env.MEM0_EMBEDDING_MODEL ?? 'text-embedding-3-small' },
+          config: { apiKey, model: embeddingModel },
         },
         llm: {
           provider: 'openai',
-          config: { apiKey, model: process.env.MEM0_LLM_MODEL ?? 'gpt-4o-mini' },
+          config: { apiKey, model: extractionModel },
         },
         vectorStore: {
           provider: 'memory',
-          config: { collectionName: 'vetobench' },
+          // The OSS "memory" provider otherwise persists to ~/.mem0/vector_store.db.
+          config: { collectionName: 'vetobench', dbPath: ':memory:' },
         },
         disableHistory: true,
       })
 
       for (const d of corpus) {
-        await memory.add(decisionAsTranscript(d), { userId: USER_ID })
+        await client.add(decisionAsTranscript(d), { userId: USER_ID })
       }
+
+      // getAll defaults to 20 results in mem0ai 3.0.13. Request one extra
+      // record to detect truncation; a capped snapshot cannot establish absence.
+      // Fail init on a read error rather than archive it as an empty store.
+      const { results } = await client.getAll({
+        filters: { user_id: USER_ID },
+        topK: STORE_SNAPSHOT_LIMIT + 1,
+      })
+      storeReport = {
+        stage: 'after_ingestion',
+        user_id: USER_ID,
+        extraction_model: extractionModel,
+        embedding_model: embeddingModel,
+        corpus_decision_ids: corpus.map(d => d.id),
+        store_snapshot: {
+          status: results.length <= STORE_SNAPSHOT_LIMIT ? 'complete' : 'capped',
+          limit: STORE_SNAPSHOT_LIMIT,
+          memories: results.slice(0, STORE_SNAPSHOT_LIMIT).map(m => ({
+            id: m.id, memory: m.memory, hash: m.hash,
+            createdAt: m.createdAt, updatedAt: m.updatedAt,
+          })),
+        },
+      }
+      memory = client
     },
 
     async buildContext(scenario: Scenario): Promise<string> {
@@ -77,5 +115,7 @@ export function makeMem0Adapter(k: number = RETRIEVAL_K): MemoryAdapter {
       if (results.length === 0) return ''
       return `Relevant memories for this task (from team memory):\n${results.map(m => `- ${m.memory}`).join('\n')}`
     },
+
+    report: () => structuredClone(storeReport),
   }
 }
