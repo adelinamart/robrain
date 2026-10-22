@@ -11,7 +11,7 @@ Four files, three native eve surfaces, all backed by your self-hosted RoBrain st
 | `agent/hooks/robrain_capture.ts` | Stream hook (observe-only) | Ships each completed turn to Perception for server-side decision extraction. Capture is deterministic — not dependent on the model remembering to call anything. |
 | `agent/lib/robrain.ts` | — | Shared Perception client. Fail-open everywhere: a dead or unconfigured Perception never breaks the agent's session. |
 
-Verified end-to-end against `eve dev` (eve 0.24.4, 2026-07-16): the agent refused two previously-rejected approaches citing the recorded reasons verbatim, and a novel decision stated in-session was captured with its structured `rejected[]` intact.
+Verified end-to-end against `eve dev` on eve 0.82.0 (2026-10-22; originally 0.24.4, 2026-07-16): the agent refused a previously-rejected approach citing the recorded reasons verbatim, and a novel decision stated in-session was captured with its structured `rejected[]` intact. Note for eve ≤0.24.x users: those versions carried a cumulative `messageSoFar` on `message.appended`; current eve removed it, and this plugin's capture hook no longer relies on it.
 
 ## Install
 
@@ -43,7 +43,7 @@ Finally, tell the agent to use the tool — add to your `agent/instructions.md`:
 
 - **Requires Node ≥ 24** (eve's own floor).
 - **Local vs deployed:** with `eve dev`, `localhost:3001` works as-is. A deployed agent (`vercel deploy`) needs a Perception reachable from your deployment — a self-hosted instance with a public URL, or a hosted RoBrain backend.
-- **Capture flushes on `turn.completed`**, not `message.completed` — the latter fires multiple times per turn (interim narration before tool calls); flushing on turn end gives exactly one capture per turn with the final text.
+- **Capture keeps the last non-empty `message.completed` and flushes once on `turn.completed`.** `message.completed` fires multiple times per turn (interim narration before tool calls) and arrives with `message: null` on tool-call-only steps, so neither a per-event write nor a naive subscription works. eve hooks are also at-least-once (a replayed step re-emits events), so a turn can occasionally ship twice — Perception's server-side near-duplicate dedup absorbs that.
 - **Perception dedups server-side.** Turns that restate existing decisions come back `action: "discarded"` — absence of new rows is the dedup working, not capture failing.
 - **Test projects must be registered.** Perception rejects unknown project ids (`project_not_registered`) — point `ROBRAIN_PROJECT_ID` at a registered project, and never at a production project from test rigs.
 - **Cross-tool by design.** Decisions captured here surface in Claude Code, Cursor, and Codex through the same Perception store — and vice versa.

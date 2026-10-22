@@ -3,12 +3,18 @@
 // needs_classification signals. Perception classifies/dedups server-side, so
 // this stays a dumb, fail-open pipe.
 //
-// Event choice (verified live, eve 0.24.4): hooks receive message.received /
-// message.appended / message.completed / turn.completed. We accumulate
-// messageSoFar and flush once on turn.completed rather than using
-// message.completed, because message.completed fires MULTIPLE times per turn
-// (interim narration before tool calls) — turn.completed gives exactly one
-// capture per turn with the final text.
+// Event choice (verified live, eve 0.82.0): message.completed carries the full
+// assistant text in data.message. It fires once per assistant text block, so a
+// turn with interim narration before tool calls fires it multiple times; some
+// eve versions have also emitted it with message: null on tool-call-only steps
+// (0.82.0 emits none there). We keep the LAST non-empty message and flush
+// exactly once on turn.completed — robust across all of those variants.
+// Note for older eve: 0.24.x carried a cumulative messageSoFar on
+// message.appended; 0.82.0 removed it (deltas only), so don't rely on it.
+//
+// Hooks are at-least-once (a replayed step re-emits events), so a turn can be
+// shipped twice with slightly different text; Perception's server-side
+// near-duplicate dedup absorbs that.
 import { defineHook } from "eve/hooks";
 import { perceptionFetch, PROJECT_ID } from "../lib/robrain";
 
@@ -34,11 +40,12 @@ export default defineHook({
         // fail open
       }
     },
-    async "message.appended"(event: any, ctx) {
+    async "message.completed"(event: any, ctx) {
       try {
         const s = ensure(ctx.session.id);
-        const soFar = event?.data?.messageSoFar;
-        if (typeof soFar === "string" && soFar) s.reply = soFar;
+        const text = event?.data?.message;
+        // null guard: tool-call-only steps complete with message: null
+        if (typeof text === "string" && text.trim()) s.reply = text;
       } catch {
         // fail open
       }
