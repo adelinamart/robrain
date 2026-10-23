@@ -1,0 +1,6 @@
+{
+  // Type checking only: same options as the build, but tests included.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*"],
+  "exclude": []
+}

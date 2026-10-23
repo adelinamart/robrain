@@ -239,7 +239,8 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 - VetoBench (does memory stop rejected re-proposals? methodology + archived receipts) → [packages/vetobench/README.md](packages/vetobench/README.md)
 - Claude Code plugin (hook-based capture + veto warnings) → [plugins/claude-code/README.md](plugins/claude-code/README.md)
 - Codex CLI hooks (same lifecycle hooks, wired by `robrain install`) → [plugins/codex/README.md](plugins/codex/README.md)
-- eve agents (Vercel's agent framework — dynamic-instructions memory, veto tool, capture hook; verified against `eve dev`) → [plugins/eve/README.md](plugins/eve/README.md)
+- eve memory provider (`@robrain/eve` — team decision memory for Vercel's eve agents via eve's memory-provider contract; verified on eve 0.82.0) → [packages/eve/README.md](packages/eve/README.md)
+- eve raw-surfaces integration (dynamic instructions, veto tool, capture hook; predates eve's memory subsystem) → [plugins/eve/README.md](plugins/eve/README.md)
 - Hermes agent plugin (memory-provider, capture + veto warnings) → [integrations/hermes/robrain/README.md](integrations/hermes/robrain/README.md)
 
 ## Contributing

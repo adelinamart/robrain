@@ -1,0 +1,27 @@
+{
+  // Intentional inline copy of ../../tsconfig.base.json (same reason as
+  // packages/shared): this package must build standalone (prepare: tsc) when
+  // installed from a git path, where the base file doesn't exist. If you edit
+  // tsconfig.base.json, mirror the change here.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  // Tests run from source via `bun test src`; keeping them out of the build
+  // keeps compiled tests out of dist/ and therefore out of the npm tarball.
+  // `tsconfig.typecheck.json` re-includes them for type checking.
+  "exclude": ["src/**/*.test.ts"]
+}

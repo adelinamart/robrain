@@ -1,4 +1,6 @@
-# RoBrain for eve agents
+# RoBrain for eve agents (raw-surfaces integration)
+
+> **Prefer the memory provider.** eve now has a first-class memory subsystem, and RoBrain ships a provider for it: [`@robrain/eve`](../../packages/eve/README.md) (`npm install @robrain/eve`, one `agent/memory/robrain.ts` slot). The files below predate that subsystem and remain as a reference for the same behaviors built on eve's generic surfaces.
 
 Give any [eve](https://eve.dev) agent your team's decision memory — including the alternatives you **rejected** and why — so it stops re-proposing approaches your team already ruled out.
 
