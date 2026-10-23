@@ -73,10 +73,24 @@ export class LlmKeyMissingError extends Error {
   }
 }
 
+/**
+ * Output budget for one extraction. The schema is short, but a decision with
+ * several rejected options and their reasons, wrapped in a code fence, ran past
+ * the previous 300-token cap and was discarded as truncated JSON.
+ */
+const EXTRACTION_MAX_TOKENS = 600
+
+/**
+ * Unwrap a markdown code fence around the model's JSON. The closing fence is
+ * optional: when the reply hits the token cap it is the closing fence that gets
+ * cut off first, and the JSON inside is usually still complete.
+ */
 export function stripMarkdownJsonFence(raw: string): string {
-  const t = raw.trim()
-  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
-  return m?.[1]?.trim() ?? t
+  return raw
+    .trim()
+    .replace(/^```[a-z]*\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim()
 }
 
 /**
@@ -140,7 +154,7 @@ Claude: ${claudeReply}`
       model:     cfg.openaiModel,
       system:    systemPrompt,
       user:      userPrompt,
-      maxTokens: 300,
+      maxTokens: EXTRACTION_MAX_TOKENS,
       baseUrl,
       json:      true,
     })
@@ -149,11 +163,15 @@ Claude: ${claudeReply}`
       throw new LlmKeyMissingError('ANTHROPIC_API_KEY is not set — cannot run Haiku decision extraction')
     }
     rawText = await anthropicChat({
-      apiKey:    cfg.anthropicApiKey.trim(),
-      model:     cfg.anthropicModel,
-      system:    systemPrompt,
-      user:      userPrompt,
-      maxTokens: 300,
+      apiKey:      cfg.anthropicApiKey.trim(),
+      model:       cfg.anthropicModel,
+      system:      systemPrompt,
+      user:        userPrompt,
+      maxTokens:   EXTRACTION_MAX_TOKENS,
+      // Same turn, same extraction: the Anthropic API samples at temperature 1
+      // unless told otherwise, which made a clear decision come back as
+      // "no decision" on some runs and get extracted on others.
+      temperature: 0,
     })
   }
 

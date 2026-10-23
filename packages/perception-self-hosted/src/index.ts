@@ -1477,13 +1477,15 @@ async function compareWithNeighbor(earlier: string, incoming: string): Promise<N
           onUsage:   recordUsage,
         })
       : await anthropicChat({
-          apiKey:    config.anthropicApiKey,
+          apiKey:      config.anthropicApiKey,
           model,
-          system:    NEIGHBOR_RELATION_PROMPT,
-          user:      `A: ${earlier}\nB: ${incoming}`,
-          maxTokens: 24,
+          system:      NEIGHBOR_RELATION_PROMPT,
+          user:        `A: ${earlier}\nB: ${incoming}`,
+          maxTokens:   24,
+          // A verdict should not change between runs on the same pair.
+          temperature: 0,
           signal,
-          onUsage:   recordUsage,
+          onUsage:     recordUsage,
         })
     const verdict = parseNeighborVerdict(raw)
     console.log(

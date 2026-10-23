@@ -11,6 +11,15 @@ describe('stripMarkdownJsonFence', () => {
   it('returns plain text untouched', () => {
     assert.equal(stripMarkdownJsonFence('{"a":1}'), '{"a":1}')
   })
+
+  it('unwraps a fence whose closing marker was cut off by the token cap', () => {
+    const truncated = '```json\n{"decision": "Use Fastify", "rejected": []}'
+    assert.equal(stripMarkdownJsonFence(truncated), '{"decision": "Use Fastify", "rejected": []}')
+  })
+
+  it('unwraps fences with no language tag', () => {
+    assert.equal(stripMarkdownJsonFence('```\n{"a":1}\n```'), '{"a":1}')
+  })
 })
 
 describe('parseExtractedDecision', () => {
