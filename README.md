@@ -145,6 +145,32 @@ npx robrain export-memory --ledger
 # custom path: npx robrain export-memory --ledger docs/decisions.md
 ```
 
+## Common questions
+
+### How do I stop an AI coding agent from re-proposing something my team already rejected?
+
+Record the rejection once — RoBrain captures it passively from the session where it happened — and every connected agent gets a veto warning before steering down that path again: the decision, the rejected option, and the original reason. See [Editor integration](#editor-integration) and the [Claude Code plugin](plugins/claude-code/README.md).
+
+### How do I share memory across Claude Code, Cursor, Copilot, and Codex?
+
+One `npx robrain install --self-hosted` wires every detected editor to the same Postgres store; `npx robrain init-project` registers a repo once. A decision made in Cursor on Tuesday reaches a teammate's Claude Code on Wednesday.
+
+### Is the data stored in files or a database — and does it leave my machine?
+
+Everything lives in PostgreSQL (with pgvector for embeddings) — structured rows, not flat files. Self-hosted, the database runs in Docker on your machine, and nothing leaves it except calls to the LLM/embedding provider you configure (a local model works too). In Rory Plans cloud, only extracted decision objects are stored; raw conversation text is not retained after extraction.
+
+### How is RoBrain different from a vector database or RAG?
+
+A vector store retrieves what is *similar*; RoBrain also knows what was *rejected*. Rejections are first-class structured data (`rejected[]`), surfaced as warnings before the agent acts — and the corpus is actively judged: contradiction scans, drift detection, and git-outcome feedback that sinks decisions reality has already reverted. [VetoBench](#vetobench) measures the difference.
+
+### When should I use Rory Plans cloud instead of self-hosting?
+
+Self-host when you want everything on your own infrastructure, free. Choose [Rory Plans cloud](#option-2--rory-plans-cloud-managed) when you want nothing to host and no API keys to manage — included with every paid Rory Plans plan, with memory shared across your team's org.
+
+### How does RoBrain relate to Rory Plans?
+
+[Rory Plans](https://roryplans.ai) is the Cloud Office for humans and AI agents — where workflows are designed and humans and agents are orchestrated together. RoBrain is its open-source memory layer: standalone and self-hostable forever, managed as part of Rory Plans for teams.
+
 ## Compared to other tools
 
 Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: only RoBrain stores rejected alternatives as structured fields and runs corpus-wide contradiction scans (manual or cron). And we measured what that difference costs: [VetoBench](#vetobench) found Mem0's ingestion dropped the recorded rejection from **38% of retrieved contexts** on identical input. [Full comparison →](docs/concepts.md#comparisons)

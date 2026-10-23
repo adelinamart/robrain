@@ -1,0 +1,31 @@
+# RoBrain
+
+> Open-source institutional memory for AI coding agents. RoBrain records the engineering decisions a team makes — including the alternatives it REJECTED and why — and warns any connected agent before it re-proposes an approach the team already ruled out. Self-hosted on your own Postgres; Apache-2.0.
+
+Use RoBrain when an agent should know not just what was decided, but what was tried and rejected: the dependency removed for a CVE, the migration rolled back, the vendor dropped over pricing. Decisions are captured passively from coding sessions (no tagging) and shared across Claude Code, Cursor, GitHub Copilot, Codex CLI, Hermes, and eve agents — decide in one tool, remembered in all.
+
+## Quick start
+
+- Install, no clone needed: `npx robrain@latest up && npx robrain install --self-hosted` — starts Postgres + Perception in Docker and wires the MCP server into detected editors.
+- Register a project: `npx robrain init-project` inside the repo. Capture is automatic from there.
+- Portable MCP config: `{ "command": "npx", "args": ["-y", "robrain", "mcp"] }`
+
+## Key facts
+
+- Storage: PostgreSQL + pgvector — one database for structured records and vectors; rejected alternatives are structured JSONB (`rejected[]`), not prose.
+- Pre-task veto warnings: a deterministic exact-match scan plus semantic search fire BEFORE the agent acts, and old rejections never fade from warnings.
+- Judgment, not just storage: scheduled Synthesis passes flag contradictions and stance drift across the whole corpus; git outcomes (reverts, incidents) demote decisions that proved wrong.
+- Benchmarked: VetoBench — 0/50 re-proposals of rejected approaches through the full pipeline; receipts committed in `packages/vetobench/`.
+- Self-hosted privacy: nothing leaves your machine except calls to the LLM/embedding provider you configure (a local OpenAI-compatible server works too).
+
+## Docs
+
+- [README](https://github.com/adelinamart/robrain/blob/main/README.md): install, quickstart, cloud vs self-hosted
+- [Concepts](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md): architecture (Sensing / Perception / Synthesis), comparisons
+- [CLI reference](https://github.com/adelinamart/robrain/blob/main/docs/cli.md): every command
+- [VetoBench](https://github.com/adelinamart/robrain/blob/main/packages/vetobench/README.md): behavioral benchmark and receipts
+- [@robrain/eve](https://github.com/adelinamart/robrain/blob/main/packages/eve/README.md): memory provider for eve agents
+
+## Managed option
+
+RoBrain cloud (managed, nothing to host) is included with every paid [Rory Plans](https://roryplans.ai) plan. Rory Plans is the Cloud Office for humans and AI agents; RoBrain is its open-source memory layer.
