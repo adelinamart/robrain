@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk   from 'chalk'
-import ora     from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import { readConfig, isCloudInstall } from '../lib/config.js'
 import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo } from '../lib/project.js'
@@ -39,7 +39,7 @@ export async function explainCommand(
   // Normalise the file path — strip leading ./ if present
   const normalisedPath = filePath.replace(/^\.\//, '')
 
-  const spinner = ora({ text: `Looking up decisions for ${normalisedPath}...`, color: 'green' }).start()
+  const spinner = createSpinner({ text: `Looking up decisions for ${normalisedPath}...`, color: 'green' }).start()
 
   let decisions: Array<{
     id:             string

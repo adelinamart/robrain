@@ -11,10 +11,11 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk   from 'chalk'
-import ora     from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import { readConfig, isCloudInstall } from '../lib/config.js'
 import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo }           from '../lib/project.js'
+import { lookUpRegistration }          from './status.js'
 import { cwd }                         from 'process'
 import { execSync }                    from 'child_process'
 
@@ -44,7 +45,7 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
   /** Perception caps at 100; `--all` requests the max for broader paste context. */
   const fetchLimit = opts.all ? 100 : Math.min(100, Math.max(1, userLimit))
 
-  const spinner = ora({ text: 'Fetching relevant decisions...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Fetching relevant decisions...', color: 'green' }).start()
 
   let decisions: Array<{
     id:             string
@@ -103,10 +104,12 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
   spinner.stop()
 
   if (decisions.length === 0) {
-    console.log(chalk.dim(`  No decisions found for "${query ?? 'recent'}"\n`))
-    console.log(chalk.dim(query
-      ? '  No semantic matches were returned. Try a broader query (for example: "build tooling" instead of "env precedence").\n'
-      : '  Run an agent session (Claude Code, Cursor, Codex, …) first to capture decisions.\n'))
+    // The no-query listing only returns unreviewed decisions, so an empty
+    // result can mean "nothing captured yet" or "everything is reviewed".
+    // Those need different advice; the project's total tells them apart.
+    const total = query ? undefined : await countProjectDecisions(config, info.id)
+    for (const line of describeEmptyResult({ query, total })) console.log(chalk.dim(`  ${line}`))
+    console.log()
     return
   }
 
@@ -202,4 +205,45 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     console.log(chalk.dim('  Want automatic injection without pasting?'))
     console.log(chalk.dim('  → ') + chalk.cyan('roryplans.ai') + chalk.dim(' — Control MCP injects at every task boundary\n'))
   }
+}
+
+/** Total active decisions for the project, or undefined when the store cannot say. */
+async function countProjectDecisions(
+  config: { perceptionUrl?: string; perceptionKey?: string },
+  projectId: string,
+): Promise<number | undefined> {
+  const reg = await lookUpRegistration(
+    { perceptionUrl: config.perceptionUrl ?? 'http://127.0.0.1:3001', perceptionKey: config.perceptionKey },
+    projectId,
+  )
+  return reg.state === 'registered' ? reg.decisions : undefined
+}
+
+/**
+ * Lines printed when the fetch returned no decisions. `total` is the
+ * project's overall decision count for the no-query listing (which only
+ * shows unreviewed rows); when it is positive the project is not empty,
+ * every decision has simply been reviewed.
+ */
+export function describeEmptyResult(ctx: { query?: string; total?: number }): string[] {
+  if (ctx.query) {
+    return [
+      `No decisions found for "${ctx.query}"`,
+      '',
+      'No semantic matches were returned. Try a broader query (for example: "build tooling" instead of "env precedence").',
+    ]
+  }
+  if (typeof ctx.total === 'number' && ctx.total > 0) {
+    const n = ctx.total
+    return [
+      `All ${n} decision${n === 1 ? ' is' : 's are'} reviewed — nothing is waiting in the default listing.`,
+      '',
+      'Pass --query "<topic>" to pull relevant context; search covers reviewed decisions too.',
+    ]
+  }
+  return [
+    'No decisions found for "recent"',
+    '',
+    'Run an agent session (Claude Code, Cursor, Codex, …) first to capture decisions.',
+  ]
 }
