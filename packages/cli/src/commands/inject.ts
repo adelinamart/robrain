@@ -212,11 +212,19 @@ async function countProjectDecisions(
   config: { perceptionUrl?: string; perceptionKey?: string },
   projectId: string,
 ): Promise<number | undefined> {
-  const reg = await lookUpRegistration(
-    { perceptionUrl: config.perceptionUrl ?? 'http://127.0.0.1:3001', perceptionKey: config.perceptionKey },
-    projectId,
-  )
-  return reg.state === 'registered' ? reg.decisions : undefined
+  // lookUpRegistration already swallows network/API errors as `unknown`, but
+  // this path runs after a successful empty decisions fetch — never turn a
+  // secondary lookup blip into process.exit. Any unexpected throw → undefined
+  // so describeEmptyResult keeps the generic empty-project hint.
+  try {
+    const reg = await lookUpRegistration(
+      { perceptionUrl: config.perceptionUrl ?? 'http://127.0.0.1:3001', perceptionKey: config.perceptionKey },
+      projectId,
+    )
+    return reg.state === 'registered' ? reg.decisions : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**

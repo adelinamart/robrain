@@ -131,4 +131,37 @@ describe('inject — rendered output against a stub store', () => {
     })
     rmSync(projectDir, { recursive: true, force: true })
   })
+
+  it('falls back to the empty-project hint when the total lookup fails', async () => {
+    // Decisions already returned empty successfully — a broken /projects must
+    // not crash inject or call failPerceptionUnreachable; just omit the total.
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'robrain-inject-total-fail-')))
+    const server: Server = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json')
+      if (req.url === '/health')             { res.end('{"status":"ok"}'); return }
+      if (req.url?.startsWith('/decisions')) { res.end('{"decisions":[]}'); return }
+      if (req.url?.startsWith('/projects'))  { res.statusCode = 500; res.end('{"error":"boom"}'); return }
+      res.statusCode = 404
+      res.end('{}')
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    server.unref()
+    const address = server.address()
+    assert.ok(address && typeof address === 'object')
+    try {
+      writeFileSync(join(fakeHome, '.robrain', 'config.json'), JSON.stringify({
+        selfHosted: true,
+        perceptionUrl: `http://127.0.0.1:${address.port}`,
+        installedAt: '2026-10-23T00:00:00Z',
+      }))
+      const out = await runInject(projectDir)
+      assert.match(out, /No decisions found for "recent"/)
+      assert.match(out, /Run an agent session/)
+      assert.doesNotMatch(out, /reviewed/)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  })
 })
