@@ -249,9 +249,18 @@ export async function ruleCommand(opts: {
 // robrain logout
 
 export async function logoutCommand(): Promise<void> {
-  const { writeConfig } = await import('../lib/config.js')
-  writeConfig({})
+  const { clearCloudCredentials } = await import('../lib/config.js')
+  const { cleared, kept } = clearCloudCredentials()
   console.log()
-  console.log(chalk.green('  ✓ Logged out. Config cleared from ~/.robrain/config.json'))
+  if (cleared.length === 0) {
+    console.log(chalk.green('  ✓ Logged out. No cloud credentials were stored in ~/.robrain/config.json'))
+  } else {
+    console.log(chalk.green('  ✓ Logged out. Cloud credentials cleared from ~/.robrain/config.json'))
+    console.log(chalk.dim(`    Cleared: ${cleared.join(', ')}`))
+  }
+  if (kept.length > 0) {
+    console.log(chalk.dim(`    Kept:    ${kept.join(', ')}`))
+    console.log(chalk.dim('    Self-hosted settings stay in place — status and init-project keep working.'))
+  }
   console.log()
 }

@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk from 'chalk'
-import ora   from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import { execFileSync }                 from 'child_process'
 import { cwd }                          from 'process'
 import { readConfig, isAuthenticated, isCloudInstall } from '../lib/config.js'
@@ -172,7 +172,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
   }
 
   // ── 2. Active decisions from Perception ─────────────────────
-  const spinner = ora({ text: 'Fetching decisions from Perception...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Fetching decisions from Perception...', color: 'green' }).start()
   let decisions: StoredDecision[] = []
   try {
     // Server caps limit at 100 — page with offset until a short page.
@@ -226,7 +226,7 @@ export async function outcomesScanCommand(opts: OutcomesScanOptions): Promise<vo
       continue
     }
 
-    const postSpinner = ora('Recording revert outcome...').start()
+    const postSpinner = createSpinner('Recording revert outcome...').start()
     try {
       const res = await fetch(`${percUrl}/outcomes`, {
         method: 'POST',
@@ -291,7 +291,7 @@ export async function outcomesRecordCommand(decisionId: string, opts: OutcomesRe
   const percUrl = config.perceptionUrl ?? 'http://127.0.0.1:3001'
   const percKey = config.perceptionKey ?? ''
 
-  const spinner = ora(`Recording ${opts.outcome} outcome...`).start()
+  const spinner = createSpinner(`Recording ${opts.outcome} outcome...`).start()
   try {
     const res = await fetch(`${percUrl}/outcomes`, {
       method: 'POST',

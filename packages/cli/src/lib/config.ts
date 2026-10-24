@@ -99,5 +99,61 @@ export function getToken(): string | undefined {
   return readConfig().token
 }
 
+/** Config keys that only a Rory Plans cloud login writes. */
+const CLOUD_ONLY_KEYS: Array<keyof RoMemoryConfig> = ['token', 'email', 'thin', 'planningUrl', 'planningKey']
+
+/**
+ * Keys a cloud install provisions for the Rory-hosted Perception. On a
+ * self-hosted install the same keys point at the local stack and must
+ * survive a logout, otherwise `status` / `init-project` stop working until
+ * the user re-runs `install --self-hosted`.
+ */
+const CLOUD_PERCEPTION_KEYS: Array<keyof RoMemoryConfig> = ['perceptionUrl', 'perceptionKey']
+
+export interface CredentialSplit {
+  /** What logout leaves on disk. */
+  remaining: RoMemoryConfig
+  /** Keys that held a value and were removed. */
+  cleared:   Array<keyof RoMemoryConfig>
+  /** Keys that held a value and were kept. */
+  kept:      Array<keyof RoMemoryConfig>
+}
+
+/**
+ * Pure half of `logout`: removes the cloud credentials from `config` and
+ * reports which keys went and which stayed. A self-hosted install is
+ * recognised by `selfHosted`, or — for installs predating that flag — by a
+ * configured Perception URL with no cloud token.
+ */
+export function splitCloudCredentials(config: RoMemoryConfig): CredentialSplit {
+  const selfHosted = Boolean(config.selfHosted) || Boolean(config.perceptionUrl && !config.token)
+  const toClear    = new Set<keyof RoMemoryConfig>([
+    ...CLOUD_ONLY_KEYS,
+    ...(selfHosted ? [] : CLOUD_PERCEPTION_KEYS),
+  ])
+
+  const remaining: RoMemoryConfig = {}
+  const cleared: Array<keyof RoMemoryConfig> = []
+  const kept:    Array<keyof RoMemoryConfig> = []
+  for (const key of Object.keys(config) as Array<keyof RoMemoryConfig>) {
+    const value = config[key]
+    const present = value !== undefined && value !== ''
+    if (toClear.has(key)) {
+      if (present) cleared.push(key)
+      continue
+    }
+    ;(remaining as Record<string, unknown>)[key] = value
+    if (present) kept.push(key)
+  }
+  return { remaining, cleared, kept }
+}
+
+/** Removes cloud credentials from ~/.robrain/config.json, keeping self-hosted settings. */
+export function clearCloudCredentials(): CredentialSplit {
+  const split = splitCloudCredentials(readConfig())
+  writeConfig(split.remaining)
+  return split
+}
+
 // Rory Plans API base URL — points to roryplans.ai auth + provisioning endpoints
 export const RORY_API_BASE = process.env.RORY_API_BASE ?? 'https://api.roryplans.ai'

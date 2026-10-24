@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk   from 'chalk'
-import ora     from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import prompts from 'prompts'
 import { readConfig, isAuthenticated, isCloudInstall } from '../lib/config.js'
 import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
@@ -82,7 +82,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   }
 
   // ── Fetch decisions from Perception ───────────────────────
-  const spinner = ora({ text: 'Fetching stored decisions...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Fetching stored decisions...', color: 'green' }).start()
 
   const limit = opts.limit ?? 20
   const params = new URLSearchParams({
@@ -403,7 +403,7 @@ async function editDecisionInline(
     return
   }
 
-  const spinner = ora('Saving correction...').start()
+  const spinner = createSpinner('Saving correction...').start()
   try {
     const res = await fetch(`${percUrl}/corrections`, {
       method: 'POST',
@@ -436,7 +436,7 @@ async function approveDecisionInline(
   percUrl: string,
   percKey: string,
 ): Promise<void> {
-  const spinner = ora('Recording approval...').start()
+  const spinner = createSpinner('Recording approval...').start()
   try {
     const res = await fetch(`${percUrl}/corrections`, {
       method: 'POST',
@@ -463,7 +463,7 @@ async function approveManyDecisionsInline(
   percUrl: string,
   percKey: string,
 ): Promise<void> {
-  const spinner = ora(`Recording approvals for ${decisions.length} decision${decisions.length === 1 ? '' : 's'}...`).start()
+  const spinner = createSpinner(`Recording approvals for ${decisions.length} decision${decisions.length === 1 ? '' : 's'}...`).start()
   let approvedCount = 0
 
   for (const d of decisions) {
@@ -522,7 +522,7 @@ async function rejectDecisionInline(
     return
   }
 
-  const spinner = ora('Rejecting...').start()
+  const spinner = createSpinner('Rejecting...').start()
   try {
     const res = await fetch(`${percUrl}/corrections`, {
       method: 'POST',
@@ -564,7 +564,7 @@ async function resolveConflictInline(
 
   if (!resolution) return
 
-  const spinner = ora('Resolving...').start()
+  const spinner = createSpinner('Resolving...').start()
   try {
     const res = await fetch(`${percUrl}/corrections`, {
       method: 'POST',

@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk    from 'chalk'
-import ora      from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import prompts  from 'prompts'
 import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
 import { validateToken, fetchProvisionedConfig, type ProvisionedConfig, type PlanRequirement } from '../lib/auth.js'
@@ -202,7 +202,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   }
 
   // ── Step 2: Validate token ─────────────────────────────────
-  const spinner = ora({ text: 'Connecting to roryplans.ai...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Connecting to roryplans.ai...', color: 'green' }).start()
 
   const authResult = await validateToken(token)
   if (authResult.planRequired) {
@@ -475,7 +475,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     process.exit(1)
   }
 
-  const spinner = ora('Writing MCP configuration...').start()
+  const spinner = createSpinner('Writing MCP configuration...').start()
 
   // Same Perception key the CLI uses (init-project, review, inject). Self-hosted
   // install must not write PERCEPTION_API_KEY: "" into editor MCP configs — that

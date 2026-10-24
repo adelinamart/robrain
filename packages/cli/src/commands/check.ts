@@ -11,7 +11,7 @@
 // (scriptable: `robrain check "..." && apply`); 2 = could not scan.
 
 import chalk from 'chalk'
-import ora from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import { cwd } from 'process'
 import { readConfig, isCloudInstall } from '../lib/config.js'
 import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
@@ -37,7 +37,7 @@ export async function checkCommand(text: string): Promise<void> {
   const percKey = config.perceptionKey ?? ''
 
   const ctx = { cloud: isCloudInstall(), perceptionUrl: percUrl }
-  const spinner = ora({ text: 'Scanning prior rejections...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Scanning prior rejections...', color: 'green' }).start()
 
   let matches: VetoMatch[]
   try {

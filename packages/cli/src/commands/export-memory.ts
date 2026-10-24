@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk from 'chalk'
-import ora   from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import {
   existsSync,
   mkdirSync,
@@ -123,7 +123,7 @@ export async function exportMemoryCommand(opts: ExportOptions): Promise<void> {
   const indexPath = memoryIndexPath(memoryDir)
 
   // ── 1. Fetch decisions ──────────────────────────────────────
-  const spinner = ora({ text: 'Fetching decisions from Perception...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Fetching decisions from Perception...', color: 'green' }).start()
 
   let decisions: Decision[] = []
   try {

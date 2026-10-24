@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import chalk   from 'chalk'
-import ora     from 'ora'
+import { createSpinner } from '../lib/spinner.js'
 import prompts from 'prompts'
 import { cwd } from 'process'
 import { existsSync, readFileSync } from 'fs'
@@ -84,7 +84,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   }
 
   // ── Gather project info ────────────────────────────────────
-  const spinner = ora({ text: 'Scanning project...', color: 'green' }).start()
+  const spinner = createSpinner({ text: 'Scanning project...', color: 'green' }).start()
 
   const projectRoot = cwd()
   const detectedAncestor = findAncestorRoBrainProject(projectRoot)
@@ -150,7 +150,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   const hasCursor = editors.some(e => e.editor === 'cursor')
   const hasCodex  = editors.some(e => e.editor === 'codex')
   const instructionExtras = hasCursor ? 'CLAUDE.md + AGENTS.md + Cursor' : 'CLAUDE.md + AGENTS.md'
-  const mdSpinner = ora({
+  const mdSpinner = createSpinner({
     text: `Writing editor instructions (${instructionExtras})...`,
     color: 'green',
   }).start()
@@ -178,7 +178,7 @@ export async function initProjectCommand(opts: InitProjectOptions): Promise<void
   }
 
   // ── Seed memory ────────────────────────────────────────────
-  const seedSpinner = ora({ text: 'Inferring architectural decisions from codebase...', color: 'green' }).start()
+  const seedSpinner = createSpinner({ text: 'Inferring architectural decisions from codebase...', color: 'green' }).start()
 
   const perceptionKey = config.perceptionKey ?? ''
 
