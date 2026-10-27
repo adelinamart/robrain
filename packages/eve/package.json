@@ -1,6 +1,6 @@
 {
   "name": "@robrain/eve",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "RoBrain memory provider for eve agents — team decision memory, including rejected alternatives, shared with your coding agents",
   "license": "Apache-2.0",
@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "eve": "0.82.0",
+    "eve": "0.84.0",
     "typescript": "^5.4.0",
     "zod": "^4.0.0"
   }

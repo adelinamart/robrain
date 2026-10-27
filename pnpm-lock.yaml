@@ -62,8 +62,8 @@ importers:
         specifier: ^20.0.0
         version: 20.19.39
       eve:
-        specifier: 0.82.0
-        version: 0.82.0(ai@7.0.150(zod@4.6.7))
+        specifier: 0.84.0
+        version: 0.84.0(ai@7.0.150(zod@4.6.7))
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
@@ -1072,20 +1072,36 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  eve@0.82.0:
-    resolution: {integrity: sha512-HQqjGebljxuO0EYX0XkQaY3/lHmn/oaFe8ggPAkcNIgVW9elyH7x+NjhABAqCO+Tz4azhurq87KeZzbRphJosA==}
+  eve@0.84.0:
+    resolution: {integrity: sha512-hZLIdqrDL67vFzOgm6gs2dIY9UmTbVmOkQ6JR8KXcN4ypGkFK7nmPXRAhCf1UzurWLZ2/d0RPI2LDYuiGvtDnA==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
+      '@linqapp/sdk': ^0.47.1
+      '@nuxt/kit': ^4.0.0
+      '@nuxt/schema': ^4.0.0
       '@opentelemetry/api': ^1.0.0
+      '@vercel/connect': ^2.5.2
       ai: ^7.0.137
       braintrust: ^3.0.0
       chat: ^4.42.0
       dd-trace: ^6.13.0
-      just-bash: ^3.1.0
-      microsandbox: ^0.5.0
+      just-bash: ^3.6.0
+      next: ^16.0.0
+      react: ^19.0.0
+      svelte: ^5.0.0
+      vite: ^8.3.1
+      vue: ^3.5.0
     peerDependenciesMeta:
+      '@linqapp/sdk':
+        optional: true
+      '@nuxt/kit':
+        optional: true
+      '@nuxt/schema':
+        optional: true
       '@opentelemetry/api':
+        optional: true
+      '@vercel/connect':
         optional: true
       braintrust:
         optional: true
@@ -1095,7 +1111,15 @@ packages:
         optional: true
       just-bash:
         optional: true
-      microsandbox:
+      next:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vite:
+        optional: true
+      vue:
         optional: true
 
   event-target-shim@5.0.1:
@@ -2467,7 +2491,7 @@ snapshots:
       langsmith: 0.7.17(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       mustache: 4.2.0
       p-queue: 6.6.2
-      zod: 3.25.76
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'
@@ -2478,8 +2502,8 @@ snapshots:
   '@mistralai/mistralai@1.15.1':
     dependencies:
       ws: 8.21.0
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3048,7 +3072,7 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.82.0(ai@7.0.150(zod@4.6.7)):
+  eve@0.84.0(ai@7.0.150(zod@4.6.7)):
     dependencies:
       ai: 7.0.150(zod@4.6.7)
       nitro: 3.0.260903-beta
@@ -4180,6 +4204,10 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@3.25.76):
     dependencies:
       zod: 3.25.76
+
+  zod-to-json-schema@3.25.2(zod@4.6.7):
+    dependencies:
+      zod: 4.6.7
 
   zod@3.25.76: {}
 

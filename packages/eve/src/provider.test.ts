@@ -158,13 +158,14 @@ describe("recall turn.started (cloud /context)", () => {
   });
 });
 
-describe("recall compaction.completed", () => {
-  it("re-injects the summary only", async () => {
-    stub();
-    const result = await robrainMemory({ projectId: "p1", apiKey: "k" }).recall["compaction.completed"]!(
-      { ...base, turn: null, compaction: { modelId: "m" } } as any,
-    );
-    assert.deepEqual(result?.messages.map((m) => m.id), ["robrain:summary"]);
+describe("provider shape", () => {
+  // eve validates handler names when it builds and rejects unknown keys (it
+  // dropped recall["compaction.completed"] in 0.84.0, which broke `eve build`).
+  // Types alone did not catch that, so pin the exact surface we register.
+  it("registers only the handlers eve accepts", () => {
+    const provider = robrainMemory({ projectId: "p1", apiKey: "k" });
+    assert.deepEqual(Object.keys(provider.recall), ["turn.started"]);
+    assert.deepEqual(Object.keys(provider.capture ?? {}), ["turn.completed"]);
   });
 });
 
