@@ -4,9 +4,6 @@
 //                                   veto warnings for the incoming message
 //                                   (stable ids, so eve supersedes rather
 //                                   than accumulates)
-//   recall["compaction.completed"] → re-inject the summary after compaction —
-//                                   the moment compaction would otherwise have
-//                                   dropped the team's rejections
 //   capture["turn.completed"]     → ship the turn for decision extraction,
 //                                   idempotent on eve's operationId
 //   tools()                       → check_prior_decisions
@@ -21,7 +18,6 @@
 // path. Every handler is fail-open — a throwing recall fails the user's turn.
 
 import type {
-  MemoryCompactionCompletedContext,
   MemoryProvider,
   MemoryRecallMessage,
   MemoryRecallResult,
@@ -205,20 +201,6 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     }
   }
 
-  async function recallCompactionCompleted(
-    context: MemoryCompactionCompletedContext,
-  ): Promise<MemoryRecallResult> {
-    try {
-      if (!includeSummary) return null;
-      const projectId = await resolveProjectId(options, context);
-      if (!projectId) return null;
-      const summary = await cachedSummary(client(), projectId);
-      return summary ? { messages: [{ id: SUMMARY_ID, content: renderSummary(summary) }] } : null;
-    } catch {
-      return null;
-    }
-  }
-
   async function captureTurnCompleted(context: MemoryTurnCompletedContext): Promise<void> {
     try {
       if (!captureEnabled) return;
@@ -288,7 +270,6 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   const provider = {
     recall: {
       "turn.started": recallTurnStarted,
-      "compaction.completed": recallCompactionCompleted,
     },
     capture: {
       "turn.completed": captureTurnCompleted,

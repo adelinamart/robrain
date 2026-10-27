@@ -11,7 +11,6 @@ eve drives every memory provider through one lifecycle. RoBrain fills it like th
 | eve hook | RoBrain behavior |
 |---|---|
 | `recall` at turn start | Injects the project's always-on summary (top decisions with their rejected alternatives) and, for the incoming message, up to three **veto warnings** — prior decisions whose rejected options the message is drifting toward. Two-tier: deterministic exact match on rejected options, then semantic search. |
-| `recall` after compaction | Re-injects the summary — the moment compaction would otherwise have dropped it. |
 | `capture` at turn end | Ships the completed turn for server-side decision extraction. RoBrain extracts decisions *and their rejections* as structured fields and dedups near-duplicates; the provider stays a dumb pipe. |
 | tools | `<slot>__check_prior_decisions` — lets the model check decision memory before committing to an approach. |
 
@@ -98,7 +97,7 @@ eve fails a turn if a recall handler throws, so this provider never throws: an u
 
 ## Notes
 
-- Requires Node ≥ 24 (eve's floor). Verified against eve 0.82.0.
+- Requires Node ≥ 24 (eve's floor). Builds on eve 0.82.0 through 0.84.0; 0.1.0 does not build on eve 0.84.0 or later, so use 0.1.1+.
 - Recalled content enters model context as user-role messages attributed to the slot, per eve's trust model — never as system instructions. (That placement is the one RoBrain's public benchmark, [VetoBench](../vetobench/README.md), measures; with rejections in context, 0 re-proposals in 159 of 159 tasks across six models.)
 - The provider partitions by RoBrain project; a slot bound to one `projectId` shares memory across all scopes that reach it. Use the resolver form when scopes must not share.
 - Prefer this package over the raw-surfaces integration in [plugins/eve](../../plugins/eve/README.md), which predates eve's memory subsystem and remains as a reference.
