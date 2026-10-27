@@ -517,6 +517,19 @@ RoBrain stores each veto in **`rejected[]`** so the judgment layer can act on it
 
 We are not aware of another coding agent memory tool with a first-class rejected alternatives field — but we welcome corrections if that's wrong.
 
+### What the classifier stores, in your words
+
+The stock classifier captures decisions and their rejected alternatives, and skips everything else. Two stages decide that: a keyword gate (sync, no model call; roughly 1 turn in 20 passes) and an extraction prompt that returns the structured `decision / rationale / rejected[] / confidence` record above a confidence threshold (0.60).
+
+`robrain capture` lets a project adjust all three without touching the stock prompt:
+
+- **Instructions** — plain language appended to the extraction prompt: what to treat as a decision, what to skip, what else counts. The output schema is unchanged, so vetoes, dedup, and review keep working.
+- **Mode** — `strict` keeps the keyword gate; `broad` sends every non-trivial turn to the model, for instructions that ask for things no keyword announces. Broad costs one extraction call per turn on your own LLM key.
+- **Threshold** — a per-project confidence minimum, for less noise or more captures.
+- **Kinds** — extra kinds of memory beside `decision`, each with a one-line description the model follows (`run`, `gotcha`, `owner`, whatever the project needs). Rows carry a `kind` and, for non-decision kinds, a `subject`; a newer entry whose subject matches an older one (same content words, or one contains the other, so "nightly sync" and "nightly sync agent" are one subject) supersedes it, so a kind can hold changing state. Only decisions carry vetoes; other kinds appear in the always-on summary under "Other memory" and filter with `review --kind`.
+
+Settings live on Perception (`projects.capture_*`), so every teammate's Sensing and Perception's own re-extraction read the same ones. `robrain capture test` is a dry run against sample turns: it reports, per turn, whether the gate let it through and what would be stored, and `--compare` shows the same for the settings saved today. A project that never set anything behaves exactly as before.
+
 ### Decision lifecycle — memory that stays honest
 
 Most memory tools have a staleness problem: once something is stored, it stays stored even after it stops being true. CLAUDE.md has the same problem — nobody goes back to clean it up.

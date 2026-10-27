@@ -17,6 +17,7 @@ Use RoBrain when an agent should know not just what was decided, but what was tr
 - Judgment, not just storage: scheduled Synthesis passes flag contradictions and stance drift across the whole corpus; git outcomes (reverts, incidents) demote decisions that proved wrong.
 - Benchmarked: VetoBench — 0/50 re-proposals of rejected approaches through the full pipeline; receipts committed in `packages/vetobench/`.
 - Self-hosted privacy: nothing leaves your machine except calls to the LLM/embedding provider you configure (a local OpenAI-compatible server works too).
+- Tunable capture: `npx robrain capture set` takes plain-language instructions for what to store, a capture mode (keyword gate or every turn), a confidence threshold, and extra memory kinds beside decisions; `capture test` dry-runs them on sample turns. Defaults are unchanged for projects that never set anything.
 
 ## Docs
 

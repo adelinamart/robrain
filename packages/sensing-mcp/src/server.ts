@@ -24,6 +24,7 @@ import {
   routeFlushTurns,
 } from './router.js'
 import { config, isThinMode } from './config.js'
+import { getCaptureSettings } from './capture-settings.js'
 import { MAX_PENDING_CONFLICT_NOTICES, rememberConflictNotice } from './pending-notices.js'
 import { SessionRegistry } from './session-registry.js'
 
@@ -70,7 +71,7 @@ function resolveSessionId(raw: string | null | undefined): string {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name:    'sensing-mcp',
-    version: '2.4.11',
+    version: '2.5.0',
   })
 
   // ─────────────────────────────────────────────────────────────
@@ -101,6 +102,9 @@ export function buildServer(): McpServer {
       // TODO: fetch always_on_summary from projects table via Perception API
       // For now, return placeholder until Perception is wired
       const summaryResult = await fetchAlwaysOnSummary(project_id)
+      // Warm the capture settings so the first turn's classifier does not
+      // wait on Perception. Not awaited: the reply must not depend on it.
+      if (!isThinMode()) void getCaptureSettings(project_id)
 
       console.error(`[Sensing] Session started: ${sessionId} (${project_id})`)
 

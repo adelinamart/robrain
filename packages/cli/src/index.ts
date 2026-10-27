@@ -28,11 +28,12 @@ import { exportInterchangeCommand } from './commands/export-interchange.js'
 import { outcomesScanCommand, outcomesRecordCommand } from './commands/outcomes.js'
 import { explainCommand }      from './commands/explain.js'
 import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
+import { captureShowCommand, captureSetCommand, captureTestCommand, type CaptureSetOptions, type CaptureTestOptions } from './commands/capture.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
 
-const VERSION = '2.4.11'
+const VERSION = '2.5.0'
 
 program
   .name('robrain')
@@ -267,6 +268,56 @@ projectsCmd
   .action(async (fromId: string, toId: string) => {
     await projectsMergeCommand(fromId, toId)
   })
+
+// ── capture — what the classifier stores for this project ─────
+
+const collect = (value: string, previous: string[]): string[] => [...previous, value]
+
+function addCaptureSettingFlags<T extends import('commander').Command>(cmd: T): T {
+  return cmd
+    .option('--project-id <id>',          'Project to change (default: the one pinned in this directory)')
+    .option('--instructions <text>',      'Plain-language rules for what to store (max 2000 characters)')
+    .option('--instructions-file <path>', 'Read the instructions from a file')
+    .option('--clear-instructions',       'Remove the instructions')
+    .option('--mode <strict|broad>',      'strict: keyword gate (default). broad: every non-trivial turn reaches the model')
+    .option('--min-confidence <0..1>',    'Store only extractions at or above this confidence (stock: 0.60)')
+    .option('--reset-min-confidence',     'Go back to the stock threshold')
+    .option('--add-kind <name:description>', 'Store another kind of memory besides decisions (repeatable)', collect, [])
+    .option('--remove-kind <name>',       'Stop storing a kind (repeatable)', collect, [])
+    .option('--clear-kinds',              'Remove every extra kind')
+}
+
+const captureCmd = program
+  .command('capture')
+  .description('Tell the classifier, in plain language, what to store for this project (self-hosted Perception)')
+
+captureCmd
+  .command('show')
+  .description('Show the capture settings for this project')
+  .option('--project-id <id>', 'Project to show (default: the one pinned in this directory)')
+  .action(async (opts: { projectId?: string }) => {
+    await captureShowCommand(opts)
+  })
+
+addCaptureSettingFlags(
+  captureCmd
+    .command('set')
+    .description('Change the capture settings (shared by every teammate on this project)'),
+).action(async (opts: CaptureSetOptions) => {
+  await captureSetCommand(opts)
+})
+
+addCaptureSettingFlags(
+  captureCmd
+    .command('test')
+    .description('Dry run: what would the settings capture from sample turns? Nothing is stored')
+    .option('--file <path>',  'Sample turns, one JSON object per line: {"user_message": "...", "claude_reply": "..."} (max 20)')
+    .option('--user <text>',  'A single sample user message (with --reply)')
+    .option('--reply <text>', 'The assistant reply for --user')
+    .option('--compare',      'Also run the settings saved today, to see what changes'),
+).action(async (opts: CaptureTestOptions) => {
+  await captureTestCommand(opts)
+})
 
 // ── status ────────────────────────────────────────────────────
 

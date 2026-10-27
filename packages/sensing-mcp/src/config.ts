@@ -47,6 +47,9 @@ export const config = {
   perceptionApiKey: process.env.PERCEPTION_API_KEY ?? '',
 
   // ── Classifier thresholds (optional — tune after instrumenting) ─
+  // DECISION_CONFIDENCE_MIN is this machine's stock value; a project can
+  // override it for everyone with `robrain capture set --min-confidence`,
+  // which wins when set (same for Perception's own re-extraction).
   decisionConfidenceMin:  Number(process.env.DECISION_CONFIDENCE_MIN  ?? 0.60),
   decisionConfidenceHigh: Number(process.env.DECISION_CONFIDENCE_HIGH ?? 0.90),
   topicShiftThreshold:    Number(process.env.TOPIC_SHIFT_THRESHOLD    ?? 0.35),

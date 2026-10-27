@@ -119,6 +119,21 @@ npx robrain synth                 # drift, contradictions, entity promotion
 
 After `init-project`, every repo gets `CLAUDE.md` and `AGENTS.md` (Codex CLI), and Cursor also gets `.cursor/rules/robrain.mdc` with `alwaysApply: true`. If captures don't land, run `npx robrain doctor` — see [Troubleshooting](docs/troubleshooting.md).
 
+### Tune what gets captured
+
+By default the classifier stores decisions and the alternatives you rejected, and nothing else. When a project wants more, less, or something different, tell it in plain language. The settings are stored per project on Perception, so every teammate's sessions capture the same way:
+
+```bash
+npx robrain capture show
+npx robrain capture set --instructions "Skip anything about the marketing site. Treat naming conventions as decisions."
+npx robrain capture set --min-confidence 0.75                      # less noise
+npx robrain capture set --mode broad                               # every turn reaches the model, not only keyword hits
+npx robrain capture set --add-kind "run: The outcome of an agent run: what ran, when, and whether it succeeded."
+npx robrain capture test --file sample-turns.jsonl --compare       # dry run before you commit to it
+```
+
+Extra kinds of memory sit beside decisions: each entry names a subject, and a newer entry about the same subject replaces the older one, so a kind can hold changing state (the last run of an agent) as well as rules. Only decisions carry vetoes. Flags and formats: [CLI reference](docs/cli.md#cli-commands).
+
 ## Synthesis
 
 Synthesis runs three passes over the full `decisions` table — **drift** (stance moving without an explicit reversal), **contradictions** (incompatible decisions from different sessions), and **entity promotion** (recurring tools/patterns condensed into `planning_blocks`). It writes flags and edges into your DB; it does not capture new decisions — it judges the corpus you already have.

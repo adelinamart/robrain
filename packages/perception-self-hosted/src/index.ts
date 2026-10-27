@@ -24,11 +24,25 @@ import { serve }             from '@hono/node-server'
 import pg                    from 'pg'
 import { z }                 from 'zod'
 import { SCORING_WEIGHTS, THRESHOLDS, normalizeLoopbackUrl, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, SELF_HOSTED_USER_RULE_OVERRIDE, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD, anthropicChat, openaiChat, type ChatUsage } from '@robrain/shared'
+import {
+  DEFAULT_CAPTURE_KIND,
+  DEFAULT_CAPTURE_SETTINGS,
+  CAPTURE_INSTRUCTIONS_MAX_CHARS,
+  CAPTURE_KINDS_MAX,
+  allowedKindNames,
+  applyCaptureSettingsPatch,
+  captureGate,
+  coerceCaptureSettings,
+  effectiveConfidenceMin,
+  normalizeKindName,
+  type CaptureSettings,
+  type CaptureSettingsPatch,
+} from '@robrain/shared'
 import { applySqlMigrations } from './migrate.js'
 import { bearerAuthorized } from './auth.js'
 import { termMatchScore, judgeUsed, usageDelta, demotionDelta, outcomeDelta, scoreCounterIncrements } from './scoring.js'
 import { filterVetoMatches, type VetoScanRow } from './veto-scan.js'
-import { backfillDecisionTextKeys, commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadStatedDecisions, loadTurnCaptures, rankSummaryDecisions, type StatedDecision, type TurnCapture } from './decision-sql.js'
+import { backfillDecisionTextKeys, commitDecisionWrite, loadClashedCopies, loadConflictPartnerIds, loadOtherKindRows, loadStatedDecisions, loadTurnCaptures, rankSummaryDecisions, type StatedDecision, type TurnCapture } from './decision-sql.js'
 import { chronologyInstantSql, conflictNotice, decisionTextKey, findMatchingTurnCapture, NEIGHBOR_RELATION_PROMPT, NEIGHBOR_SCAN_LIMIT, neighborCheckStartup, parseNeighborVerdict, planDecisionSave, statedAfter, statedTurnTime, turnSourceExcerpt, turnSourceHash, withTurnIdentity, type NeighborVerdict, type StatedAt, type TurnIdentity } from './write-conflict.js'
 
 const { Pool } = pg
@@ -255,6 +269,9 @@ const ExtractedSchema = z.object({
     reason: z.string().max(MAX_REASON_TEXT),
   })).max(MAX_REJECTED),
   confidence: z.number(),
+  // Capture kinds (projects.capture_kinds). Older Sensing builds omit both.
+  kind:       z.string().max(64).optional(),
+  subject:    z.string().max(200).nullable().optional(),
 })
 
 const SignalSchema = z.object({
@@ -280,7 +297,7 @@ const SignalSchema = z.object({
 
 app.post('/signals', writeRateLimit, async (c) => {
   const projectId = c.req.header('X-Project-Id') ?? 'default'
-  const minConf = THRESHOLDS.DECISION_CONFIDENCE_MIN
+  let minConf: number = THRESHOLDS.DECISION_CONFIDENCE_MIN
 
   let body: z.infer<typeof SignalSchema>
   try {
@@ -293,6 +310,8 @@ app.post('/signals', writeRateLimit, async (c) => {
   if (unknownProject) return unknownProject
 
   const { signal } = body
+  const capture = await loadCaptureSettings(projectId)
+  minConf = effectiveConfidenceMin(capture, minConf)
 
   // Defence-in-depth: Sensing already redacts at capture, but /signals is an
   // open HTTP surface — scrub every free-text field again BEFORE extraction,
@@ -343,7 +362,7 @@ app.post('/signals', writeRateLimit, async (c) => {
     // Prefer Sensing's Haiku extraction when present; otherwise OSS re-extract (flush path, etc.)
     const rawExtracted = trustSensingExtract
       ? signal.extracted!
-      : await extractDecisionOSS(signal.turn.user_message, signal.turn.claude_reply)
+      : await extractDecisionOSS(signal.turn.user_message, signal.turn.claude_reply, capture)
 
     if (!rawExtracted.decision || rawExtracted.confidence < minConf) {
       return c.json({ accepted: false, action: 'discarded', message: 'No decision extracted' })
@@ -360,6 +379,17 @@ app.post('/signals', writeRateLimit, async (c) => {
         reason: scrub(r.reason),
       })),
     }
+
+    // Only kinds the project declared are stored as such; anything else is a
+    // decision. A subject marks state (the last run, the current owner): the
+    // newest entry replaces same-subject rows, so it skips neighbor dedup,
+    // which would read a changed value as a restatement and drop it.
+    const requestedKind = normalizeKindName(rawExtracted.kind ?? DEFAULT_CAPTURE_KIND) || DEFAULT_CAPTURE_KIND
+    const kind = allowedKindNames(capture).includes(requestedKind) ? requestedKind : DEFAULT_CAPTURE_KIND
+    const subject = kind !== DEFAULT_CAPTURE_KIND && rawExtracted.subject
+      ? scrub(rawExtracted.subject).trim().slice(0, 120) || null
+      : null
+    const stateLike = subject !== null
 
     if (redactionTally.size > 0) {
       const detail = [...redactionTally].map(([t, n]) => `${t}=${n}`).join(', ')
@@ -397,7 +427,7 @@ app.post('/signals', writeRateLimit, async (c) => {
     // healthy row nor be swallowed by one — it gets its own quarantined row.
     const currentSessionId = signal.turn.session_id
 
-    const { rows: nearest } = quarantine ? { rows: [] } : await pool.query<{
+    const { rows: nearest } = quarantine || stateLike ? { rows: [] } : await pool.query<{
       id: string
       session_id: string
       decision: string
@@ -425,7 +455,7 @@ app.post('/signals', writeRateLimit, async (c) => {
 
     const [partnerIdsByDecision, clashedCopies] = await Promise.all([
       loadConflictPartnerIds(pool, S, nearest.map((neighbor) => neighbor.id)),
-      quarantine
+      quarantine || stateLike
         ? Promise.resolve([])
         : loadClashedCopies(pool, S, projectId, signal.scope, extracted.decision),
     ])
@@ -485,6 +515,8 @@ app.post('/signals', writeRateLimit, async (c) => {
       quarantine,
       sourceTurnAt,
       conflictWithIds,
+      kind,
+      subject,
     })
     if (written.status === 'deduped') {
       return turnCaptureDedupResponse(c, written.matched, signal.turn.session_id, sourceTurnSequence)
@@ -550,7 +582,17 @@ app.post('/signals', writeRateLimit, async (c) => {
     }
 
     scheduleRegenerateSummary(projectId)
-    return c.json({ accepted: true, action: 'written', decision_id: decisionId })
+    if (written.supersededIds.length > 0) {
+      console.log(
+        `[Perception OSS] POST /signals ${kind} "${subject}" replaced ${written.supersededIds.join(', ')}`,
+      )
+    }
+    return c.json({
+      accepted:    true,
+      action:      'written',
+      decision_id: decisionId,
+      ...(written.supersededIds.length > 0 ? { superseded_ids: written.supersededIds } : {}),
+    })
   }
   catch (err) {
     if (err instanceof EmbeddingProviderError) {
@@ -588,6 +630,11 @@ app.get('/decisions', async (c) => {
   const offsetRaw    = c.req.query('offset') ?? '0'
   const parsedOffset = Number.parseInt(offsetRaw, 10)
   const offset       = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0
+  // Memory kind filter (`robrain review --kind run`). Normalized to the
+  // charset stored kind names use ([a-z0-9_-]), so it can be inlined below.
+  const kindRaw = c.req.query('kind')
+  const kind    = kindRaw ? normalizeKindName(kindRaw) : ''
+  const kindSql = kind ? `AND d.kind = '${kind}'` : ''
 
   if (!projectId) return c.json({ error: 'project_id required' }, 400)
 
@@ -660,7 +707,7 @@ app.get('/decisions', async (c) => {
                    d.supersedes_id, d.invalidated_at, d.reviewed_at,
                    d.historical_relevance, d.source_turn_sequence,
                    d.source_excerpt, d.injected_count, d.used_count,
-                   d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+                   d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                    ${conflictCounterpartSql},
                    ${inheritedRejectedSql},
                    1 - (d.embedding <=> $1::vector) AS similarity,
@@ -672,6 +719,7 @@ app.get('/decisions', async (c) => {
               AND d.invalidated_at IS NULL
               AND d.quarantined_at IS NULL
               AND d.embedding IS NOT NULL
+              ${kindSql}
             ORDER BY d.embedding <=> $1::vector
             LIMIT 120`
 
@@ -709,7 +757,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -717,6 +765,7 @@ app.get('/decisions', async (c) => {
         WHERE s.project_id = $1
           AND d.quarantined_at IS NOT NULL
           AND d.invalidated_at IS NULL
+          ${kindSql}
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -728,7 +777,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -736,6 +785,7 @@ app.get('/decisions', async (c) => {
           AND d.invalidated_at IS NULL
           AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
+          ${kindSql}
         ORDER BY d.created_at DESC LIMIT $2
       `, [sessionId, limit])
       rows = result.rows
@@ -750,7 +800,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -759,6 +809,7 @@ app.get('/decisions', async (c) => {
           AND d.invalidated_at IS NULL
           AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
+          ${kindSql}
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -773,12 +824,13 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
         JOIN ${S}.sessions s ON s.id = d.session_id
         WHERE s.project_id = $1
+          ${kindSql}
         ORDER BY d.created_at ASC LIMIT $2 OFFSET $3
       `, [projectId, limit, offset])
       rows = result.rows
@@ -791,7 +843,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -800,6 +852,7 @@ app.get('/decisions', async (c) => {
           AND d.invalidated_at IS NULL
           AND d.quarantined_at IS NULL
           AND d.reviewed_at IS NULL
+          ${kindSql}
         ORDER BY d.created_at DESC LIMIT $2
       `, [projectId, limit])
       rows = result.rows
@@ -1359,6 +1412,117 @@ const FRESH_BLOCK_SQL = `
           AND sd.invalidated_at > COALESCE(pb.last_refreshed_at, pb.created_at)
       )`
 
+// ── /projects/:id/capture — what the classifier stores for this project ──
+// Read by Sensing at session start (cached) and by Perception's own
+// re-extraction; edited with `robrain capture`. Every default is the stock
+// classifier, so a project that never set anything is unchanged.
+app.get('/projects/:id/capture', async (c) => {
+  const projectId = c.req.param('id')
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+  const settings = await loadCaptureSettings(projectId)
+  return c.json(captureSettingsJson(settings))
+})
+
+app.put('/projects/:id/capture', async (c) => {
+  const projectId = c.req.param('id')
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+  let patch: CaptureSettingsPatch
+  try {
+    patch = await c.req.json<CaptureSettingsPatch>()
+  } catch (err) {
+    return c.json({ error: 'Invalid body', detail: String(err) }, 400)
+  }
+  const current = await loadCaptureSettings(projectId)
+  const result = applyCaptureSettingsPatch(current, patch)
+  if (!result.ok) {
+    return c.json({ error: 'invalid_capture_settings', errors: result.errors }, 400)
+  }
+  const s = result.settings
+  await pool.query(`
+    UPDATE ${S}.projects
+    SET capture_instructions = $2, capture_mode = $3, capture_confidence_min = $4,
+        capture_kinds = $5::jsonb, updated_at = now()
+    WHERE id = $1
+  `, [projectId, s.instructions, s.mode, s.confidence_min, JSON.stringify(s.kinds)])
+  console.log(
+    `[Perception OSS] capture settings updated for ${projectId}: mode=${s.mode} confidence_min=${s.confidence_min ?? 'stock'} ` +
+    `kinds=${s.kinds.map(k => k.name).join(',') || 'none'} instructions=${s.instructions ? `${s.instructions.length} chars` : 'none'}`,
+  )
+  return c.json(captureSettingsJson(s))
+})
+
+// Dry run: what would these settings capture from these turns? Runs the same
+// gate and extraction the live path uses, with Perception's own LLM keys, and
+// stores nothing. `compare_with_current` repeats the run with the stored
+// settings so the CLI can show what changes.
+const CapturePreviewSchema = z.object({
+  settings: z.object({
+    instructions:   z.string().max(CAPTURE_INSTRUCTIONS_MAX_CHARS * 2).nullable().optional(),
+    mode:           z.string().max(16).optional(),
+    confidence_min: z.number().nullable().optional(),
+    kinds:          z.array(z.object({ name: z.string().max(200), description: z.string().max(1000) }))
+                      .max(CAPTURE_KINDS_MAX * 2).nullable().optional(),
+  }).optional(),
+  turns: z.array(z.object({
+    user_message: z.string().max(MAX_TURN_TEXT),
+    claude_reply: z.string().max(MAX_TURN_TEXT),
+  })).min(1).max(20),
+  compare_with_current: z.boolean().optional(),
+})
+
+app.post('/projects/:id/capture/preview', writeRateLimit, async (c) => {
+  // With a middleware in the chain Hono no longer infers the path params.
+  const projectId = c.req.param('id') ?? ''
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+  let body: z.infer<typeof CapturePreviewSchema>
+  try {
+    body = CapturePreviewSchema.parse(await c.req.json())
+  } catch (err) {
+    return c.json({ error: 'Invalid body', detail: String(err) }, 400)
+  }
+  const current = await loadCaptureSettings(projectId)
+  const candidate = body.settings ? applyCaptureSettingsPatch(current, body.settings) : { ok: true as const, settings: current }
+  if (!candidate.ok) {
+    return c.json({ error: 'invalid_capture_settings', errors: candidate.errors }, 400)
+  }
+  // Same scrub as /signals: the turns go to the LLM provider.
+  const turns = body.turns.map(t => ({
+    user_message: redactSecrets(t.user_message).text,
+    claude_reply: redactSecrets(t.claude_reply).text,
+  }))
+  const run = (settings: CaptureSettings) => Promise.all(turns.map(async (turn) => {
+    const gate = captureGate(turn, settings)
+    if (!gate.reachesModel) {
+      return { gate: gate.reason, reaches_model: false, extracted: null, stored: false }
+    }
+    const extracted = await extractDecisionOSS(turn.user_message, turn.claude_reply, settings)
+    const threshold = effectiveConfidenceMin(settings, THRESHOLDS.DECISION_CONFIDENCE_MIN)
+    const stored = Boolean(extracted.decision) && extracted.confidence >= threshold
+    return {
+      gate:          gate.reason,
+      reaches_model: true,
+      extracted,
+      stored,
+      ...(extracted.decision && !stored ? { reason: `confidence ${extracted.confidence} is below ${threshold}` } : {}),
+    }
+  }))
+  try {
+    const results = await run(candidate.settings)
+    const currentResults = body.compare_with_current ? await run(current) : undefined
+    return c.json({
+      settings: captureSettingsJson(candidate.settings),
+      results,
+      ...(currentResults ? { current: currentResults } : {}),
+    })
+  } catch (err) {
+    console.error('[Perception OSS] POST /projects/:id/capture/preview error:', err)
+    return c.json({ error: 'Internal error', detail: String(err) }, 500)
+  }
+})
+
 app.get('/projects/:id/summary', async (c) => {
   const id = c.req.param('id')
   const { rows } = await pool.query<{ always_on_summary: string | null; mission: string | null }>(`
@@ -1502,7 +1666,34 @@ async function compareWithNeighbor(earlier: string, incoming: string): Promise<N
   }
 }
 
-async function extractDecisionOSS(userMsg: string, claudeReply: string) {
+async function loadCaptureSettings(projectId: string): Promise<CaptureSettings> {
+  const { rows } = await pool.query<{
+    capture_instructions: string | null
+    capture_mode: string
+    capture_confidence_min: number | null
+    capture_kinds: unknown
+  }>(`
+    SELECT capture_instructions, capture_mode, capture_confidence_min, capture_kinds
+    FROM ${S}.projects WHERE id = $1
+  `, [projectId])
+  const row = rows[0]
+  if (!row) return { ...DEFAULT_CAPTURE_SETTINGS }
+  return coerceCaptureSettings({
+    instructions:   row.capture_instructions,
+    mode:           row.capture_mode,
+    confidence_min: row.capture_confidence_min,
+    kinds:          row.capture_kinds,
+  })
+}
+
+function captureSettingsJson(settings: CaptureSettings) {
+  return {
+    ...settings,
+    effective_confidence_min: effectiveConfidenceMin(settings, THRESHOLDS.DECISION_CONFIDENCE_MIN),
+  }
+}
+
+async function extractDecisionOSS(userMsg: string, claudeReply: string, capture?: CaptureSettings) {
   try {
     return await extractDecisionLlm(userMsg, claudeReply, {
       provider:        config.llmProvider,
@@ -1512,6 +1703,7 @@ async function extractDecisionOSS(userMsg: string, claudeReply: string) {
       openaiModel:     config.openaiLlmModel,
       openaiBaseUrl:   config.openaiBaseUrl,
       extraSystemRules: SELF_HOSTED_USER_RULE_OVERRIDE,
+      capture,
     })
   } catch (err) {
     // Missing key / provider / parse failure = treat as no decision so one bad
@@ -1574,8 +1766,11 @@ async function regenerateSummary(projectId: string): Promise<void> {
   // neither pinned nor tagged. Which side is newer is decided in
   // rankSummaryDecisions.
   const rows = await rankSummaryDecisions(pool, S, projectId)
+  // Non-decision kinds (projects.capture_kinds) get a short section of their
+  // own: the newest few entries per kind, never ranked against decisions.
+  const otherKinds = await loadOtherKindRows(pool, S, projectId)
 
-  if (!rows.length) return
+  if (!rows.length && !otherKinds.length) return
 
   const summary = rows.map((r, i) => {
     const tags: string[] = []
@@ -1607,9 +1802,17 @@ async function regenerateSummary(projectId: string): Promise<void> {
     ? '\nSynthesis:\n' + blocks.map(b => `- ${b.content}`).join('\n')
     : ''
 
+  const otherSection = otherKinds.length
+    ? '\nOther memory:\n' + otherKinds.map(r => {
+        const label     = r.subject ? `${r.kind}: ${r.subject}` : r.kind
+        const rationale = r.rationale ? ` — ${r.rationale}` : ''
+        return `- [${label}] ${r.decision}${rationale}`
+      }).join('\n')
+    : ''
+
   await pool.query(
     `UPDATE ${S}.projects SET always_on_summary=$2, updated_at=now() WHERE id=$1`,
-    [projectId, summary + blockSection],
+    [projectId, (summary + otherSection + blockSection).trim()],
   )
 }
 

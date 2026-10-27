@@ -7,7 +7,7 @@
 import chalk from 'chalk'
 import { normalizeLoopbackUrl, readConfig } from '../lib/config.js'
 
-function perceptionEndpoint(): { url: string; key: string } {
+export function perceptionEndpoint(): { url: string; key: string } {
   const config = readConfig()
   const url = normalizeLoopbackUrl(
     config.perceptionUrl ??
@@ -18,7 +18,7 @@ function perceptionEndpoint(): { url: string; key: string } {
   return { url, key }
 }
 
-function exitUnreachable(url: string, err: unknown): never {
+export function exitUnreachable(url: string, err: unknown): never {
   console.log(chalk.red('  ✗ Perception is unreachable'))
   console.log(chalk.dim(`  ${url} — ${err instanceof Error ? err.message : String(err)}`))
   console.log(chalk.dim('  Start it with ') + chalk.cyan('npx robrain up') + chalk.dim(' (or pnpm docker:up from a clone).\n'))

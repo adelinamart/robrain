@@ -21,6 +21,8 @@ const { config } = await import('./config.js')
 const { classifyDecision } = await import('./classifiers/index.js')
 const { routeDecisionSignal } = await import('./router.js')
 const { buildServer } = await import('./server.js')
+const { resetCaptureSettingsCache, seedCaptureSettings } = await import('./capture-settings.js')
+const { DEFAULT_CAPTURE_SETTINGS } = await import('@robrain/shared')
 
 const mutableConfig = config as unknown as {
   perceptionApiUrl: string
@@ -39,6 +41,8 @@ const fetchedUrls: string[] = []
 let perceptionReply: Record<string, unknown> = { accepted: true, action: 'written' }
 let perceptionDelayMs = 0
 let completedSignalPosts = 0
+let lastAnthropicBody = ''
+let extractionConfidence = 0.9
 const realFetch = globalThis.fetch
 
 function jsonResponse(payload: unknown): Response {
@@ -49,10 +53,11 @@ function jsonResponse(payload: unknown): Response {
 }
 
 function installFetchMock(): void {
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input)
     fetchedUrls.push(url)
     if (url === ANTHROPIC_URL) {
+      lastAnthropicBody = typeof init?.body === 'string' ? init.body : ''
       return jsonResponse({
         content: [{
           type: 'text',
@@ -60,7 +65,7 @@ function installFetchMock(): void {
             decision:   'Never use bubble sort.',
             rationale:  null,
             rejected:   [],
-            confidence: 0.9,
+            confidence: extractionConfidence,
           }),
         }],
       })
@@ -162,6 +167,8 @@ before(() => {
   mutableConfig.anthropicApiKey = 'conflict-test-anthropic-key'
   mutableConfig.llmProvider = 'anthropic'
   mutableConfig.topicShiftDisableEmbedding = true
+  // Stock settings, pinned: the gate tests below count every fetch.
+  seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS })
   installFetchMock()
 })
 
@@ -169,6 +176,7 @@ afterEach(() => {
   fetchedUrls.length = 0
   perceptionReply = { accepted: true, action: 'written' }
   perceptionDelayMs = 0
+  extractionConfidence = 0.9
 })
 
 after(() => {
@@ -229,6 +237,57 @@ describe('classifyDecision rule gate', () => {
     const assistantOnly = turnFrom('Which sort does this file use?', 'You should never use bubble sort here.')
     assert.equal(await classifyDecision(assistantOnly, 'proj'), null)
     assert.deepEqual(fetchedUrls, [])
+  })
+})
+
+describe('classifyDecision with project capture settings', () => {
+  const quiet = turnFrom('Can you check why the nightly sync job got slower this week?', 'Looking at the logs now.')
+
+  after(() => {
+    seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS })
+  })
+
+  it('reads the settings from Perception once and caches them', async () => {
+    resetCaptureSettingsCache('proj')
+    const first = await classifyDecision(turnFrom('Never use bubble sort in this repo.'), 'proj')
+    assert.ok(first)
+    assert.deepEqual(fetchedUrls, [`${PERCEPTION_URL}/projects/proj/capture`, ANTHROPIC_URL])
+    fetchedUrls.length = 0
+    await classifyDecision(turnFrom('Never use bubble sort in this repo.'), 'proj')
+    assert.deepEqual(fetchedUrls, [ANTHROPIC_URL])
+  })
+
+  it('broad mode sends a turn with no decision keyword to extraction', async () => {
+    seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS, mode: 'broad' })
+    assert.ok(await classifyDecision(quiet, 'proj'))
+    assert.deepEqual(fetchedUrls, [ANTHROPIC_URL])
+  })
+
+  it('strict mode still skips that turn', async () => {
+    seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS })
+    assert.equal(await classifyDecision(quiet, 'proj'), null)
+    assert.deepEqual(fetchedUrls, [])
+  })
+
+  it('appends the project instructions and kinds to the extraction prompt', async () => {
+    seedCaptureSettings('proj', {
+      ...DEFAULT_CAPTURE_SETTINGS,
+      instructions: 'Skip anything about the marketing site.',
+      kinds: [{ name: 'run', description: 'The outcome of an agent run.' }],
+    })
+    await classifyDecision(turnFrom('Never use bubble sort in this repo.'), 'proj')
+    const body = JSON.parse(lastAnthropicBody) as { system: string }
+    assert.match(body.system, /Skip anything about the marketing site\./)
+    assert.match(body.system, /"run": The outcome of an agent run\./)
+    assert.ok(body.system.indexOf('You extract technical decisions') < body.system.indexOf('Skip anything'))
+  })
+
+  it('applies the project confidence threshold instead of the stock one', async () => {
+    seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS, confidence_min: 0.95 })
+    assert.equal(await classifyDecision(turnFrom('Never use bubble sort in this repo.'), 'proj'), null)
+    seedCaptureSettings('proj', { ...DEFAULT_CAPTURE_SETTINGS, confidence_min: 0.5 })
+    extractionConfidence = 0.55
+    assert.ok(await classifyDecision(turnFrom('Never use bubble sort in this repo.'), 'proj'))
   })
 })
 

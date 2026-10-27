@@ -157,6 +157,10 @@ export interface ExtractedDecision {
   rationale: string | null
   rejected: Array<{ option: string; reason: string }>
   confidence: number
+  /** 'decision' unless the project declared extra kinds (capture settings). Absent on older payloads. */
+  kind?: string
+  /** For non-decision kinds: a short stable label; a newer entry with the same subject replaces the older one. */
+  subject?: string | null
 }
 
 // ── Decision (DB row) ─────────────────────────────────────────
@@ -168,6 +172,10 @@ export interface Decision {
   decision: string
   rationale?: string
   rejected: Array<{ option: string; reason: string }>
+  /** 'decision', or one of the project's declared capture kinds. */
+  kind: string
+  /** Set on non-decision kinds; same-subject entries supersede each other. */
+  subject?: string
   files_affected: string[]
   confidence: number
   scope: Scope

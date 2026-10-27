@@ -21,9 +21,22 @@ CREATE TABLE IF NOT EXISTS context_system.projects (
   last_session_at    TIMESTAMPTZ DEFAULT now(),
   last_synthesis_at  TIMESTAMPTZ, -- last successful Synthesis batch pass (optional)
   working_directory  TEXT,        -- cwd where `robrain init-project` ran — post-Synthesis export-memory
+  -- What the classifier stores for this project, in the user's own words
+  -- (`robrain capture`). These defaults are the stock classifier.
+  capture_instructions   TEXT,
+  capture_mode           TEXT NOT NULL DEFAULT 'strict',   -- strict (keyword gate) | broad (every non-trivial turn)
+  capture_confidence_min REAL,                             -- NULL = stock threshold
+  capture_kinds          JSONB NOT NULL DEFAULT '[]',      -- [{name, description}] beyond 'decision'
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
+
+-- Mirrors migration 009 for databases created before these columns existed.
+ALTER TABLE context_system.projects
+  ADD COLUMN IF NOT EXISTS capture_instructions   TEXT,
+  ADD COLUMN IF NOT EXISTS capture_mode           TEXT NOT NULL DEFAULT 'strict',
+  ADD COLUMN IF NOT EXISTS capture_confidence_min REAL,
+  ADD COLUMN IF NOT EXISTS capture_kinds          JSONB NOT NULL DEFAULT '[]';
 
 -- ── Sessions ──────────────────────────────────────────────────
 
@@ -56,6 +69,13 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- THE DIFFERENTIATOR: what was tried and ruled out, with why
   -- [{option: "Redux", reason: "re-render performance issues in cart"}]
   rejected            JSONB NOT NULL DEFAULT '[]',
+
+  -- 'decision', or one of the project's declared capture kinds
+  -- (projects.capture_kinds). Only decisions carry vetoes.
+  kind                TEXT NOT NULL DEFAULT 'decision',
+  -- Non-decision kinds only: a short stable label. A newer row with the
+  -- same kind and subject supersedes the older one.
+  subject             TEXT,
 
   -- Which files were being discussed when this decision was made
   files_affected      TEXT[] NOT NULL DEFAULT '{}',
@@ -136,7 +156,7 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
 -- Additive upgrade guard: databases whose decisions table predates the trust
 -- columns (CREATE TABLE IF NOT EXISTS no-ops there) get them here so the
 -- partial index below always has its column. Mirrors migrations 003, 006,
--- 007, and 008; fresh installs already created them above — idempotent either way.
+-- 007, 008, and 009; fresh installs already created them above — idempotent either way.
 ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS trust_score            NUMERIC(3,2),
   ADD COLUMN IF NOT EXISTS trust_flags            JSONB,
@@ -144,7 +164,9 @@ ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS quarantine_released_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS source_turn_at         TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS source_turn_hash       TEXT,
-  ADD COLUMN IF NOT EXISTS decision_text_key      TEXT;
+  ADD COLUMN IF NOT EXISTS decision_text_key      TEXT,
+  ADD COLUMN IF NOT EXISTS kind                   TEXT NOT NULL DEFAULT 'decision',
+  ADD COLUMN IF NOT EXISTS subject                TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_decisions_project     ON context_system.decisions(project_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decisions(session_id);
@@ -155,6 +177,8 @@ CREATE INDEX IF NOT EXISTS idx_decisions_unreviewed   ON context_system.decision
 CREATE INDEX IF NOT EXISTS idx_decisions_quarantined  ON context_system.decisions(project_id) WHERE quarantined_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_clash_text_key ON context_system.decisions(project_id, scope, decision_text_key)
   WHERE conflict_flag AND invalidated_at IS NULL AND quarantined_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_decisions_kind_subject ON context_system.decisions(project_id, kind, lower(subject))
+  WHERE invalidated_at IS NULL AND subject IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_decisions_embedding    ON context_system.decisions USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 

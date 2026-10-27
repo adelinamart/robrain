@@ -3,6 +3,7 @@
 // already applies to DB_SCHEMA.
 
 import type pg from 'pg'
+import { subjectsMatch } from '@robrain/shared'
 import { chronologyInstantSql, decisionTextKey, findMatchingTurnCapture, textNearIdentical, withTurnIdentity, type ClashedCopy } from './write-conflict.js'
 
 /** Three unresolved pairs; leaves at least 9 of the 15 high-signal slots for other rules. */
@@ -79,6 +80,10 @@ export interface DecisionWriteInput {
   sourceTurnAt: Date
   /** Rows the new decision clashes with (see planDecisionSave). Ignored while quarantined. */
   conflictWithIds: readonly string[]
+  /** 'decision', or one of the project's declared capture kinds. */
+  kind: string
+  /** Non-decision kinds only. An active row with the same kind and subject is superseded by this one. */
+  subject: string | null
 }
 
 export interface DecisionWriteHooks {
@@ -94,6 +99,8 @@ export type DecisionWriteResult =
       sourceTurnAt: string | null
       createdAt: string
       captures: TurnCapture[]
+      /** Same-kind, same-subject rows this one replaced (non-decision kinds only). */
+      supersededIds: string[]
     }
 
 /**
@@ -135,9 +142,10 @@ export async function commitDecisionWrite(
         project_id, session_id, decision, rationale,
         rejected, files_affected, confidence, scope, source, embedding,
         source_turn_sequence, source_excerpt, source_turn_hash,
-        trust_score, trust_flags, quarantined_at, source_turn_at, decision_text_key
+        trust_score, trust_flags, quarantined_at, source_turn_at, decision_text_key,
+        kind, subject
       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, 'sensing', $9::vector, $10, $11, $12,
-                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16, $17)
+                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16, $17, $18, $19)
       RETURNING id,
         ${chronologyInstantSql('source_turn_at')} AS source_turn_at,
         ${chronologyInstantSql('created_at')} AS created_at
@@ -159,9 +167,50 @@ export async function commitDecisionWrite(
       input.quarantine,
       input.sourceTurnAt,
       decisionTextKey(input.decision),
+      input.kind,
+      input.subject,
     ])
     const inserted = rows[0]
     if (!inserted) throw new Error('decision insert returned no row')
+    // A non-decision kind with a subject is state, not a rule: the newest
+    // entry about that subject replaces the older ones instead of sitting
+    // beside them. History stays queryable through supersedes_id.
+    let supersededIds: string[] = []
+    if (input.subject !== null && !input.quarantine) {
+      // Subjects are matched on content words (subjectsMatch), not exact
+      // text: the model phrases the same thing slightly differently from
+      // one turn to the next. Newest first so supersedes_id points at the
+      // entry this one directly replaces.
+      const { rows: candidates } = await client.query<{ id: string; subject: string }>(
+        `SELECT id, subject FROM ${safeSchema}.decisions
+         WHERE project_id = $1 AND kind = $2 AND subject IS NOT NULL
+           AND invalidated_at IS NULL AND id <> $3
+         ORDER BY created_at DESC
+         LIMIT 200`,
+        [input.projectId, input.kind, inserted.id],
+      )
+      supersededIds = candidates
+        .filter((row) => subjectsMatch(row.subject, input.subject as string))
+        .map((row) => row.id)
+      if (supersededIds.length > 0) {
+        await client.query(
+          `UPDATE ${safeSchema}.decisions
+           SET invalidated_at = now(), auto_resolved = true, updated_at = now()
+           WHERE id = ANY($1::text[])`,
+          [supersededIds],
+        )
+        await client.query(
+          `UPDATE ${safeSchema}.decisions SET supersedes_id = $2 WHERE id = $1`,
+          [inserted.id, supersededIds[0]],
+        )
+        await client.query(
+          `INSERT INTO ${safeSchema}.decision_relations (from_id, to_id, relation)
+           SELECT $1, replaced_id, 'supersedes' FROM unnest($2::text[]) AS replaced_id
+           ON CONFLICT DO NOTHING`,
+          [inserted.id, supersededIds],
+        )
+      }
+    }
     if (input.conflictWithIds.length > 0 && !input.quarantine) {
       await client.query(
         `UPDATE ${safeSchema}.decisions SET conflict_flag = true, updated_at = now() WHERE id = ANY($1::text[])`,
@@ -181,6 +230,7 @@ export async function commitDecisionWrite(
       sourceTurnAt: inserted.source_turn_at,
       createdAt: inserted.created_at,
       captures,
+      supersededIds,
     }
   } catch (transactionError) {
     await client.query('ROLLBACK').catch(() => undefined)
@@ -419,6 +469,8 @@ export async function rankSummaryDecisions(
         AND d.invalidated_at IS NULL
         -- Trust gate: quarantined rows never reach the always-on summary.
         AND d.quarantined_at IS NULL
+        -- Other kinds get their own section (loadOtherKindRows).
+        AND d.kind = 'decision'
     ),
     pinned_conflicts AS (
       SELECT id
@@ -456,5 +508,39 @@ export async function rankSummaryDecisions(
     ) merged
     ORDER BY tier ASC, created_at DESC
   `, [projectId, MAX_PINNED_CONFLICT_ROWS])
+  return rows
+}
+
+export interface OtherKindRow {
+  kind: string
+  subject: string | null
+  decision: string
+  rationale: string | null
+}
+
+/** Newest active rows of every non-decision kind, a few per kind, for the always-on summary. */
+export async function loadOtherKindRows(
+  queryable: pg.Pool | pg.PoolClient,
+  schema: string,
+  projectId: string,
+  perKind = 5,
+  total = 20,
+): Promise<OtherKindRow[]> {
+  const safeSchema = checkedSchema(schema)
+  const { rows } = await queryable.query<OtherKindRow>(`
+    SELECT kind, subject, decision, rationale
+    FROM (
+      SELECT d.kind, d.subject, d.decision, d.rationale, d.created_at,
+             ROW_NUMBER() OVER (PARTITION BY d.kind ORDER BY d.created_at DESC) AS rn
+      FROM ${safeSchema}.decisions d
+      WHERE d.project_id = $1
+        AND d.kind <> 'decision'
+        AND d.invalidated_at IS NULL
+        AND d.quarantined_at IS NULL
+    ) ranked
+    WHERE rn <= $2
+    ORDER BY kind ASC, created_at DESC
+    LIMIT $3
+  `, [projectId, perKind, total])
   return rows
 }

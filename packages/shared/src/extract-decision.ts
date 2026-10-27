@@ -11,6 +11,12 @@
 
 import type { ExtractedDecision } from './types.js'
 import { anthropicChat, openaiChat, resolveOpenAiBaseUrl, DEFAULT_OPENAI_BASE_URL, type LlmProvider } from './llm.js'
+import {
+  DEFAULT_CAPTURE_KIND,
+  allowedKindNames,
+  normalizeKindName,
+  type CaptureSettings,
+} from './capture-settings.js'
 
 export const DECISION_EXTRACTION_SYSTEM_PROMPT = `You extract technical decisions from software development conversations.
 
@@ -52,6 +58,44 @@ export interface ExtractDecisionLlmConfig {
    * unchanged.
    */
   extraSystemRules?: string
+  /**
+   * The project's own capture settings. Their instructions and extra kinds
+   * are appended after `extraSystemRules`; the base prompt is untouched, so a
+   * project that set nothing extracts exactly as before.
+   */
+  capture?: CaptureSettings | null
+}
+
+/**
+ * The prompt section a project's capture settings add. Empty when the
+ * project asks for nothing beyond decisions. Instructions come last so
+ * they can narrow or widen every rule above them, and kinds extend the
+ * output schema with `kind` and `subject`.
+ */
+export function buildCaptureRules(capture: CaptureSettings | null | undefined): string {
+  if (!capture) return ''
+  const sections: string[] = []
+
+  if (capture.kinds.length > 0) {
+    const kindLines = capture.kinds.map(k => `- "${k.name}": ${k.description}`).join('\n')
+    sections.push(
+      `Besides decisions, this project also stores these kinds of memory:\n${kindLines}\n` +
+      `The rules above about what is NOT a decision apply only to kind "${DEFAULT_CAPTURE_KIND}". ` +
+      `A turn that contains an entry of one of the listed kinds must be returned even though it contains no decision and nothing durable was committed: ` +
+      `set "kind" to that kind's name, put the entry in "entry" as one short factual sentence (what happened, when, with what result), ` +
+      `set "subject" to a short stable label for the thing it is about (max 6 words, the same words each time so a newer entry about the same subject replaces the older one), ` +
+      `set "confidence" to how sure you are that the turn contains such an entry, and leave "decision" null. ` +
+      `When the turn contains a decision, return it as usual with "kind": "${DEFAULT_CAPTURE_KIND}", "entry": null and "subject": null. ` +
+      `Never invent a kind that is not listed.\n` +
+      `Schema: {"decision": string|null, "rationale": string|null, "rejected": [{"option": string, "reason": string}], "confidence": number, "kind": string, "entry": string|null, "subject": string|null}`,
+    )
+  }
+
+  if (capture.instructions) {
+    sections.push(`Project instructions for what to store (they refine the rules above; the output must stay valid JSON in the schema given):\n${capture.instructions}`)
+  }
+
+  return sections.join('\n\n')
 }
 
 /**
@@ -98,12 +142,15 @@ export function stripMarkdownJsonFence(raw: string): string {
  * (especially mini tiers) can hallucinate or drop fields under structured-output
  * prompts. Throws SyntaxError when the text is not JSON at all.
  */
-export function parseExtractedDecision(rawText: string): ExtractedDecision {
+export function parseExtractedDecision(rawText: string, allowedKinds: readonly string[] = [DEFAULT_CAPTURE_KIND]): ExtractedDecision {
   const raw = JSON.parse(stripMarkdownJsonFence(rawText)) as {
     decision?:   string | null
     rationale?:  string | null
     rejected?:   unknown
     confidence?: number
+    kind?:       unknown
+    entry?:      unknown
+    subject?:    unknown
   }
   const rejected = Array.isArray(raw.rejected)
     ? raw.rejected.filter(
@@ -116,11 +163,26 @@ export function parseExtractedDecision(rawText: string): ExtractedDecision {
   const confidence = typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
     ? raw.confidence
     : 0
+  // A kind the project never declared is stored as a decision, not dropped:
+  // the content is still the user's and `robrain review` can fix the label.
+  const requestedKind = typeof raw.kind === 'string' ? normalizeKindName(raw.kind) : DEFAULT_CAPTURE_KIND
+  const kind = allowedKinds.includes(requestedKind) ? requestedKind : DEFAULT_CAPTURE_KIND
+  const subject = kind !== DEFAULT_CAPTURE_KIND && typeof raw.subject === 'string' && raw.subject.trim()
+    ? raw.subject.trim().slice(0, 120)
+    : null
+  // The prompt keeps non-decision entries out of "decision" (the base rules
+  // say null there when nothing was committed); the stored text is the same
+  // column either way.
+  const entry = kind !== DEFAULT_CAPTURE_KIND && typeof raw.entry === 'string' && raw.entry.trim()
+    ? raw.entry.trim()
+    : null
   return {
-    decision:  typeof raw.decision === 'string' ? raw.decision : null,
+    decision:  entry ?? (typeof raw.decision === 'string' ? raw.decision : null),
     rationale: typeof raw.rationale === 'string' ? raw.rationale : null,
     rejected,
     confidence,
+    kind,
+    subject,
   }
 }
 
@@ -139,9 +201,9 @@ export async function extractDecisionLlm(
 User: ${userMessage}
 Claude: ${claudeReply}`
 
-  const systemPrompt = cfg.extraSystemRules
-    ? `${DECISION_EXTRACTION_SYSTEM_PROMPT}\n\n${cfg.extraSystemRules}`
-    : DECISION_EXTRACTION_SYSTEM_PROMPT
+  const systemPrompt = [DECISION_EXTRACTION_SYSTEM_PROMPT, cfg.extraSystemRules, buildCaptureRules(cfg.capture)]
+    .filter((section): section is string => Boolean(section))
+    .join('\n\n')
 
   let rawText: string
   if (cfg.provider === 'openai') {
@@ -175,5 +237,5 @@ Claude: ${claudeReply}`
     })
   }
 
-  return parseExtractedDecision(rawText)
+  return parseExtractedDecision(rawText, allowedKindNames(cfg.capture))
 }

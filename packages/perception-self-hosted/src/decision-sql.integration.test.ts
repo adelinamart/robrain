@@ -940,6 +940,8 @@ function decisionWrite(
     quarantine: false,
     sourceTurnAt: new Date('2026-05-01T00:00:00.000Z'),
     conflictWithIds: [],
+    kind: 'decision',
+    subject: null,
     ...overrides,
   }
 }
