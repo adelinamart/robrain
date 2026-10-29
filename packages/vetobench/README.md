@@ -101,40 +101,47 @@ memories, and its own semantic search retrieves top-5 per task.
 node dist/run.js --live --adapters none,robrain,mem0   # needs OPENAI_API_KEY
 ```
 
-Five archived runs, 2026-07-07 — `mem0ai@3.0.13` OSS (gpt-4o-mini
-extraction, text-embedding-3-small), agent `claude-haiku-4-5`. Each run
-re-ingests the corpus through Mem0's LLM extraction, so ingestion itself is
-re-rolled every time. Every cell's retrieved context, agent reply, and
-verdict is archived in
-[results/mem0-series-2026-07-07/](results/mem0-series-2026-07-07/) — these
+Five archived runs, 2026-10-29 — `mem0ai@3.0.13` OSS (gpt-4o-mini
+extraction, text-embedding-3-small), agent `claude-haiku-4-5`, each run on a
+fresh in-memory store. Each run re-ingests the corpus through Mem0's LLM
+extraction, so ingestion itself is re-rolled every time. Every cell's
+retrieved context, agent reply, verdict, and the post-ingestion store snapshot
+is archived in
+[results/mem0-series-2026-10-29/](results/mem0-series-2026-10-29/) — these
 are the receipts; don't take our word for any claim below.
 
 | Condition | Violation rate (5 runs) | Acknowledged prior rejection |
 |---|---|---|
-| `mem0` | **0–20%** (runs: 20, 20, 0, 20, 0) | 50–90% |
+| `mem0` | **0–10%** (runs: 0, 0, 0, 0, 10) | 80–100% (47 of 50 cells) |
 
-Mem0 handles most of this corpus well — say so plainly. The interesting
-result is in the archived contexts. Checking all 50 cells for whether the
-recorded rejection survived into what Mem0 retrieved:
+Mem0 handles this corpus well — say so plainly. Checking all 50 cells for
+whether the recorded rejection survived into what Mem0 retrieved:
 
-- **In 19 of 50 cells (38%), the veto was absent** from the retrieved
-  context — lost at extraction or not retrieved. For three scenarios it was
-  absent in *all five runs*: s01 (Express), s04 (axios), s10 (GraphQL).
-- **Violations concentrate exactly there: 5/19 (26%) when the veto was
-  absent vs 1/31 (3%) when it was present.**
-- s01 is the cleanest exhibit: the retrieved memories say "settled on Hono
-  for its middleware model" — nothing anywhere about Express having been
-  evaluated and declined, or why. Five runs, never once acknowledged.
-- s04, where the axios veto was likewise lost every run, produced an
-  outright violation in 3 of 5 runs — the agent proposing axios for the
-  billing integration.
+- **In 9 of 50 cells (18%), the veto was absent** from the retrieved
+  context. No scenario lost it in every run, and none of those 9 cells
+  produced a violation.
+- The single violation (run 5, s09, auto-generated migrations) happened
+  with the veto present in context: a judgment miss, not a memory miss.
 
-A veto that doesn't survive ingestion isn't just uncitable; it eventually
-stops protecting. That is the failure mode a structured `rejected[]` field
-exists to prevent. (The `robrain` condition renders `rejected[]` with every
-retrieved decision, so a retrieved decision cannot arrive with its veto
-stripped; whether the right decision is retrieved at all is what the offline
-layer measures.)
+**The earlier series is superseded.** The five runs archived in
+[results/mem0-series-2026-07-07/](results/mem0-series-2026-07-07/) reported
+0–20% violations and a veto absent in 19 of 50 cells, with the violations
+concentrated where the veto was missing. They were run before the adapter
+isolated its store: Mem0's OSS `memory` vector store persists to
+`~/.mem0/vector_store.db` by default, so each run ingested on top of the
+previous runs under the same user id. The archived contexts show the
+symptom — top-5 results filled with near-duplicate phrasings of one memory,
+crowding the others out. That is a benchmark-harness fault, not a Mem0
+fault, and the numbers above replace the earlier ones. The old archive stays
+in the repo for transparency. Thanks to
+[PR #20](https://github.com/adelinamart/robrain/pull/20) for catching it.
+
+What the structured `rejected[]` field still buys: the `robrain` condition
+renders the rejection with every retrieved decision, so a retrieved decision
+cannot arrive with its veto stripped; whether the right decision is retrieved
+at all is what the offline layer measures. Whether an unstructured memory
+pipeline loses vetoes at ingestion is now a question the store snapshot can
+answer per run, rather than a claim this series makes.
 
 Reproduce the series and the analysis:
 
@@ -193,10 +200,10 @@ Five archived runs, 2026-07-08
 | Retrieval | veto present in **50/50** retrieved contexts |
 | Behavior | **0/50 violations**, 100% acknowledgement |
 
-Side by side with the Mem0 series on identical input: Mem0's ingestion lost
-the veto from 38% of retrieved contexts and violated in 0–20% of tasks per
-run; RoBrain's full pipeline — extraction included — lost none and violated
-in none. The structural reason: RoBrain's extraction prompt asks for
+Side by side with the isolated Mem0 series on identical input: the veto was
+absent from 18% of Mem0's retrieved contexts and Mem0 violated in 0–10% of
+tasks per run; RoBrain's full pipeline — extraction included — lost none and
+violated in none. The structural reason: RoBrain's extraction prompt asks for
 `rejected[]` as a first-class output field, so keeping the veto is the
 extractor's *job*, not a lucky side effect of fact summarization.
 

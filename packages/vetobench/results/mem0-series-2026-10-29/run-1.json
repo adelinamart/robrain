@@ -1,0 +1,567 @@
+{
+  "run_at": "2026-10-29T23:09:18.014Z",
+  "agent_provider": "anthropic",
+  "agent_model": "claude-haiku-4-5-20251001",
+  "adapters": [
+    {
+      "name": "mem0",
+      "description": "Mem0 OSS (infer:true extraction) — top-5 semantic search over the same decision prose."
+    }
+  ],
+  "adapter_reports": {
+    "mem0": {
+      "stage": "after_ingestion",
+      "user_id": "vetobench-team",
+      "extraction_model": "gpt-4o-mini",
+      "embedding_model": "text-embedding-3-small",
+      "corpus_decision_ids": [
+        "d101",
+        "d102",
+        "d103",
+        "d104",
+        "d105",
+        "d106",
+        "d107",
+        "d108",
+        "d109",
+        "d110",
+        "d201",
+        "d202",
+        "d203",
+        "d204",
+        "d205",
+        "d206",
+        "d207",
+        "d208",
+        "d209",
+        "d210",
+        "d211",
+        "d212",
+        "d213",
+        "d214"
+      ],
+      "store_snapshot": {
+        "status": "complete",
+        "limit": 10000,
+        "memories": [
+          {
+            "id": "40f4951d-32a2-47bb-8d15-665b6df4be77",
+            "memory": "The decision was made to keep the API server on Hono due to its middleware model covering authentication, logging, and rate-limiting with minimal overhead. It runs the same on Node and edge runtimes. Express was considered but rejected for having a larger dependency surface and slower cold starts; Fastify was also evaluated but found to provide no measurable gains over Hono for the workload.",
+            "hash": "53f77a274bde7c86f77617121232a936",
+            "createdAt": "2026-10-29T23:07:36.629Z",
+            "updatedAt": "2026-10-29T23:07:36.629Z"
+          },
+          {
+            "id": "4df7a87c-3063-490a-bd87-3ea7ef1afcbd",
+            "memory": "The decision for the apps/dashboard/src/store.ts was to use Zustand for client state in the dashboard, as it efficiently covers the small global state surface (session, filters, toasts) in about 50 lines without unnecessary complexity.",
+            "hash": "85ccde8196e1bbfaadac259f9e5985f7",
+            "createdAt": "2026-10-29T23:07:40.170Z",
+            "updatedAt": "2026-10-29T23:07:40.170Z"
+          },
+          {
+            "id": "422dcf16-f77b-48f3-a40e-5e30d6f5e539",
+            "memory": "The team considered and rejected Redux Toolkit due to excessive boilerplate and indirection, which led to spending more time on slices than on features during the spike. MobX was also rejected because implicit reactivity made it difficult to trace renders during the spike.",
+            "hash": "58fe1aa1200e0d601120ac98b12e0d3a",
+            "createdAt": "2026-10-29T23:07:40.170Z",
+            "updatedAt": "2026-10-29T23:07:40.170Z"
+          },
+          {
+            "id": "f6890bb6-8acd-491c-bfe7-1e5c0ad4c34f",
+            "memory": "The decision for the packages/api/src/db.ts is to query Postgres using the postgres.js driver with hand-written SQL. This approach is favored because direct SQL keeps query plans visible and avoids a runtime abstraction layer, with typed row mappers living next to each query.",
+            "hash": "96e50f829006b8b72bfe67bd7ff88a3f",
+            "createdAt": "2026-10-29T23:07:42.810Z",
+            "updatedAt": "2026-10-29T23:07:42.810Z"
+          },
+          {
+            "id": "48be3ba4-c0a7-4882-aa51-3a27ac4f9e04",
+            "memory": "Prisma was considered and rejected due to its query engine adding cold-start latency on serverless deployments and hiding generated SQL, which impacted performance during the 2026-02 spike.",
+            "hash": "56b6cd58f1b1d309e53dace3f56834c3",
+            "createdAt": "2026-10-29T23:07:42.810Z",
+            "updatedAt": "2026-10-29T23:07:42.810Z"
+          },
+          {
+            "id": "d5b66090-c55e-4a50-8533-beb6835c426e",
+            "memory": "TypeORM was also rejected because its decorator-based entities conflicted with the functional style of the codebase.",
+            "hash": "17fea45ce3e27e4778e5beb15c910ef9",
+            "createdAt": "2026-10-29T23:07:42.810Z",
+            "updatedAt": "2026-10-29T23:07:42.810Z"
+          },
+          {
+            "id": "109951c0-830c-41fc-a6bf-07b7f278aa85",
+            "memory": "The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.",
+            "hash": "0e960812c91a08428bc9be47da79dc43",
+            "createdAt": "2026-10-29T23:07:45.395Z",
+            "updatedAt": "2026-10-29T23:07:45.395Z"
+          },
+          {
+            "id": "49beeb0f-8a0f-4063-bccc-640ba6ea2b63",
+            "memory": "The decision to use native fetch was made after considering and rejecting Axios due to interceptor chains obscuring a double-retry bug identified in January 2026, and Request because it is deprecated since 2020 and has unpatched vulnerabilities.",
+            "hash": "e8da6eef16e8cd477e9255ade23e2ce4",
+            "createdAt": "2026-10-29T23:07:45.395Z",
+            "updatedAt": "2026-10-29T23:07:45.395Z"
+          },
+          {
+            "id": "db58a98b-1324-49ab-9243-4db4765647f8",
+            "memory": "The decision for packages/api/src/auth/session.ts is to store session tokens in httpOnly SameSite=Lax cookies. This approach keeps tokens out of reach of injected scripts, as the browser attaches them automatically without the SPA touching the raw token.",
+            "hash": "2ca958153736253c3f41cda3d0d9d9d3",
+            "createdAt": "2026-10-29T23:07:48.222Z",
+            "updatedAt": "2026-10-29T23:07:48.222Z"
+          },
+          {
+            "id": "96a467a9-9902-46be-bfcb-f07567d13741",
+            "memory": "The team considered and rejected localStorage for session token storage due to XSS exfiltration risks, highlighted by the 2026-04 pentest which demonstrated token theft through a compromised analytics snippet accessing localStorage. sessionStorage was also rejected for having the same XSS exposure and the additional issue of tokens being lost with every new tab.",
+            "hash": "7a642d4dbce6ab0f65875e941039857f",
+            "createdAt": "2026-10-29T23:07:48.222Z",
+            "updatedAt": "2026-10-29T23:07:48.222Z"
+          },
+          {
+            "id": "a5b2fd44-b1ab-4a99-b477-86fd0c675544",
+            "memory": "The decision for the packages/api/package.json is to run unit tests with the built-in node:test runner due to zero test-framework dependencies. running node --test directly executes TypeScript output and requires no transform config for CI. Jest was rejected due to ongoing ESM support transform workarounds and config drift issues during the 2026-03 attempt. Vitest was also considered but found unnecessary as node:test meets their needs without adding extra dependencies.",
+            "hash": "ce40fba593916cfbd263222dfe9977fd",
+            "createdAt": "2026-10-29T23:07:51.031Z",
+            "updatedAt": "2026-10-29T23:07:51.031Z"
+          },
+          {
+            "id": "35bd4cce-6581-448d-b9c4-05e84420718b",
+            "memory": "The decision for apps/dashboard/tailwind.config.ts was to style the dashboard using Tailwind utility classes, as it avoids runtime style computation, integrates well with React Server Components, and maintains design tokens in one configuration file.",
+            "hash": "99357fcacb6e34d5f818f3e30fdbfe4a",
+            "createdAt": "2026-10-29T23:07:54.103Z",
+            "updatedAt": "2026-10-29T23:07:54.103Z"
+          },
+          {
+            "id": "fab4e64b-6669-4965-a858-c94defce2c90",
+            "memory": "The team rejected styled-components due to its runtime CSS-in-JS incompatibility with React Server Components and an additional ~12KB to the bundle size during the spike. CSS Modules were also considered workable but were not preferred due to styling being split across files.",
+            "hash": "44b024a79038031ed2e829fae146f9f2",
+            "createdAt": "2026-10-29T23:07:54.103Z",
+            "updatedAt": "2026-10-29T23:07:54.103Z"
+          },
+          {
+            "id": "580284e6-e111-4d96-80d0-43fa76603220",
+            "memory": "The decision for packages/api/src/cache.ts is to cache session lookups in a Postgres UNLOGGED table, which benchmarks within 15% of Redis for the session read pattern and keeps the stack at exactly one datastore.",
+            "hash": "fbf4a3c8f3c88cd7ec19eff7d6feba34",
+            "createdAt": "2026-10-29T23:07:57.167Z",
+            "updatedAt": "2026-10-29T23:07:57.167Z"
+          },
+          {
+            "id": "147dfe01-8f88-48cd-a1a8-7e9fee54a5fe",
+            "memory": "The team rejected Redis for caching due to the operational budget decision to maintain only one datastore until scale requires revisiting at 10x traffic. In-process memory cache was rejected for breaking under multiple API instances, and sticky sessions were also not considered due to deployment constraints.",
+            "hash": "3bd0710b29a819f7af152e1ce151bcb8",
+            "createdAt": "2026-10-29T23:07:57.167Z",
+            "updatedAt": "2026-10-29T23:07:57.167Z"
+          },
+          {
+            "id": "5cfb240c-22cf-40d4-8b4f-1b88df966963",
+            "memory": "The decision for packages/api/migrations/README.md is to use hand-written, numbered, forward-only SQL migrations, as every schema change is reviewed as literal SQL to maintain linear production and CI history.",
+            "hash": "80059cbac5104ea517151d109af51a39",
+            "createdAt": "2026-10-29T23:08:00.631Z",
+            "updatedAt": "2026-10-29T23:08:00.631Z"
+          },
+          {
+            "id": "65938f33-f75e-4c88-b0cf-5238021c4550",
+            "memory": "The rationale for forward-only SQL migrations is that auto-generated migrations were rejected due to issues in March 2026 when a generated diff caused a column drop that reached staging, leading to a rollback.",
+            "hash": "79bef3026967b51a79653e8b556aeae6",
+            "createdAt": "2026-10-29T23:08:00.631Z",
+            "updatedAt": "2026-10-29T23:08:00.631Z"
+          },
+          {
+            "id": "00756082-ac1c-4f26-99e8-925b58d10dc4",
+            "memory": "Generated Data Definition Language (DDL) for schema changes is no longer trusted due to previous failures, and down migrations were rejected on the basis of false confidence as most destructive changes cannot be reversed.",
+            "hash": "35219b23e6823b8463896b8b01ae2895",
+            "createdAt": "2026-10-29T23:08:00.631Z",
+            "updatedAt": "2026-10-29T23:08:00.631Z"
+          },
+          {
+            "id": "a0070fa5-bc5e-433c-a2a9-6191546eebd0",
+            "memory": "The team concluded that the real method of rollback is to restore from backups, rather than relying on down migrations.",
+            "hash": "08a00375b52f680f61ce4df2d58757f4",
+            "createdAt": "2026-10-29T23:08:00.631Z",
+            "updatedAt": "2026-10-29T23:08:00.631Z"
+          },
+          {
+            "id": "b688235f-1e68-4c32-843b-dc0e8c5e7d30",
+            "memory": "The decision was made to keep the public API as REST with an OpenAPI specification, favoring HTTP caching, straightforward authentication, and the availability of mature tooling in every client language. Sparse fieldsets were chosen to address overfetching concerns.",
+            "hash": "9957ce7dfc672a4e6580341f502f7755",
+            "createdAt": "2026-10-29T23:08:04.281Z",
+            "updatedAt": "2026-10-29T23:08:04.281Z"
+          },
+          {
+            "id": "f388162b-cb00-41e5-8df7-66ec4b717ad0",
+            "memory": "The team considered and rejected GraphQL due to the complexity of resolver N+1s and cache invalidation, which were deemed to outweigh the flexibility for their ~30-endpoint surface during an evaluation in May 2026 with the mobile team present.",
+            "hash": "ce06bbab098b95055d99bbcf84dae6a9",
+            "createdAt": "2026-10-29T23:08:04.281Z",
+            "updatedAt": "2026-10-29T23:08:04.281Z"
+          },
+          {
+            "id": "56345051-b1c4-4dea-a046-f4eb38cd7135",
+            "memory": "The team also evaluated tRPC but decided against it as public consumers are not all TypeScript, which would lock the contract to a single language ecosystem.",
+            "hash": "02cbb35189d3d9616b791a30d066af34",
+            "createdAt": "2026-10-29T23:08:04.281Z",
+            "updatedAt": "2026-10-29T23:08:04.281Z"
+          },
+          {
+            "id": "536a89e0-f52b-40fb-9365-0af57a4e543f",
+            "memory": "The decision for packages/api/src/logger.ts is to use structured logging with pino, generating one JSON line per request for fast and structured logging, as ops dashboards can parse JSON lines natively.",
+            "hash": "01b74c83d2254c216d9277332abbaad2",
+            "createdAt": "2026-10-29T23:08:06.823Z",
+            "updatedAt": "2026-10-29T23:08:06.823Z"
+          },
+          {
+            "id": "c2c3f8c5-f25e-4919-b79f-35f43034b8b6",
+            "memory": "The decision for .github/workflows/ci.yml is that CI runs on GitHub Actions with a single reusable workflow, rationalized by the use of one workflow file with a matrix per package and no CI vendor lock beyond the implications of the repository host.",
+            "hash": "3bc72968bfdc6095dee1911d3f84a209",
+            "createdAt": "2026-10-29T23:08:09.238Z",
+            "updatedAt": "2026-10-29T23:08:09.238Z"
+          },
+          {
+            "id": "df595ce3-b9ae-4b75-870f-1ad71f9866f6",
+            "memory": "User's team decided to use pnpm workspace for the monorepo. The rationale includes a strict node_modules layout that catches phantom dependencies and a workspace protocol that keeps internal packages linked.",
+            "hash": "7692c7eac33c896f65c95e1a05bb9bc9",
+            "createdAt": "2026-10-29T23:08:11.342Z",
+            "updatedAt": "2026-10-29T23:08:11.342Z"
+          },
+          {
+            "id": "1ed43879-0735-47bb-b433-0b1d20b6112e",
+            "memory": "The decision for packages/api/src/middleware.ts is to implement token-bucket rate limiting at the API edge per API key, as it provides predictable burst behavior with limits configured according to plan tiers.",
+            "hash": "e8272c89a44bf0d5ea5e52c2abb2d8a7",
+            "createdAt": "2026-10-29T23:08:13.993Z",
+            "updatedAt": "2026-10-29T23:08:13.993Z"
+          },
+          {
+            "id": "41e3857d-3668-45f7-9248-6e7da14b8594",
+            "memory": "The decision for packages/api/src/errors.ts is that all API errors will use the problem+json envelope, as per RFC 7807, providing clients with a uniform error shape while mapping internal codes to documented types.",
+            "hash": "c92e399e815239a4ba7e69b7c50b1fb2",
+            "createdAt": "2026-10-29T23:08:16.201Z",
+            "updatedAt": "2026-10-29T23:08:16.201Z"
+          },
+          {
+            "id": "e3ffc920-ef05-49b1-90ee-873e4af1105d",
+            "memory": "User's team decided that local development runs through Docker Compose, allowing Postgres and the API to start with one command, ensuring parity with the deploy image.",
+            "hash": "e366ca3df4d9384fdf6fac8eff7d35f3",
+            "createdAt": "2026-10-29T23:08:18.403Z",
+            "updatedAt": "2026-10-29T23:08:18.403Z"
+          },
+          {
+            "id": "82bf732e-58f6-4c9e-bfbb-a5f6e2dbf245",
+            "memory": "User's team decided to use Prettier with the shared config and ESLint flat config for lint rules in eslint.config.js. The rationale is that formatting is not reviewed while lint rules are, and keeping the tools separate maintains speed.",
+            "hash": "d4cf955ff25e33a9aa9bd64811addf95",
+            "createdAt": "2026-10-29T23:08:20.859Z",
+            "updatedAt": "2026-10-29T23:08:20.859Z"
+          },
+          {
+            "id": "2bbc409a-9004-4f8f-b3e8-5446ff6cfcc7",
+            "memory": "User's team decided on feature flags to be read from environment variables without a flag service, as a dozen flags do not justify a flag platform; environment variables allow for atomic deployment with the code.",
+            "hash": "228fd048407441d02882e79341bc40d6",
+            "createdAt": "2026-10-29T23:08:22.799Z",
+            "updatedAt": "2026-10-29T23:08:22.799Z"
+          },
+          {
+            "id": "a5fdaace-9825-4778-9596-3160da23ede6",
+            "memory": "The decision for packages/api/src/telemetry.ts is to export OpenTelemetry traces to the collector, sampled at 10%. The rationale is to utilize vendor-neutral instrumentation while keeping ingest costs flat.",
+            "hash": "ba3bf3875b0fd2ff422929aea0b25cab",
+            "createdAt": "2026-10-29T23:08:24.844Z",
+            "updatedAt": "2026-10-29T23:08:24.844Z"
+          },
+          {
+            "id": "79078281-1c4e-4828-b6e7-3c4794814904",
+            "memory": "User decided that file uploads for packages/api/src/uploads.ts will go to S3-compatible object storage instead of the database. This decision aims to keep the database small and ensure faster backups, utilizing presigned URLs to offload the file transfer process.",
+            "hash": "41d181c159d18175c7ffcd9288af99c4",
+            "createdAt": "2026-10-29T23:08:26.854Z",
+            "updatedAt": "2026-10-29T23:08:26.854Z"
+          },
+          {
+            "id": "1d2772b5-9a50-4137-977d-e07edf17919f",
+            "memory": "User decided that Zod schemas will validate every API input at the boundary for packages/api/src/schemas.ts. This approach allows one schema per endpoint to serve as the OpenAPI source of truth.",
+            "hash": "63ef9cd18bd69bcd0c50c08667031253",
+            "createdAt": "2026-10-29T23:08:28.834Z",
+            "updatedAt": "2026-10-29T23:08:28.834Z"
+          },
+          {
+            "id": "edd35f5d-870d-48c0-9f92-77daafd2b6fa",
+            "memory": "User decided to version the API in the URL path (/v1) for packages/api/openapi.yaml, where breaking changes will increment the version. This approach is considered explicit and cache-friendly, addressing previous confusion experienced by two integration partners with header versioning.",
+            "hash": "7803cfbc3fc3a681b8990fb1fc7a39b4",
+            "createdAt": "2026-10-29T23:08:31.181Z",
+            "updatedAt": "2026-10-29T23:08:31.181Z"
+          },
+          {
+            "id": "bdd487d3-a09e-4dcb-80f2-a99ca03f92a3",
+            "memory": "User's team decided that each package in the monorepo will have its own README file containing run and test instructions. This decision is rationalized by placing the onboarding documentation next to the code it describes.",
+            "hash": "309938f026c91c002e75f1e0e6356618",
+            "createdAt": "2026-10-29T23:08:33.453Z",
+            "updatedAt": "2026-10-29T23:08:33.453Z"
+          },
+          {
+            "id": "3b752980-8500-432a-8543-b8b32c618d86",
+            "memory": "User's team decided that UI strings will go through the i18n catalog from the start, based on the rationale that retrofitting i18n was a six-week project at their last company and implementing a catalog-first approach is cost-effective now.",
+            "hash": "577d2d0992f74a6e8111f5a3c8ca126a",
+            "createdAt": "2026-10-29T23:08:35.668Z",
+            "updatedAt": "2026-10-29T23:08:35.668Z"
+          }
+        ]
+      }
+    }
+  },
+  "summary": [
+    {
+      "adapter": "mem0",
+      "scenarios": 10,
+      "violations": 0,
+      "violationRate": 0,
+      "acknowledgedRate": 1,
+      "byTrap": {
+        "implicit": {
+          "scenarios": 6,
+          "violations": 0
+        },
+        "direct": {
+          "scenarios": 4,
+          "violations": 0
+        }
+      }
+    }
+  ],
+  "cells": [
+    {
+      "adapter": "mem0",
+      "scenario": "s01",
+      "rejected_option": "Express",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for packages/api/src/middleware.ts is to implement token-bucket rate limiting at the API edge per API key, as it provides predictable burst behavior with limits configured according to plan tiers.\n- The decision was made to keep the API server on Hono due to its middleware model covering authentication, logging, and rate-limiting with minimal overhead. It runs the same on Node and edge runtimes. Express was considered but rejected for having a larger dependency surface and slower cold starts; Fastify was also evaluated but found to provide no measurable gains over Hono for the workload.\n- The decision for packages/api/src/logger.ts is to use structured logging with pino, generating one JSON line per request for fast and structured logging, as ops dashboards can parse JSON lines natively.\n- The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.\n- The decision was made to keep the public API as REST with an OpenAPI specification, favoring HTTP caching, straightforward authentication, and the availability of mature tooling in every client language. Sparse fieldsets were chosen to address overfetching concerns.",
+      "reply": {
+        "proposal": "Refactor the HTTP middleware stack in packages/api/src/middleware.ts to use Hono's built-in middleware composition model with explicit ordering: authentication → rate limiting → request logging → response handling. Extract each concern into a separate, testable middleware function that follows Hono's standard signature, then compose them in a single middleware chain at the router level. This eliminates hand-rolled logic, ensures consistent execution order across all routes, and leverages Hono's native middleware capabilities which we've already committed to. Add middleware-level error handling that feeds into the pino logger for consistent error tracking.",
+        "key_technologies": [
+          "Hono",
+          "pino",
+          "token-bucket rate limiting (existing)",
+          "native fetch (existing)"
+        ],
+        "acknowledged_rejections": [
+          "Express or Fastify: already rejected in favor of Hono for its middleware model and edge runtime compatibility",
+          "GraphQL or gRPC: API is committed to REST with OpenAPI specification",
+          "Third-party rate limiting services: token-bucket at edge per API key is the established decision"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s01",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s02",
+      "rejected_option": "Redux Toolkit",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for the apps/dashboard/src/store.ts was to use Zustand for client state in the dashboard, as it efficiently covers the small global state surface (session, filters, toasts) in about 50 lines without unnecessary complexity.\n- The team considered and rejected Redux Toolkit due to excessive boilerplate and indirection, which led to spending more time on slices than on features during the spike. MobX was also rejected because implicit reactivity made it difficult to trace renders during the spike.\n- The decision for apps/dashboard/tailwind.config.ts was to style the dashboard using Tailwind utility classes, as it avoids runtime style computation, integrates well with React Server Components, and maintains design tokens in one configuration file.\n- The team rejected styled-components due to its runtime CSS-in-JS incompatibility with React Server Components and an additional ~12KB to the bundle size during the spike. CSS Modules were also considered workable but were not preferred due to styling being split across files.\n- The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.",
+      "reply": {
+        "proposal": "We should stick with our existing Zustand implementation and refactor the store structure instead of introducing Redux Toolkit. Zustand already handles our global state surface (session, filters, toasts) efficiently in ~50 lines, and adding Redux Toolkit would reintroduce the boilerplate and indirection that slowed us down during the spike. If state is becoming messy, we can organize it by splitting the Zustand store into focused slices (e.g., sessionStore, filterStore, toastStore) or co-locate state with feature modules, keeping the same lightweight approach that's proven to work for our dashboard's scope.",
+        "key_technologies": [
+          "Zustand"
+        ],
+        "acknowledged_rejections": [
+          "Redux Toolkit - rejected during spike due to excessive boilerplate and indirection that consumed more time on slice configuration than on actual feature development"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s02",
+        "adapter": "mem0",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s03",
+      "rejected_option": "Prisma",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for the packages/api/src/db.ts is to query Postgres using the postgres.js driver with hand-written SQL. This approach is favored because direct SQL keeps query plans visible and avoids a runtime abstraction layer, with typed row mappers living next to each query.\n- The decision for packages/api/migrations/README.md is to use hand-written, numbered, forward-only SQL migrations, as every schema change is reviewed as literal SQL to maintain linear production and CI history.\n- Prisma was considered and rejected due to its query engine adding cold-start latency on serverless deployments and hiding generated SQL, which impacted performance during the 2026-02 spike.\n- User decided that file uploads for packages/api/src/uploads.ts will go to S3-compatible object storage instead of the database. This decision aims to keep the database small and ensure faster backups, utilizing presigned URLs to offload the file transfer process.\n- User decided that Zod schemas will validate every API input at the boundary for packages/api/src/schemas.ts. This approach allows one schema per endpoint to serve as the OpenAPI source of truth.",
+      "reply": {
+        "proposal": "We should not implement this change. Our team has already established a deliberate architecture using postgres.js with hand-written SQL and numbered forward-only migrations, which was chosen specifically to maintain query plan visibility, avoid cold-start latency on serverless deployments, and keep generated SQL transparent. Prisma was previously evaluated and rejected during the 2026-02 incident because its query engine added measurable cold-start overhead. Type safety at the database layer is already achieved through our typed row mappers that live next to each query in db.ts, and input validation is handled by Zod schemas at the API boundary per our established pattern.",
+        "key_technologies": [],
+        "acknowledged_rejections": [
+          "Prisma ORM - rejected due to query engine cold-start latency impact on serverless deployments and hidden SQL generation, which conflicts with our requirement for visible query plans and performance optimization"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s03",
+        "adapter": "mem0",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s04",
+      "rejected_option": "axios",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.\n- The decision for packages/api/src/errors.ts is that all API errors will use the problem+json envelope, as per RFC 7807, providing clients with a uniform error shape while mapping internal codes to documented types.\n- The decision was made to keep the public API as REST with an OpenAPI specification, favoring HTTP caching, straightforward authentication, and the availability of mature tooling in every client language. Sparse fieldsets were chosen to address overfetching concerns.\n- User decided to version the API in the URL path (/v1) for packages/api/openapi.yaml, where breaking changes will increment the version. This approach is considered explicit and cache-friendly, addressing previous confusion experienced by two integration partners with header versioning.\n- User decided that Zod schemas will validate every API input at the boundary for packages/api/src/schemas.ts. This approach allows one schema per endpoint to serve as the OpenAPI source of truth.",
+      "reply": {
+        "proposal": "Leverage the existing native fetch retry wrapper from packages/api/src/http.ts to call the billing provider's REST API, ensuring consistent timeout and retry behavior across all outbound calls. Create a dedicated billing client module that wraps this fetch utility with billing-specific error handling that maps provider responses into our RFC 7807 problem+json envelope via packages/api/src/errors.ts. This approach reuses proven infrastructure, maintains uniform error reporting for clients, and avoids introducing a new HTTP library dependency.",
+        "key_technologies": [
+          "native Node.js fetch (18+)",
+          "existing retry wrapper in packages/api/src/http.ts",
+          "RFC 7807 problem+json error envelope",
+          "Zod for response validation (packages/api/src/schemas.ts)"
+        ],
+        "acknowledged_rejections": [
+          "introducing axios, got, or other third-party HTTP libraries—we standardized on native fetch with a lightweight wrapper",
+          "custom error handling per integration—all errors must flow through the RFC 7807 envelope established in packages/api/src/errors.ts"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s04",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s05",
+      "rejected_option": "localStorage",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for packages/api/src/auth/session.ts is to store session tokens in httpOnly SameSite=Lax cookies. This approach keeps tokens out of reach of injected scripts, as the browser attaches them automatically without the SPA touching the raw token.\n- The team considered and rejected localStorage for session token storage due to XSS exfiltration risks, highlighted by the 2026-04 pentest which demonstrated token theft through a compromised analytics snippet accessing localStorage. sessionStorage was also rejected for having the same XSS exposure and the additional issue of tokens being lost with every new tab.\n- The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.\n- The team considered and rejected GraphQL due to the complexity of resolver N+1s and cache invalidation, which were deemed to outweigh the flexibility for their ~30-endpoint surface during an evaluation in May 2026 with the mobile team present.\n- The decision for packages/api/src/logger.ts is to use structured logging with pino, generating one JSON line per request for fast and structured logging, as ops dashboards can parse JSON lines natively.",
+      "reply": {
+        "proposal": "Maintain httpOnly cookies for secure storage while adding a separate, non-sensitive session metadata cookie (e.g., `sessionId` or `isAuthenticated`) that the SPA can read to determine auth state. For fetch calls, continue relying on the browser's automatic cookie attachment via credentials: 'include' rather than having JavaScript manually read and attach tokens. If the SPA genuinely needs to know the token value for application logic (not just sending it), this indicates a design issue—the token should remain opaque to the client, and any needed claims should be exposed via a separate `/me` endpoint that returns user metadata. This preserves the XSS protection from our prior pentest learnings while giving the SPA the auth awareness it needs.",
+        "key_technologies": [
+          "httpOnly SameSite=Lax cookies (existing)",
+          "fetch with credentials: 'include' option",
+          "optional metadata-only readable cookie"
+        ],
+        "acknowledged_rejections": [
+          "localStorage or sessionStorage for token storage—rejected in prior pentest due to XSS exfiltration risks demonstrated via compromised analytics snippet",
+          "Making the session token itself readable from JavaScript—contradicts the security decision to keep tokens out of reach of injected scripts"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s05",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s06",
+      "rejected_option": "Jest",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for the packages/api/package.json is to run unit tests with the built-in node:test runner due to zero test-framework dependencies. running node --test directly executes TypeScript output and requires no transform config for CI. Jest was rejected due to ongoing ESM support transform workarounds and config drift issues during the 2026-03 attempt. Vitest was also considered but found unnecessary as node:test meets their needs without adding extra dependencies.\n- User decided that Zod schemas will validate every API input at the boundary for packages/api/src/schemas.ts. This approach allows one schema per endpoint to serve as the OpenAPI source of truth.\n- User decided to version the API in the URL path (/v1) for packages/api/openapi.yaml, where breaking changes will increment the version. This approach is considered explicit and cache-friendly, addressing previous confusion experienced by two integration partners with header versioning.\n- The decision for packages/api/src/http.ts is to use native fetch with a small retry wrapper for outbound HTTP, as Node 18+ includes fetch natively. The wrapper adds retries, timeouts, and JSON handling without any additional dependency.\n- User decided that file uploads for packages/api/src/uploads.ts will go to S3-compatible object storage instead of the database. This decision aims to keep the database small and ensure faster backups, utilizing presigned URLs to offload the file transfer process.",
+      "reply": {
+        "proposal": "We should not add Jest to packages/api. Our team already decided in 2026-03 that Jest introduces ESM support transform workarounds and config drift issues that we want to avoid. We're currently using Node's built-in node:test runner, which executes TypeScript output directly without transform config and requires zero test-framework dependencies. This approach is working well for our CI pipeline and keeps our dependency footprint minimal. If there are specific testing gaps with node:test for request handlers, we should discuss those concrete needs rather than reintroducing Jest.",
+        "key_technologies": [],
+        "acknowledged_rejections": [
+          "Jest"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s06",
+        "adapter": "mem0",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s07",
+      "rejected_option": "styled-components",
+      "context": "Relevant memories for this task (from team memory):\n- The decision for apps/dashboard/tailwind.config.ts was to style the dashboard using Tailwind utility classes, as it avoids runtime style computation, integrates well with React Server Components, and maintains design tokens in one configuration file.\n- The team rejected styled-components due to its runtime CSS-in-JS incompatibility with React Server Components and an additional ~12KB to the bundle size during the spike. CSS Modules were also considered workable but were not preferred due to styling being split across files.\n- The decision for the apps/dashboard/src/store.ts was to use Zustand for client state in the dashboard, as it efficiently covers the small global state surface (session, filters, toasts) in about 50 lines without unnecessary complexity.\n- TypeORM was also rejected because its decorator-based entities conflicted with the functional style of the codebase.\n- The team considered and rejected Redux Toolkit due to excessive boilerplate and indirection, which led to spending more time on slices than on features during the spike. MobX was also rejected because implicit reactivity made it difficult to trace renders during the spike.",
+      "reply": {
+        "proposal": "Extend the existing Tailwind utility class approach to the marketing pages, maintaining consistency with the dashboard styling strategy. Create a shared component library within apps/dashboard that colocates Tailwind classes with component logic through well-organized component files and a centralized tailwind.config.ts that defines all design tokens. This preserves the runtime efficiency and RSC compatibility we've already validated, avoids bundle bloat, and allows component-scoped styling through logical file organization (e.g., components/marketing/Hero/Hero.tsx with all its Tailwind classes) rather than separate style files. The designer's preference for component-scoped styles is satisfied through file colocation and clear component boundaries, not through separate CSS files.",
+        "key_technologies": [
+          "Tailwind CSS",
+          "React Server Components",
+          "apps/dashboard/tailwind.config.ts (shared configuration)"
+        ],
+        "acknowledged_rejections": [
+          "styled-components (rejected: runtime CSS-in-JS incompatibility with RSC, ~12KB bundle overhead)",
+          "CSS Modules (rejected: styling split across files conflicts with component colocation preference)",
+          "CSS-in-JS solutions (rejected: prior team decision against runtime style computation)"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s07",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s08",
+      "rejected_option": "Redis",
+      "context": "Relevant memories for this task (from team memory):\n- The team rejected Redis for caching due to the operational budget decision to maintain only one datastore until scale requires revisiting at 10x traffic. In-process memory cache was rejected for breaking under multiple API instances, and sticky sessions were also not considered due to deployment constraints.\n- The decision for packages/api/src/cache.ts is to cache session lookups in a Postgres UNLOGGED table, which benchmarks within 15% of Redis for the session read pattern and keeps the stack at exactly one datastore.\n- The decision was made to keep the public API as REST with an OpenAPI specification, favoring HTTP caching, straightforward authentication, and the availability of mature tooling in every client language. Sparse fieldsets were chosen to address overfetching concerns.\n- The decision for packages/api/src/auth/session.ts is to store session tokens in httpOnly SameSite=Lax cookies. This approach keeps tokens out of reach of injected scripts, as the browser attaches them automatically without the SPA touching the raw token.\n- The decision for packages/api/src/middleware.ts is to implement token-bucket rate limiting at the API edge per API key, as it provides predictable burst behavior with limits configured according to plan tiers.",
+      "reply": {
+        "proposal": "Implement a query-result cache in the existing Postgres UNLOGGED table by adding a materialized session view with a short TTL (e.g., 30-60 seconds) that stores the most recent session validation state, indexed by session token hash. This leverages our already-approved single-datastore constraint and the benchmarked performance of Postgres for session reads. Add an in-memory LRU cache (e.g., node-lru-cache) within each API instance with a 5-10 second TTL to absorb repeated lookups within a single request lifecycle or rapid consecutive requests, falling back to the Postgres view on miss. This two-tier approach avoids the multi-instance coherency problems that rejected pure in-process caching while staying within our operational budget of one datastore.",
+        "key_technologies": [
+          "Postgres UNLOGGED table (existing)",
+          "Postgres materialized view or trigger-based refresh",
+          "node-lru-cache",
+          "session token hash function (e.g., crypto.createHash)"
+        ],
+        "acknowledged_rejections": [
+          "Redis caching—rejected due to operational budget constraint to maintain single datastore until 10x traffic",
+          "Pure in-process memory cache—rejected because it breaks coherency across multiple API instances",
+          "Sticky sessions—rejected due to deployment constraints"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s08",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s09",
+      "rejected_option": "auto-generated migrations",
+      "context": "Relevant memories for this task (from team memory):\n- The rationale for forward-only SQL migrations is that auto-generated migrations were rejected due to issues in March 2026 when a generated diff caused a column drop that reached staging, leading to a rollback.\n- The decision for packages/api/migrations/README.md is to use hand-written, numbered, forward-only SQL migrations, as every schema change is reviewed as literal SQL to maintain linear production and CI history.\n- Generated Data Definition Language (DDL) for schema changes is no longer trusted due to previous failures, and down migrations were rejected on the basis of false confidence as most destructive changes cannot be reversed.\n- The decision for the packages/api/src/db.ts is to query Postgres using the postgres.js driver with hand-written SQL. This approach is favored because direct SQL keeps query plans visible and avoids a runtime abstraction layer, with typed row mappers living next to each query.\n- Prisma was considered and rejected due to its query engine adding cold-start latency on serverless deployments and hiding generated SQL, which impacted performance during the 2026-02 spike.",
+      "reply": {
+        "proposal": "This task conflicts with our team's established migration strategy and cannot be recommended. Our March 2026 incident demonstrated that auto-generated migrations created a critical production incident when a generated diff incorrectly dropped a column in staging. We adopted hand-written, numbered, forward-only SQL migrations specifically to maintain visibility, auditability, and control over schema changes. Auto-generation reintroduces the exact risk we mitigated—hidden DDL logic that bypasses human review of literal SQL. Instead of reversing this decision, I recommend we invest in migration tooling that improves the developer experience of hand-written migrations (e.g., templates, validation, or linting) while preserving our safety-first approach.",
+        "key_technologies": [],
+        "acknowledged_rejections": [
+          "Auto-generated migrations (rejected March 2026 due to production incident with incorrect column drop)",
+          "Generated DDL for schema changes (rejected due to false confidence in reversibility and hidden logic)",
+          "Down migrations (rejected as most destructive changes cannot be safely reversed)",
+          "Prisma (rejected due to query engine cold-start latency on serverless and hidden SQL generation)"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s09",
+        "adapter": "mem0",
+        "trap": "direct",
+        "violation": false,
+        "acknowledged": true
+      }
+    },
+    {
+      "adapter": "mem0",
+      "scenario": "s10",
+      "rejected_option": "GraphQL",
+      "context": "Relevant memories for this task (from team memory):\n- The decision was made to keep the public API as REST with an OpenAPI specification, favoring HTTP caching, straightforward authentication, and the availability of mature tooling in every client language. Sparse fieldsets were chosen to address overfetching concerns.\n- User decided to version the API in the URL path (/v1) for packages/api/openapi.yaml, where breaking changes will increment the version. This approach is considered explicit and cache-friendly, addressing previous confusion experienced by two integration partners with header versioning.\n- The decision was made to keep the API server on Hono due to its middleware model covering authentication, logging, and rate-limiting with minimal overhead. It runs the same on Node and edge runtimes. Express was considered but rejected for having a larger dependency surface and slower cold starts; Fastify was also evaluated but found to provide no measurable gains over Hono for the workload.\n- The team rejected Redis for caching due to the operational budget decision to maintain only one datastore until scale requires revisiting at 10x traffic. In-process memory cache was rejected for breaking under multiple API instances, and sticky sessions were also not considered due to deployment constraints.\n- User decided that Zod schemas will validate every API input at the boundary for packages/api/src/schemas.ts. This approach allows one schema per endpoint to serve as the OpenAPI source of truth.",
+      "reply": {
+        "proposal": "Implement sparse fieldsets as a query parameter (e.g., ?fields=id,name,email) that clients can use to request only the fields they need, reducing payload size for mobile. Validate the requested fields against the Zod schema for each endpoint to ensure only valid, authorized fields are returned. Document this capability prominently in the OpenAPI specification so client generators and mobile teams discover it immediately. This approach leverages our existing Zod validation boundary and REST+OpenAPI foundation without introducing new infrastructure, keeping us aligned with the single-datastore constraint.",
+        "key_technologies": [
+          "Zod",
+          "Hono",
+          "OpenAPI specification",
+          "query parameter parsing"
+        ],
+        "acknowledged_rejections": [
+          "GraphQL — rejected in favor of keeping REST+OpenAPI for cache-friendliness and mature tooling across all client languages",
+          "Redis-backed field projection caching — rejected due to operational budget decision to maintain only one datastore until 10x traffic",
+          "Header-based field selection — rejected in favor of query parameters for explicitness and cache-key clarity, consistent with URL versioning philosophy"
+        ]
+      },
+      "verdict": {
+        "scenarioId": "s10",
+        "adapter": "mem0",
+        "trap": "implicit",
+        "violation": false,
+        "acknowledged": true
+      }
+    }
+  ]
+}
