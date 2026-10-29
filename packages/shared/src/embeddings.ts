@@ -102,25 +102,48 @@ export class EmbeddingProviderError extends Error {
   }
 }
 
+/** Token count for one successful embedding call, as the provider reported it. */
+export interface EmbeddingUsage {
+  /** Billed input tokens; null when the provider's response carries no count. */
+  inputTokens: number | null
+}
+
+interface Embedded {
+  vector:      number[]
+  inputTokens: number | null
+}
+
+/**
+ * Embed one text. `onUsage` is called once on success with the provider's
+ * token count (OpenAI-compatible `usage.prompt_tokens`, Voyage
+ * `usage.total_tokens`, Cohere `meta.billed_units.input_tokens`), so callers
+ * can meter the call; the returned vector is unchanged.
+ */
 export async function embed(
   text: string,
   config: EmbeddingConfig,
   signal?: AbortSignal,
+  onUsage?: (usage: EmbeddingUsage) => void,
 ): Promise<number[]> {
-  let vec: number[]
+  let out: Embedded
   switch (config.provider) {
-    case 'openai':  vec = await embedOpenAI(text, config, signal);  break
-    case 'voyage':  vec = await embedVoyage(text, config, signal);  break
-    case 'cohere':  vec = await embedCohere(text, config, signal);  break
+    case 'openai':  out = await embedOpenAI(text, config, signal);  break
+    case 'voyage':  out = await embedVoyage(text, config, signal);  break
+    case 'cohere':  out = await embedCohere(text, config, signal);  break
     default:
       throw new EmbeddingProviderError(config.provider, `Unknown embedding provider: ${config.provider}`)
   }
-  return padToLength(vec, EMBEDDING_TARGET_DIMS)
+  onUsage?.({ inputTokens: out.inputTokens })
+  return padToLength(out.vector, EMBEDDING_TARGET_DIMS)
+}
+
+function tokenCount(x: unknown): number | null {
+  return typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.round(x) : null
 }
 
 // ── OpenAI (and OpenAI-compatible via OPENAI_BASE_URL) ────────
 
-async function embedOpenAI(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<number[]> {
+async function embedOpenAI(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<Embedded> {
   const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '')
   if (!config.openaiApiKey && baseUrl === DEFAULT_OPENAI_BASE_URL) {
     throw new EmbeddingProviderError('openai', 'OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai (unless OPENAI_BASE_URL points at a local server)')
@@ -143,13 +166,19 @@ async function embedOpenAI(text: string, config: EmbeddingConfig, signal?: Abort
     config,
     signal,
   )
-  const data = await res.json() as { data?: Array<{ embedding?: unknown }> }
-  return ensureEmbedding('openai', data.data?.[0]?.embedding)
+  const data = await res.json() as {
+    data?:  Array<{ embedding?: unknown }>
+    usage?: { prompt_tokens?: unknown; total_tokens?: unknown }
+  }
+  return {
+    vector:      ensureEmbedding('openai', data.data?.[0]?.embedding),
+    inputTokens: tokenCount(data.usage?.prompt_tokens) ?? tokenCount(data.usage?.total_tokens),
+  }
 }
 
 // ── Voyage AI ─────────────────────────────────────────────────
 
-async function embedVoyage(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<number[]> {
+async function embedVoyage(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<Embedded> {
   if (!config.voyageApiKey) {
     throw new EmbeddingProviderError('voyage', 'VOYAGE_API_KEY is required when EMBEDDING_PROVIDER=voyage')
   }
@@ -170,13 +199,19 @@ async function embedVoyage(text: string, config: EmbeddingConfig, signal?: Abort
     config,
     signal,
   )
-  const data = await res.json() as { data?: Array<{ embedding?: unknown }> }
-  return ensureEmbedding('voyage', data.data?.[0]?.embedding)
+  const data = await res.json() as {
+    data?:  Array<{ embedding?: unknown }>
+    usage?: { total_tokens?: unknown }
+  }
+  return {
+    vector:      ensureEmbedding('voyage', data.data?.[0]?.embedding),
+    inputTokens: tokenCount(data.usage?.total_tokens),
+  }
 }
 
 // ── Cohere ────────────────────────────────────────────────────
 
-async function embedCohere(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<number[]> {
+async function embedCohere(text: string, config: EmbeddingConfig, signal?: AbortSignal): Promise<Embedded> {
   if (!config.cohereApiKey) {
     throw new EmbeddingProviderError('cohere', 'COHERE_API_KEY is required when EMBEDDING_PROVIDER=cohere')
   }
@@ -199,8 +234,14 @@ async function embedCohere(text: string, config: EmbeddingConfig, signal?: Abort
     config,
     signal,
   )
-  const data = await res.json() as { embeddings?: { float?: unknown[] } }
-  return ensureEmbedding('cohere', data.embeddings?.float?.[0])
+  const data = await res.json() as {
+    embeddings?: { float?: unknown[] }
+    meta?:       { billed_units?: { input_tokens?: unknown } }
+  }
+  return {
+    vector:      ensureEmbedding('cohere', data.embeddings?.float?.[0]),
+    inputTokens: tokenCount(data.meta?.billed_units?.input_tokens),
+  }
 }
 
 // ── Retry / timeout plumbing ──────────────────────────────────

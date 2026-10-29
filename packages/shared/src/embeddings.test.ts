@@ -181,6 +181,50 @@ describe('embed — voyage / cohere', () => {
   })
 })
 
+describe('embed — usage reporting', () => {
+  it('reports OpenAI-compatible usage.prompt_tokens once', async () => {
+    mockFetch(() => jsonResponse({ data: [{ embedding: [1] }], usage: { prompt_tokens: 7, total_tokens: 7 } }))
+    const reports: Array<{ inputTokens: number | null }> = []
+    await embed('hello world', makeConfig(), undefined, u => reports.push(u))
+    assert.deepEqual(reports, [{ inputTokens: 7 }])
+  })
+
+  it('falls back to usage.total_tokens on OpenAI-compatible servers without prompt_tokens', async () => {
+    mockFetch(() => jsonResponse({ data: [{ embedding: [1] }], usage: { total_tokens: 5 } }))
+    const reports: Array<{ inputTokens: number | null }> = []
+    await embed('x', makeConfig(), undefined, u => reports.push(u))
+    assert.deepEqual(reports, [{ inputTokens: 5 }])
+  })
+
+  it('reports Voyage usage.total_tokens', async () => {
+    mockFetch(() => jsonResponse({ data: [{ embedding: [9] }], usage: { total_tokens: 12 } }))
+    const reports: Array<{ inputTokens: number | null }> = []
+    await embed('x', makeConfig({ provider: 'voyage' }), undefined, u => reports.push(u))
+    assert.deepEqual(reports, [{ inputTokens: 12 }])
+  })
+
+  it('reports Cohere meta.billed_units.input_tokens', async () => {
+    mockFetch(() => jsonResponse({ embeddings: { float: [[7]] }, meta: { billed_units: { input_tokens: 3 } } }))
+    const reports: Array<{ inputTokens: number | null }> = []
+    await embed('x', makeConfig({ provider: 'cohere' }), undefined, u => reports.push(u))
+    assert.deepEqual(reports, [{ inputTokens: 3 }])
+  })
+
+  it('reports null when the response carries no usage (local servers)', async () => {
+    mockFetch(() => jsonResponse({ data: [{ embedding: [1] }] }))
+    const reports: Array<{ inputTokens: number | null }> = []
+    await embed('x', makeConfig(), undefined, u => reports.push(u))
+    assert.deepEqual(reports, [{ inputTokens: null }])
+  })
+
+  it('does not report on failure', async () => {
+    mockFetch(() => jsonResponse({ error: { message: 'bad' } }, 400))
+    let reported = false
+    await assert.rejects(embed('x', makeConfig(), undefined, () => { reported = true }))
+    assert.equal(reported, false)
+  })
+})
+
 describe('embed — retry and errors', () => {
   it('retries 429 then succeeds', async () => {
     const calls = mockFetch(call =>
