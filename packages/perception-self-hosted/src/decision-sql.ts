@@ -23,6 +23,9 @@ export interface SummaryRankRow {
   reviewed_at: Date | null
   scope: string
   conflict_role: 'newer' | 'older' | null
+  /** Who decided (null on rows saved before migration 010) and when. */
+  author_email: string | null
+  created_at: Date | string
 }
 
 // Same identifier rule as validateSchemaName in index.ts. Repeated here so
@@ -84,6 +87,12 @@ export interface DecisionWriteInput {
   kind: string
   /** Non-decision kinds only. An active row with the same kind and subject is superseded by this one. */
   subject: string | null
+  /** Who was in the session (git user.email); null when Sensing did not send one. */
+  authorEmail: string | null
+  /** 'sensing' (default) for captured turns; 'manual' for rules written by hand. */
+  source?: 'sensing' | 'manual'
+  /** Mark the row approved on insert (hand-written rules skip the review queue). */
+  reviewedNow?: boolean
 }
 
 export interface DecisionWriteHooks {
@@ -143,9 +152,10 @@ export async function commitDecisionWrite(
         rejected, files_affected, confidence, scope, source, embedding,
         source_turn_sequence, source_excerpt, source_turn_hash,
         trust_score, trust_flags, quarantined_at, source_turn_at, decision_text_key,
-        kind, subject
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, 'sensing', $9::vector, $10, $11, $12,
-                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16, $17, $18, $19)
+        kind, subject, author_email, reviewed_at
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text[], $7, $8, $21, $9::vector, $10, $11, $12,
+                $13, $14::jsonb, CASE WHEN $15::boolean THEN now() END, $16, $17, $18, $19, $20,
+                CASE WHEN $22::boolean THEN now() END)
       RETURNING id,
         ${chronologyInstantSql('source_turn_at')} AS source_turn_at,
         ${chronologyInstantSql('created_at')} AS created_at
@@ -169,6 +179,9 @@ export async function commitDecisionWrite(
       decisionTextKey(input.decision),
       input.kind,
       input.subject,
+      input.authorEmail,
+      input.source ?? 'sensing',
+      input.reviewedNow === true,
     ])
     const inserted = rows[0]
     if (!inserted) throw new Error('decision insert returned no row')
@@ -433,7 +446,7 @@ export async function rankSummaryDecisions(
   const { rows } = await queryable.query<SummaryRankRow>(`
     WITH active AS (
       SELECT d.id, d.decision, d.rationale, d.rejected, d.scope,
-             d.reviewed_at, d.created_at,
+             d.reviewed_at, d.created_at, d.author_email,
              clash.conflict_role, clash.pair_stated_at
       FROM ${safeSchema}.decisions d
       JOIN ${safeSchema}.sessions s ON s.id = d.session_id
@@ -500,7 +513,7 @@ export async function rankSummaryDecisions(
       ORDER BY created_at DESC
       LIMIT 5
     )
-    SELECT decision, rationale, rejected, reviewed_at, scope, conflict_role
+    SELECT decision, rationale, rejected, reviewed_at, scope, conflict_role, author_email, created_at
     FROM (
       SELECT * FROM high_signal
       UNION ALL
@@ -516,6 +529,8 @@ export interface OtherKindRow {
   subject: string | null
   decision: string
   rationale: string | null
+  author_email: string | null
+  created_at: Date | string
 }
 
 /** Newest active rows of every non-decision kind, a few per kind, for the always-on summary. */
@@ -528,9 +543,9 @@ export async function loadOtherKindRows(
 ): Promise<OtherKindRow[]> {
   const safeSchema = checkedSchema(schema)
   const { rows } = await queryable.query<OtherKindRow>(`
-    SELECT kind, subject, decision, rationale
+    SELECT kind, subject, decision, rationale, author_email, created_at
     FROM (
-      SELECT d.kind, d.subject, d.decision, d.rationale, d.created_at,
+      SELECT d.kind, d.subject, d.decision, d.rationale, d.author_email, d.created_at,
              ROW_NUMBER() OVER (PARTITION BY d.kind ORDER BY d.created_at DESC) AS rn
       FROM ${safeSchema}.decisions d
       WHERE d.project_id = $1

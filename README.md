@@ -134,6 +134,17 @@ npx robrain capture test --file sample-turns.jsonl --compare       # dry run bef
 
 Extra kinds of memory sit beside decisions: each entry names a subject, and a newer entry about the same subject replaces the older one, so a kind can hold changing state (the last run of an agent) as well as rules. Only decisions carry vetoes. Flags and formats: [CLI reference](docs/cli.md#cli-commands).
 
+### Search it, or write a rule by hand
+
+Every stored decision records who decided it (the git `user.email` of the session) and when, and the summary and veto warnings say so. Search the memory like a person would, or add a rule without waiting for a session to capture it:
+
+```bash
+npx robrain search "confirm before sending"
+npx robrain rules add "Never auto-send a plan; the customer confirms first." --because "trust" --rejected "auto-send: customers lost drafts"
+```
+
+Hand-written rules are stored like captured ones (same vetoes, summary and review), with confidence 1.0 and approved on insert. Upgrades never retire a command or route without a replacement: [deprecation policy](docs/deprecation.md).
+
 ## Synthesis
 
 Synthesis runs three passes over the full `decisions` table — **drift** (stance moving without an explicit reversal), **contradictions** (incompatible decisions from different sessions), and **entity promotion** (recurring tools/patterns condensed into `planning_blocks`). It writes flags and edges into your DB; it does not capture new decisions — it judges the corpus you already have.

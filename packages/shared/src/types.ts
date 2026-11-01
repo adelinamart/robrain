@@ -11,6 +11,10 @@ export type DecisionSource =
   | 'sensing'
   | 'user_correction'
   | 'claude_disagreement'
+  /** A rule written by hand (POST /projects/:id/rules, `robrain rules add`). */
+  | 'manual'
+  /** A copy pushed into another project by an admin (RoBrain cloud promotion). */
+  | 'promoted'
 
 export type RelationType =
   | 'supersedes'
@@ -63,6 +67,13 @@ export interface DecisionSignal {
   source_turn_sequence?: number
   /** Provenance: ≤300-char user-message excerpt — survives session_turns cascade deletion. */
   source_excerpt?: string
+  /**
+   * Who was in the session: the git user.email of the project (or
+   * ROBRAIN_AUTHOR_EMAIL). Stored on the decision so review, search, the
+   * summary and veto warnings can say who decided. Cloud replaces it with
+   * the API key holder's email.
+   */
+  author_email?: string
 }
 
 /** Output of the topic-shift classifier */
@@ -176,6 +187,8 @@ export interface Decision {
   kind: string
   /** Set on non-decision kinds; same-subject entries supersede each other. */
   subject?: string
+  /** Email of the person in the session that produced this row; null on rows saved before migration 010. */
+  author_email?: string | null
   files_affected: string[]
   confidence: number
   scope: Scope

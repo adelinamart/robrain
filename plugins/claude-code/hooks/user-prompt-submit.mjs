@@ -74,13 +74,26 @@ for (const d of [...exact, ...semantic]) {
 
 if (vetoes.length === 0) exitSilently()
 
+// Who decided and when (Perception ≥ 2.6 sends author_email / decided_at
+// on veto-scan matches and author_email / created_at on decisions).
+function decidedBy(d) {
+  const iso = d.decided_at ?? d.created_at
+  const parsed = iso ? new Date(iso) : null
+  const day = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : ''
+  const who = typeof d.author_email === 'string' && d.author_email ? d.author_email : ''
+  if (who && day) return ` (decided by ${who} on ${day})`
+  if (who) return ` (decided by ${who})`
+  if (day) return ` (decided ${day})`
+  return ''
+}
+
 const lines = vetoes.map(d => {
   const rej = d.rejected
     .slice(0, 2)
     .map(r => `**${r.option}** (${r.reason})`)
     .join('; ')
   const tag = d.exact ? ' *(exact match on rejected option)*' : ''
-  return `- ${d.decision}${tag}\n  Rejected: ${rej}`
+  return `- ${d.decision}${tag}${decidedBy(d)}\n  Rejected: ${rej}`
 })
 
 recordWarnedIds(sessionId, vetoes.map(d => d.id))

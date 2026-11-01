@@ -14,6 +14,9 @@ export interface VetoScanRow {
   decision: string
   rejected: Array<{ option: string; reason: string }>
   reviewed_at: Date | string | null
+  /** Who decided and when (author null on rows saved before migration 010). */
+  author_email?: string | null
+  created_at?: Date | string | null
   /** True when this decision's own choice has been superseded (its vetoes may still stand). */
   superseded?: boolean
   /** The live decision that replaced it, when there is one. */
@@ -27,6 +30,10 @@ export interface VetoScanMatch {
   /** Only the rejected entries whose option appears in the text. */
   rejected: Array<{ option: string; reason: string }>
   reviewed: boolean
+  /** Who decided, so the warning can say it; null when unknown. */
+  author_email: string | null
+  /** When it was decided (ISO), so the warning can say how old the rule is. */
+  decided_at: string | null
   /**
    * Set when the veto rides on a decision whose own choice has since been
    * superseded. The rejection still stands — that is why the row is here — but
@@ -49,10 +56,12 @@ export function filterVetoMatches(text: string, rows: VetoScanRow[]): VetoScanMa
     // caller can see both and decide — we do not silently assert the veto.
     const superseded = row.superseded === true && !!row.successor_id
     matches.push({
-      id:       row.id,
-      decision: row.decision,
-      rejected: hit,
-      reviewed: row.reviewed_at != null,
+      id:           row.id,
+      decision:     row.decision,
+      rejected:     hit,
+      reviewed:     row.reviewed_at != null,
+      author_email: row.author_email ?? null,
+      decided_at:   row.created_at ? new Date(row.created_at).toISOString() : null,
       ...(superseded
         ? {
             superseded: true,

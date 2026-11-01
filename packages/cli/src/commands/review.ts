@@ -52,6 +52,8 @@ interface StoredDecision {
   trust_flags?:          Array<{ type: string; evidence: string }> | null
   quarantined_at?:       string | null   // trust: held out of all injection surfaces until approved
   quarantine_released_at?: string | null // trust: when a human released it (via Accept)
+  author_email?:         string | null   // who decided (Perception ≥ 2.6; null on older rows)
+  source?:               string          // sensing | manual | promoted | ...
 }
 
 /** Mirrors Perception's demotion gate (packages/perception-self-hosted/src/scoring.ts DEMOTION). */
@@ -248,11 +250,13 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
       console.log(chalk.dim(`     files:    `) + d.files_affected.slice(0, 3).join(', ') + (d.files_affected.length > 3 ? ` +${d.files_affected.length - 3} more` : ''))
     }
 
-    // Provenance — which session/turn this decision was captured from
-    if (d.session_id && (d.source_turn_sequence != null || d.source_excerpt)) {
-      const turn    = d.source_turn_sequence != null ? ` · turn ${d.source_turn_sequence}` : ''
+    // Provenance — who decided, and which session/turn it was captured from
+    if (d.session_id && (d.source_turn_sequence != null || d.source_excerpt || d.author_email)) {
+      const turn    = d.source_turn_sequence != null && d.source !== 'manual' ? ` · turn ${d.source_turn_sequence}` : ''
       const excerpt = d.source_excerpt ? ` · "${truncateExcerpt(d.source_excerpt)}"` : ''
-      console.log(chalk.dim(`     from:     session ${d.session_id.slice(0, 8)}${turn} · ${date}${excerpt}`))
+      const by      = d.author_email ? ` · by ${d.author_email}` : ''
+      const origin  = d.source === 'manual' ? 'written by hand' : `session ${d.session_id.slice(0, 8)}${turn}`
+      console.log(chalk.dim(`     from:     ${origin} · ${date}${by}${excerpt}`))
     }
 
     // Quality stats — historical relevance + injection/usage counters
