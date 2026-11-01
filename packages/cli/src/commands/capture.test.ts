@@ -1,14 +1,19 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import {
+
+// chalk colors the preview lines; pin FORCE_COLOR before loading capture.js
+// so assertions match plain text (same pattern as inject/status/synth tests).
+process.env.FORCE_COLOR = '0'
+
+const {
   DEFAULT_CAPTURE_SETTINGS,
   buildCapturePatch,
   formatPreview,
   parseKindFlag,
   parseTurnsJsonl,
   readCaptureSettings,
-  type CaptureSettings,
-} from './capture.js'
+} = await import('./capture.js')
+type CaptureSettings = import('./capture.js').CaptureSettings
 
 const withKinds: CaptureSettings = {
   ...DEFAULT_CAPTURE_SETTINGS,
