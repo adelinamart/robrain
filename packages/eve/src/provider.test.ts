@@ -219,3 +219,120 @@ describe("tools", () => {
     );
   });
 });
+
+describe("agent project registration", () => {
+  const agentOpts = { agent: "Rory Planner", apiUrl: "http://127.0.0.1:3001", apiKey: "k" };
+  const expectedId = "agent-rory-planner-";
+
+  let lastSignalsProject: string | undefined;
+  function stubWithProjects(projectsReply: unknown = { accepted: true }) {
+    const calls = stub();
+    const inner = globalThis.fetch;
+    const bodies: unknown[] = [];
+    lastSignalsProject = undefined;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (new URL(url).pathname === "/projects" && init?.method === "POST") {
+        calls.push("POST /projects");
+        bodies.push(JSON.parse(String(init.body)));
+        if (projectsReply === "THROW") throw new Error("down");
+        const status = projectsReply === "FAIL" ? 500 : projectsReply === "CONFLICT" ? 409 : 200;
+        return new Response(JSON.stringify(status === 200 ? projectsReply : { error: String(projectsReply) }), { status });
+      }
+      if (url.includes("/signals")) lastSignalsProject = (init?.headers as Record<string, string> | undefined)?.["X-Project-Id"];
+      return inner(input, init);
+    }) as typeof fetch;
+    return { calls, bodies };
+  }
+
+  it("registers the agent's project before the first recall, once per process", async () => {
+    const { calls, bodies } = stubWithProjects();
+    const provider = robrainMemory(agentOpts);
+    await provider.recall["turn.started"](started(question));
+    await provider.recall["turn.started"](started(question));
+    assert.equal(calls.filter((c) => c === "POST /projects").length, 1);
+    assert.equal(calls[0], "POST /projects");
+    const body = bodies[0] as { id: string; name: string; type: string };
+    assert.ok(body.id.startsWith(expectedId));
+    assert.equal(body.name, "Rory Planner");
+    assert.equal(body.type, "agent");
+    assert.equal("tags" in body, false);
+    assert.ok(calls.some((c) => c.startsWith("GET /projects/") && c.endsWith("/summary")));
+  });
+
+  it("does not register when projectId or ROBRAIN_PROJECT_ID is set", async () => {
+    const { calls } = stubWithProjects();
+    await robrainMemory({ ...agentOpts, projectId: "p1" }).recall["turn.started"](started(question));
+    assert.equal(calls.filter((c) => c === "POST /projects").length, 0);
+  });
+
+  it("captures into the agent's project and retries registration after a failure", async () => {
+    const { calls } = stubWithProjects("FAIL");
+    const provider = robrainMemory(agentOpts);
+    const completed = {
+      ...base,
+      turn: { id: "t0", sequence: 0, input: turnInput("Plan my week") },
+      messages: [{ role: "assistant", content: "Here is a plan." }],
+    } as any;
+    await provider.capture!["turn.completed"]!(completed);
+    await provider.capture!["turn.completed"]!({ ...completed, operationId: "op-9" });
+    assert.equal(calls.filter((c) => c === "POST /projects").length, 2);
+    assert.equal(calls.filter((c) => c === "POST /signals").length, 2);
+    assert.ok(lastSignalsProject?.startsWith(expectedId), `captured into ${lastSignalsProject}`);
+  });
+
+  it("a 409 (id owned by another org) turns the slot off for that agent instead of hammering a foreign project", async () => {
+    const { calls } = stubWithProjects("CONFLICT");
+    const provider = robrainMemory(agentOpts);
+    assert.equal(await provider.recall["turn.started"](started(question)), null);
+    assert.equal(await provider.recall["turn.started"](started(question)), null);
+    assert.equal(calls.filter((c) => c === "POST /projects").length, 1);
+    assert.equal(calls.some((c) => c.includes("/summary") || c === "POST /signals" || c === "POST /veto-scan"), false);
+  });
+
+  it("recalls the summary of the agent project, not another", async () => {
+    const { calls } = stubWithProjects();
+    await robrainMemory(agentOpts).recall["turn.started"](started(question));
+    const summaryCall = calls.find((c) => c.endsWith("/summary"));
+    assert.ok(summaryCall?.includes(`/projects/${expectedId}`), summaryCall);
+  });
+});
+
+describe("agent tags", () => {
+  it("sends the agent's tags with the registration", async () => {
+    const calls: string[] = [];
+    let body: any;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
+      if (new URL(url).pathname === "/projects") body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify(url.includes("/summary") ? { summary: "" } : { accepted: true }), { status: 200 });
+    }) as typeof fetch;
+    await robrainMemory({ agent: { name: "Mailer", tags: ["Email", "eu"] }, apiKey: "k", apiUrl: "http://127.0.0.1:3001" })
+      .recall["turn.started"](started(question));
+    assert.deepEqual(body.tags, ["email", "eu"]);
+    assert.equal(body.type, "agent");
+  });
+});
+
+describe("tools used", () => {
+  it("sends the names of the tools the turn called with the capture", async () => {
+    let signal: any;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/signals")) signal = JSON.parse(String(init?.body)).signal;
+      return new Response(JSON.stringify({ accepted: true }), { status: 200 });
+    }) as typeof fetch;
+    const completed = {
+      ...base,
+      operationId: "op-tools",
+      turn: { id: "t0", sequence: 0, input: turnInput("Send the digest") },
+      messages: [
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "1", toolName: "send_email", input: {} }] },
+        { role: "assistant", content: "Sent." },
+      ],
+    } as any;
+    await robrainMemory({ projectId: "p1", apiKey: "k" }).capture!["turn.completed"]!(completed);
+    assert.deepEqual(signal.tools_used, ["send_email"]);
+  });
+});

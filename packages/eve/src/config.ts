@@ -4,6 +4,8 @@
 // `eve build` loads the memory slot. (A key captured at build time has to exist
 // in the build environment too, and stale values bake into the artifact.)
 
+import { createHash } from "node:crypto";
+
 export type Lazy<T> = T | (() => T);
 
 /** The subset of eve's operation context a project resolver may use. */
@@ -36,6 +38,29 @@ export interface RobrainMemoryOptions {
   readonly projectId?:
     | string
     | ((context: ProjectResolverContext) => string | null | Promise<string | null>);
+  /**
+   * This agent's own project, created on first use. Give the agent a name
+   * (or `{ name, id }` to pin the id) and the provider registers a project
+   * for it with the RoBrain API the first time it recalls or captures, then
+   * reads and writes that project. The id is derived from the name and the
+   * API URL, so the same agent keeps the same memory across deploys and a
+   * different agent never shares it. `projectId` and ROBRAIN_PROJECT_ID
+   * win when set, so an existing setup is unchanged.
+   */
+  readonly agent?:
+    | string
+    | {
+        readonly name: string;
+        readonly id?: string;
+        /**
+         * What kind of agent this is (`"email"`, `"support"`, `"eu"`). On
+         * RoBrain cloud an admin can push a rule to one kind of agent
+         * (`robrain promote --to tag:email`) and every agent with that tag
+         * reads it, including agents registered later. Letters, digits,
+         * `_` and `-`, at most 10 tags.
+         */
+        readonly tags?: readonly string[];
+      };
   /** Recall the always-on project summary (top decisions + vetoes). Default true. */
   readonly summary?: boolean;
   /** Max veto warnings recalled per turn. Default 3. */
@@ -101,6 +126,59 @@ export function resolveConnection(
   };
 }
 
+/** A project the provider registers itself: the agent's own. */
+export interface AgentProject {
+  readonly id: string;
+  readonly name: string;
+  readonly tags: readonly string[];
+}
+
+/** Lowercase, [a-z0-9-], no leading or trailing dashes, at most 40 characters. */
+export function slugifyAgentName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+}
+
+/**
+ * The project id for an agent: `agent-<slug>-<8 hex>`. The slug is for
+ * people; the hash covers the full name (trimmed, lowercased) and the API
+ * URL, so two names that only slugify alike still get different projects,
+ * one agent name means one project per RoBrain install, and renaming the
+ * agent or changing the API URL (or pinning `id`) is the only way to move
+ * it. No secret goes into the id.
+ */
+export function agentProjectId(name: string, apiUrl: string): string {
+  const slug = slugifyAgentName(name) || "agent";
+  const hash = createHash("sha256")
+    .update(`${name.trim().toLowerCase()}|${apiUrl}`)
+    .digest("hex")
+    .slice(0, 8);
+  return `agent-${slug}-${hash}`;
+}
+
+/**
+ * The agent project from the `agent` option, or null when the option is
+ * not set or the name has no letters or digits (nothing to name a project
+ * after; the slot then stays inactive like any unconfigured one).
+ */
+export function agentProject(
+  options: RobrainMemoryOptions,
+  env: NodeJS.ProcessEnv = process.env,
+): AgentProject | null {
+  const raw = options.agent;
+  const name = (typeof raw === "string" ? raw : raw?.name)?.trim() ?? "";
+  if (!name || !slugifyAgentName(name)) return null;
+  const pinned = typeof raw === "object" ? raw.id?.trim() : undefined;
+  const id = pinned || agentProjectId(name, resolveConnection(options, env).apiUrl);
+  const tags = typeof raw === "object" ? (raw.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
+  return { id, name, tags };
+}
+
 export async function resolveProjectId(
   options: RobrainMemoryOptions,
   context: ProjectResolverContext,
@@ -115,6 +193,6 @@ export async function resolveProjectId(
       return null;
     }
   }
-  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || "";
+  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || agentProject(options, env)?.id || "";
   return id || null;
 }

@@ -35,8 +35,8 @@ import {
   type ContextMemory,
   type VetoDecision,
 } from "./client.js";
-import { resolveConnection, resolveProjectId, type RobrainMemoryOptions } from "./config.js";
-import { lastTextByRole } from "./messages.js";
+import { agentProject, resolveConnection, resolveProjectId, type RobrainMemoryOptions } from "./config.js";
+import { lastTextByRole, toolNamesIn } from "./messages.js";
 
 const SUMMARY_ID = "robrain:summary";
 const ACK_ID = "robrain:acknowledgement";
@@ -102,6 +102,54 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     return new RobrainClient(resolveConnection(options));
   }
 
+  // The agent's own project is registered once per process, the first time
+  // a handler runs. A failed registration is logged once and retried on the
+  // next handler; the handler itself goes on either way (fail-open). A 409
+  // (the id belongs to another org on RoBrain cloud) is final: the slot
+  // goes inactive for that id instead of reading and writing a foreign
+  // project on every turn, and the operator is told to rename or pin.
+  const registered = new Set<string>();
+  const blocked = new Set<string>();
+  const warned = new Set<string>();
+  function warnOnce(key: string, message: string): void {
+    if (warned.has(key)) return;
+    warned.add(key);
+    console.warn(`[robrain/eve] ${message}`);
+  }
+  async function ensureAgentProject(api: RobrainClient, projectId: string): Promise<"ready" | "blocked"> {
+    const own = agentProject(options);
+    if (!own || own.id !== projectId) return "ready";
+    if (blocked.has(projectId)) return "blocked";
+    if (registered.has(projectId)) return "ready";
+    try {
+      const outcome = await api.registerProject(own.id, own.name, own.tags);
+      if (outcome === "registered") {
+        registered.add(projectId);
+      } else if (outcome === "conflict") {
+        blocked.add(projectId);
+        warnOnce(`conflict:${projectId}`,
+          `project "${projectId}" for agent "${own.name}" belongs to another org on this RoBrain; ` +
+          `memory is off for this agent. Rename the agent or pin a different id: agent: { name, id }.`);
+        return "blocked";
+      } else {
+        warnOnce(`failed:${projectId}`,
+          `could not register project "${projectId}" for agent "${own.name}" (API unreachable or error); ` +
+          `memory stays off until it succeeds, retried on the next turn.`);
+      }
+    } catch {
+      // retried on the next handler
+    }
+    return "ready";
+  }
+
+  /** Resolve the project for this operation, registering the agent's own project on first use. */
+  async function projectFor(context: Parameters<typeof resolveProjectId>[1], api: RobrainClient): Promise<string | null> {
+    const projectId = await resolveProjectId(options, context);
+    if (!projectId) return null;
+    if ((await ensureAgentProject(api, projectId)) === "blocked") return null;
+    return projectId;
+  }
+
   async function cachedSummary(api: RobrainClient, projectId: string): Promise<string | null> {
     const hit = summaryCache.get(projectId);
     if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
@@ -162,9 +210,9 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
 
   async function recallTurnStarted(context: MemoryTurnStartedContext): Promise<MemoryRecallResult> {
     try {
-      const projectId = await resolveProjectId(options, context);
-      if (!projectId) return null;
       const api = client();
+      const projectId = await projectFor(context, api);
+      if (!projectId) return null;
       const userText = lastTextByRole(context.turn.input, "user");
       const lookup = userText.length >= MIN_QUERY_CHARS;
 
@@ -205,16 +253,20 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     try {
       if (!captureEnabled) return;
       if (!rememberOperation(context.operationId)) return;
-      const projectId = await resolveProjectId(options, context);
+      const api = client();
+      const projectId = await projectFor(context, api);
       if (!projectId) return;
       const userMessage = lastTextByRole(context.turn.input, "user");
       const reply = lastTextByRole(context.messages, "assistant");
       if (!userMessage || !reply) return;
-      await client().captureTurn(projectId, {
+      await api.captureTurn(projectId, {
         sessionId: `eve-${context.session.id}`,
         sequence: context.turn.sequence + 1,
         userMessage,
         reply,
+        // Names of the tools this turn called, so RoBrain cloud can derive
+        // what kind of agent this is from the org's tool→tag mapping.
+        toolsUsed: toolNamesIn(context.messages),
       });
     } catch {
       // capture is best-effort; eve logs capture failures but we never raise
@@ -222,9 +274,9 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   }
 
   async function tools(context: MemoryToolsContext) {
-    const projectId = await resolveProjectId(options, context);
-    if (!projectId) return null;
     const api = client();
+    const projectId = await projectFor(context, api);
+    if (!projectId) return null;
     return {
       check_prior_decisions: defineTool({
         description:

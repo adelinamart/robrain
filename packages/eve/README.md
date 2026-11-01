@@ -58,13 +58,36 @@ The provider talks to the RoBrain API. Point it at either:
 - **Rory Plans cloud** (hosted; reachable from deployed agents on Vercel): set `ROBRAIN_API_URL` to your Rory Plans API URL and `ROBRAIN_API_KEY` to an org API key (`rp_live_…`). On cloud, relevance comes from `POST /context` — planning-ranked, token-budgeted decisions plus server-side veto warnings, recorded in the injection ledger so effectiveness can be measured per session — in addition to the deterministic veto scan.
 - **Self-hosted RoBrain** (open source): `ROBRAIN_API_URL=http://127.0.0.1:3001` for `eve dev` (the default), or the public URL of your own Perception for deployed agents. `PERCEPTION_API_URL` / `PERCEPTION_API_KEY` are honored as fallbacks, so an existing self-hosted setup needs no new variables. Relevance uses `GET /decisions?query=` (similarity-gated); the provider detects the missing `/context` route once and falls back automatically.
 
-Either way, set `ROBRAIN_PROJECT_ID` to the project whose memory this agent shares (the same id your coding-agent integrations use — that's what makes the memory combined). Start a self-hosted stack with `npx robrain@latest up && npx robrain init-project`.
+Either way, the agent needs a project. Give it a name and the provider creates one for it on first use:
+
+```ts
+provider: robrainMemory({
+  apiKey: () => process.env.ROBRAIN_API_KEY,
+  agent: "rory-planner",
+}),
+```
+
+The first recall or capture registers project `agent-rory-planner-<hash>`: the slug is for people, the hash covers the full name and the API URL, so the same agent keeps the same memory across deploys and two differently named agents never share one. Everything the agent decides, every run it records and every rule an admin pushes to it lives there. On RoBrain cloud the project is typed as an agent project: only org admins can change what it captures (`robrain capture set --project-id …`), and admins can push decisions into it from the coding memory with `robrain promote` (cloud only). To share an existing project instead, set `projectId` or `ROBRAIN_PROJECT_ID`; they win over `agent`. Start a self-hosted stack with `npx robrain@latest up`.
+
+Give the agent tags for what kind of agent it is, and an admin can push a rule to just that kind:
+
+```ts
+agent: { name: "rory-mailer", tags: ["email", "eu"] },
+```
+
+`robrain promote <id> --to tag:email` then reaches every agent tagged `email`, including ones registered later; `--to production-agents` reaches all of them. Tags are letters, digits, `_` and `-`, at most 10. On cloud, changing the tags of an existing agent is an admin action.
+
+Two things to know before production:
+
+- **Changing the API URL moves the memory.** The id includes the URL, so pointing the agent at a new RoBrain (a migration, `http` to `https`, a new host) starts an empty project. Pin the id for anything that must survive that: `agent: { name: "rory-planner", id: "agent-rory-planner-prod" }`.
+- **One name per org on cloud.** If the id already belongs to another org, the API answers 409; the provider logs one warning, keeps the slot inactive for that agent (no memory read or written, the turn continues) and does not retry. Rename the agent or pin an id.
 
 | Option | Env fallback | Default |
 |---|---|---|
 | `apiUrl` | `ROBRAIN_API_URL`, `PERCEPTION_API_URL` | `http://127.0.0.1:3001` |
 | `apiKey` | `ROBRAIN_API_KEY`, `PERCEPTION_API_KEY` | — |
-| `projectId` | `ROBRAIN_PROJECT_ID` | — (slot is inactive without one) |
+| `agent` | | — (the agent's own project, created on first use) |
+| `projectId` | `ROBRAIN_PROJECT_ID` | — (slot is inactive without `agent` or a project id) |
 | `summary` | | `true` |
 | `vetoLimit` | | `3` |
 | `capture` | | `true` |
@@ -99,5 +122,6 @@ eve fails a turn if a recall handler throws, so this provider never throws: an u
 
 - Requires Node ≥ 24 (eve's floor). Builds on eve 0.82.0 through 0.84.0; 0.1.0 does not build on eve 0.84.0 or later, so use 0.1.1+.
 - Recalled content enters model context as user-role messages attributed to the slot, per eve's trust model — never as system instructions. (That placement is the one RoBrain's public benchmark, [VetoBench](../vetobench/README.md), measures; with rejections in context, 0 re-proposals in 159 of 159 tasks across six models.)
-- The provider partitions by RoBrain project; a slot bound to one `projectId` shares memory across all scopes that reach it. Use the resolver form when scopes must not share.
+- The provider partitions by RoBrain project; a slot bound to one `agent` or `projectId` shares memory across all scopes that reach it. Use the resolver form when scopes must not share.
+- Registration is fail-open: if the API is down on the first turn, the handler continues without memory and the next handler registers the project.
 - Prefer this package over the raw-surfaces integration in [plugins/eve](../../plugins/eve/README.md), which predates eve's memory subsystem and remains as a reference.
