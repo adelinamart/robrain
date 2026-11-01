@@ -50,6 +50,8 @@ export interface CapturedTurn {
   readonly sequence: number;
   readonly userMessage: string;
   readonly reply: string;
+  /** Tools called in this turn (names only); RoBrain cloud derives agent tags from them. */
+  readonly toolsUsed?: readonly string[];
 }
 
 /** Similarity gate for the self-hosted semantic tier; exact /veto-scan matches are exempt. */
@@ -189,6 +191,25 @@ export class RobrainClient {
     return { memories, vetoes, ...(requiredAcknowledgement ? { requiredAcknowledgement } : {}) };
   }
 
+  /**
+   * Register (or re-touch) the agent's own project. POST /projects upserts
+   * by id on both editions; RoBrain cloud also records the type so an agent
+   * project can be told apart from a coding one. "conflict" means the id is
+   * owned by another org on RoBrain cloud (409): the agent must be renamed
+   * or given a pinned id, so the caller stops using that project.
+   */
+  async registerProject(id: string, name: string, tags: readonly string[] = []): Promise<"registered" | "conflict" | "failed"> {
+    if (!id) return "failed";
+    const res = await this.request(
+      "/projects",
+      { method: "POST", body: JSON.stringify({ id, name, type: "agent", ...(tags.length ? { tags } : {}) }) },
+      4000,
+    );
+    if (res === null) return "failed";
+    if (res.status >= 200 && res.status < 300) return "registered";
+    return res.status === 409 ? "conflict" : "failed";
+  }
+
   /** The project's always-on summary: top decisions with their rejected alternatives. */
   async alwaysOnSummary(projectId: string): Promise<string | null> {
     if (!projectId) return null;
@@ -224,6 +245,7 @@ export class RobrainClient {
             files_affected: [],
             scope: "team",
             needs_classification: true,
+            ...(turn.toolsUsed?.length ? { tools_used: turn.toolsUsed.slice(0, 50) } : {}),
           },
         }),
       },
