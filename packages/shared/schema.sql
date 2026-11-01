@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
   -- rule in an open clash by index. NULL on rows saved before migration 008
   -- until the startup backfill reaches them; the lookup still reads those.
   decision_text_key   TEXT,
+  -- Who decided: the git user.email of the session that produced the row
+  -- (Sensing sends it; cloud replaces it with the API key holder's email).
+  -- NULL on rows saved before migration 010. Shown in review, search, the
+  -- always-on summary and veto warnings.
+  author_email        TEXT,
 
   -- Quality-loop counters: times injected vs times judged used in the reply
   injected_count      INTEGER NOT NULL DEFAULT 0,
@@ -156,7 +161,7 @@ CREATE TABLE IF NOT EXISTS context_system.decisions (
 -- Additive upgrade guard: databases whose decisions table predates the trust
 -- columns (CREATE TABLE IF NOT EXISTS no-ops there) get them here so the
 -- partial index below always has its column. Mirrors migrations 003, 006,
--- 007, 008, and 009; fresh installs already created them above — idempotent either way.
+-- 007, 008, 009, and 010; fresh installs already created them above — idempotent either way.
 ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS trust_score            NUMERIC(3,2),
   ADD COLUMN IF NOT EXISTS trust_flags            JSONB,
@@ -166,7 +171,8 @@ ALTER TABLE context_system.decisions
   ADD COLUMN IF NOT EXISTS source_turn_hash       TEXT,
   ADD COLUMN IF NOT EXISTS decision_text_key      TEXT,
   ADD COLUMN IF NOT EXISTS kind                   TEXT NOT NULL DEFAULT 'decision',
-  ADD COLUMN IF NOT EXISTS subject                TEXT;
+  ADD COLUMN IF NOT EXISTS subject                TEXT,
+  ADD COLUMN IF NOT EXISTS author_email           TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_decisions_project     ON context_system.decisions(project_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_session      ON context_system.decisions(session_id);

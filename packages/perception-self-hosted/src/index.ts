@@ -23,7 +23,7 @@ import { bodyLimit }         from 'hono/body-limit'
 import { serve }             from '@hono/node-server'
 import pg                    from 'pg'
 import { z }                 from 'zod'
-import { SCORING_WEIGHTS, THRESHOLDS, normalizeLoopbackUrl, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, SELF_HOSTED_USER_RULE_OVERRIDE, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD, anthropicChat, openaiChat, type ChatUsage } from '@robrain/shared'
+import { SCORING_WEIGHTS, THRESHOLDS, normalizeLoopbackUrl, resolveLlmProvider, resolveOpenAiBaseUrl, redactSecrets, DEFAULT_ANTHROPIC_LLM_MODEL, DEFAULT_OPENAI_LLM_MODEL, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_EMBEDDING_MODEL, resolveEmbeddingConfig, embed as sharedEmbed, EmbeddingProviderError, extractDecisionLlm, SELF_HOSTED_USER_RULE_OVERRIDE, attachPoolErrorHandler, scoreMemoryTrust, QUARANTINE_THRESHOLD, anthropicChat, openaiChat, type ChatUsage, normalizeAuthorEmail, AUTHOR_EMAIL_MAX_CHARS } from '@robrain/shared'
 import {
   DEFAULT_CAPTURE_KIND,
   DEFAULT_CAPTURE_SETTINGS,
@@ -261,6 +261,20 @@ const MAX_REASON_TEXT = 4_000
 const MAX_FILES = 200
 const MAX_FILE_PATH = 1_000
 const MAX_REJECTED = 50
+// The author email is rendered into agent prompts (summary, veto warnings)
+// and is the one field there the trust screen cannot judge, so it is held
+// to the strict shape in @robrain/shared (normalizeAuthorEmail): one
+// address, conservative charset, 254 max. Anything else is stored as null.
+const MAX_AUTHOR_EMAIL = AUTHOR_EMAIL_MAX_CHARS
+
+/** "(who, when)" suffix for a summary or veto line; the date alone when the row has no author. */
+function provenanceSuffix(authorEmail: string | null | undefined, createdAt: Date | string | null | undefined): string {
+  const parsed = createdAt ? new Date(createdAt) : null
+  const day = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : ''
+  const parts = [authorEmail, day].filter((p): p is string => Boolean(p))
+  return parts.length ? ` (${parts.join(', ')})` : ''
+}
+
 const ExtractedSchema = z.object({
   decision:   z.string().max(MAX_DECISION_TEXT).nullable(),
   rationale:  z.string().max(MAX_RATIONALE_TEXT).nullable(),
@@ -292,6 +306,8 @@ const SignalSchema = z.object({
     extracted:            ExtractedSchema.optional(),
     source_turn_sequence: z.number().int().optional(),
     source_excerpt:       z.string().max(MAX_TURN_TEXT).optional(),
+    // Who was in the session (git user.email). Older Sensing builds omit it.
+    author_email:         z.string().max(MAX_AUTHOR_EMAIL).optional(),
   }),
 })
 
@@ -515,6 +531,7 @@ app.post('/signals', writeRateLimit, async (c) => {
       quarantine,
       sourceTurnAt,
       conflictWithIds,
+      authorEmail:        normalizeAuthorEmail(signal.author_email),
       kind,
       subject,
     })
@@ -707,7 +724,7 @@ app.get('/decisions', async (c) => {
                    d.supersedes_id, d.invalidated_at, d.reviewed_at,
                    d.historical_relevance, d.source_turn_sequence,
                    d.source_excerpt, d.injected_count, d.used_count,
-                   d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+                   d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                    ${conflictCounterpartSql},
                    ${inheritedRejectedSql},
                    1 - (d.embedding <=> $1::vector) AS similarity,
@@ -757,7 +774,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -777,7 +794,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -800,7 +817,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -824,7 +841,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -843,7 +860,7 @@ app.get('/decisions', async (c) => {
                d.supersedes_id, d.invalidated_at, d.reviewed_at,
                d.historical_relevance, d.source_turn_sequence,
                d.source_excerpt, d.injected_count, d.used_count,
-               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject,
+               d.trust_score, d.trust_flags, d.quarantined_at, d.quarantine_released_at, d.kind, d.subject, d.author_email, d.source,
                ${conflictCounterpartSql},
                ${inheritedRejectedSql}
         FROM ${S}.decisions d
@@ -907,6 +924,7 @@ app.post('/veto-scan', writeRateLimit, async (c) => {
     // and its vetoes stay dead, which is what the reviewer meant.
     const { rows } = await pool.query<VetoScanRow>(`
       SELECT d.id, d.decision, d.rejected, d.reviewed_at,
+             d.author_email, d.created_at,
              (d.invalidated_at IS NOT NULL) AS superseded,
              succ.id   AS successor_id,
              succ.decision AS successor_decision
@@ -1412,6 +1430,120 @@ const FRESH_BLOCK_SQL = `
           AND sd.invalidated_at > COALESCE(pb.last_refreshed_at, pb.created_at)
       )`
 
+// ── POST /projects/:id/rules — a rule written by hand ─────────
+// Same table, columns, vetoes, summary and review as a captured decision,
+// with confidence 1.0, source 'manual', approved on insert, and the
+// author's email from the request. Declared kinds with a subject replace
+// same-subject rows exactly as /signals does. Trust screening still
+// applies: a hostile-looking rule is stored quarantined, not approved.
+// CLI: `robrain rules add`.
+const RuleSchema = z.object({
+  decision:     z.string().min(1).max(MAX_DECISION_TEXT),
+  rationale:    z.string().max(MAX_RATIONALE_TEXT).nullable().optional(),
+  rejected:     z.array(z.object({
+    option: z.string().min(1).max(MAX_OPTION_TEXT),
+    reason: z.string().max(MAX_REASON_TEXT),
+  })).max(MAX_REJECTED).default([]),
+  kind:         z.string().max(64).optional(),
+  subject:      z.string().max(200).nullable().optional(),
+  scope:        z.enum(['user', 'local', 'team', 'global']).default('team'),
+  author_email: z.string().max(MAX_AUTHOR_EMAIL).optional(),
+})
+
+app.post('/projects/:id/rules', writeRateLimit, async (c) => {
+  const projectId = c.req.param('id') ?? ''
+  const unknownProject = await jsonIfProjectUnknown(projectId, c)
+  if (unknownProject) return unknownProject
+
+  let body: z.infer<typeof RuleSchema>
+  try {
+    body = RuleSchema.parse(await c.req.json())
+  } catch (err) {
+    return c.json({ error: 'Invalid body', detail: String(err) }, 400)
+  }
+
+  try {
+    const capture = await loadCaptureSettings(projectId)
+    const kind = normalizeKindName(body.kind ?? DEFAULT_CAPTURE_KIND) || DEFAULT_CAPTURE_KIND
+    if (!allowedKindNames(capture).includes(kind)) {
+      return c.json({
+        error:  'unknown_kind',
+        errors: [`Kind "${kind}" is not declared for this project. Add it with robrain capture set --add-kind, or leave --kind out.`],
+      }, 400)
+    }
+
+    const clean = (text: string): string => redactSecrets(text).text.trim()
+    const decision  = clean(body.decision)
+    if (!decision) return c.json({ error: 'Invalid body', errors: ['The rule text is empty.'] }, 400)
+    const rationale = body.rationale ? clean(body.rationale) || null : null
+    const rejected  = body.rejected
+      .map(r => ({ option: clean(r.option), reason: clean(r.reason) }))
+      .filter(r => r.option)
+    const subject   = kind !== DEFAULT_CAPTURE_KIND && body.subject
+      ? clean(body.subject).slice(0, 120) || null
+      : null
+
+    const trust = scoreMemoryTrust([decision, ...(rationale ? [rationale] : []), ...rejected.flatMap(r => [r.option, r.reason])])
+    const quarantine = trust.score >= QUARANTINE_THRESHOLD
+    const embedding = await embed(`${decision}. ${rationale ?? ''}`)
+
+    // A hand-written rule has no editor session; it gets one of its own so
+    // review and lineage can still point at something.
+    const now = new Date()
+    const sessionId = `manual:${now.toISOString()}:${Math.random().toString(16).slice(2, 8)}`
+    await pool.query(
+      `INSERT INTO ${S}.sessions (id, project_id, ended_at, summary) VALUES ($1, $2, now(), 'rule written by hand')
+       ON CONFLICT (id) DO NOTHING`,
+      [sessionId, projectId],
+    )
+
+    const written = await commitDecisionWrite(pool, S, {
+      projectId,
+      sessionId,
+      decision,
+      rationale,
+      rejected,
+      filesAffected:      [],
+      confidence:         1.0,
+      scope:              body.scope,
+      embedding,
+      sourceTurnSequence: 1,
+      sourceExcerpt:      null,
+      sourceTurnHash:     turnSourceHash(decision, rationale ?? ''),
+      trustScore:         trust.score,
+      trustFlags:         trust.flags,
+      quarantine,
+      sourceTurnAt:       now,
+      conflictWithIds:    [],
+      authorEmail:        normalizeAuthorEmail(body.author_email),
+      kind,
+      subject,
+      source:             'manual',
+      reviewedNow:        !quarantine,
+    })
+    if (written.status === 'deduped') {
+      return c.json({ accepted: true, action: 'deduped', decision_id: written.matched.id })
+    }
+    if (quarantine) {
+      console.error(`[Perception OSS] QUARANTINED hand-written rule (project ${projectId}, trust_score=${trust.score})`)
+      return c.json({ accepted: true, action: 'quarantined', decision_id: written.id, trust_score: trust.score, trust_flags: trust.flags })
+    }
+    scheduleRegenerateSummary(projectId)
+    return c.json({
+      accepted:    true,
+      action:      'written',
+      decision_id: written.id,
+      ...(written.supersededIds.length > 0 ? { superseded_ids: written.supersededIds } : {}),
+    })
+  } catch (err) {
+    if (err instanceof EmbeddingProviderError) {
+      return c.json({ error: 'embedding_provider_unavailable', detail: `[${err.provider}] ${err.message}` }, 503)
+    }
+    console.error('[Perception OSS] POST /projects/:id/rules error:', err)
+    return c.json({ error: 'Internal error', detail: String(err) }, 500)
+  }
+})
+
 // ── /projects/:id/capture — what the classifier stores for this project ──
 // Read by Sensing at session start (cached) and by Perception's own
 // re-extraction; edited with `robrain capture`. Every default is the stock
@@ -1781,7 +1913,9 @@ async function regenerateSummary(projectId: string): Promise<void> {
     const vetoes    = (r.rejected ?? []).map(rv => `${rv.option} (${rv.reason})`).join(', ')
     const rationale = r.rationale ? ` — ${r.rationale}` : ''
     const rejected  = vetoes ? ` | Rejected: ${vetoes}` : ''
-    return `${i + 1}. ${r.decision}${rationale}${rejected}${tagSuffix}`
+    // Who decided and when, so the agent can weigh an old rule and a
+    // reader can ask the person. Date only on rows without an author.
+    return `${i + 1}. ${r.decision}${rationale}${rejected}${tagSuffix}${provenanceSuffix(r.author_email, r.created_at)}`
   }).join('\n')
 
   // Synthesis planning blocks (compiled_truth / drift_signal / entity) ride
@@ -1806,7 +1940,7 @@ async function regenerateSummary(projectId: string): Promise<void> {
     ? '\nOther memory:\n' + otherKinds.map(r => {
         const label     = r.subject ? `${r.kind}: ${r.subject}` : r.kind
         const rationale = r.rationale ? ` — ${r.rationale}` : ''
-        return `- [${label}] ${r.decision}${rationale}`
+        return `- [${label}] ${r.decision}${rationale}${provenanceSuffix(r.author_email, r.created_at)}`
       }).join('\n')
     : ''
 

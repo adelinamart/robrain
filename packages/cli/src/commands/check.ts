@@ -23,8 +23,21 @@ interface VetoMatch {
   /** Only the rejected entries whose option appears in the proposal text. */
   rejected: Array<{ option: string; reason: string }>
   reviewed: boolean
+  /** Who decided and when (Perception ≥ 2.6; older servers omit both). */
+  author_email?: string | null
+  decided_at?: string | null
   superseded?: boolean
   superseded_by?: { id: string; decision: string }
+}
+
+/** "decided by <email> on <day>" / "decided on <day>" / '' when the server sent neither. */
+export function formatDecidedBy(m: { author_email?: string | null; decided_at?: string | null }): string {
+  const parsed = m.decided_at ? new Date(m.decided_at) : null
+  const day = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : ''
+  if (m.author_email && day) return `decided by ${m.author_email} on ${day}`
+  if (m.author_email) return `decided by ${m.author_email}`
+  if (day) return `decided on ${day}`
+  return ''
 }
 
 export async function checkCommand(text: string): Promise<void> {
@@ -75,6 +88,8 @@ export async function checkCommand(text: string): Promise<void> {
     }
     const tag = m.reviewed ? chalk.green('[approved]') : chalk.dim('[pending review]')
     console.log(`    ${chalk.dim('from:')} ${m.decision} ${tag}`)
+    const decidedBy = formatDecidedBy(m)
+    if (decidedBy) console.log(`    ${chalk.dim(decidedBy)}`)
     if (m.superseded && m.superseded_by) {
       // The decision carrying the veto was replaced, but the rejection still
       // stands (choice and rejections have different lifetimes) — say so

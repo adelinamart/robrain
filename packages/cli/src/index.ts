@@ -27,13 +27,17 @@ import { exportMemoryCommand } from './commands/export-memory.js'
 import { exportInterchangeCommand } from './commands/export-interchange.js'
 import { outcomesScanCommand, outcomesRecordCommand } from './commands/outcomes.js'
 import { explainCommand }      from './commands/explain.js'
-import { projectsListCommand, projectsMergeCommand } from './commands/projects.js'
+import { projectsListCommand, projectsMergeCommand, projectsCreateCommand, projectsTagCommand, tagsMapCommand } from './commands/projects.js'
 import { captureShowCommand, captureSetCommand, captureTestCommand, type CaptureSetOptions, type CaptureTestOptions } from './commands/capture.js'
+import { searchCommand, type SearchOptions } from './commands/search.js'
+import { rulesAddCommand, promoteCommand, type RulesAddOptions } from './commands/governance.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
 
-const VERSION = '2.5.0'
+const VERSION = '2.6.0'
+
+const collect = (value: string, previous: string[]): string[] => [...previous, value]
 
 program
   .name('robrain')
@@ -249,6 +253,49 @@ program
     await initProjectCommand({ projectId: opts.projectId, skipClaudePlugin: opts.skipClaudePlugin, force: opts.force })
   })
 
+// ── search — semantic search over stored memory, for people ───
+
+program
+  .command('search <query>')
+  .description('Search stored decisions and other memory; shows who decided each one and when')
+  .option('-l, --limit <n>',    'Max results (default: 10, max 100)', parseInt)
+  .option('--kind <name>',      'Only this kind of memory (e.g. run, preference)')
+  .option('--project-id <id>',  'Project to search (default: the one pinned in this directory)')
+  .option('--json',             'Print the raw rows as JSON')
+  .action(async (query: string, opts: SearchOptions) => {
+    await searchCommand(query, opts)
+  })
+
+// ── rules — write a rule by hand ──────────────────────────────
+
+const rulesCmd = program
+  .command('rules')
+  .description('Rules written by hand: stored like captured decisions, with confidence 1.0 and your email as author')
+
+rulesCmd
+  .command('add <rule>')
+  .description('Store a rule now, without waiting for a session to capture it')
+  .option('--because <text>',      'Why (one short sentence)')
+  .option('--rejected <option:reason>', 'An alternative that was ruled out, "option: reason" (repeatable)', collect, [])
+  .option('--kind <name>',         'Store as one of the kinds the project declared (default: decision)')
+  .option('--subject <text>',      'Subject for a kind with changing state; a newer entry on the same subject replaces this one')
+  .option('--scope <scope>',       'user | local | team | global (default: team)')
+  .option('--project-id <id>',     'Project to write into (default: the one pinned in this directory)')
+  .option('--email <addr>',        'Author email (default: git user.email of this directory)')
+  .action(async (rule: string, opts: RulesAddOptions) => {
+    await rulesAddCommand(rule, opts)
+  })
+
+// ── promote — push a decision to production agents (cloud) ────
+
+program
+  .command('promote <decision-id>')
+  .description('RoBrain cloud: push a decision into the org governance project (every agent) or one agent project')
+  .requiredOption('--to <target>', 'production-agents (every production agent), tag:<tag> (every agent with that tag), or a project id')
+  .action(async (decisionId: string, opts: { to: string }) => {
+    await promoteCommand(decisionId, opts)
+  })
+
 // ── projects — list / merge Perception project ids ────────────
 
 const projectsCmd = program
@@ -263,6 +310,52 @@ projectsCmd
   })
 
 projectsCmd
+  .command('create <id>')
+  .description('Create (or rename) a project by id, e.g. one shared by a team across several repos; pin it with ROBRAIN_PROJECT_ID or --project-id')
+  .option('--name <name>', 'Display name (default: the id)')
+  .option('--tag <tag>',   'Tag (repeatable or comma-separated); on RoBrain cloud a rule can be pushed to one tag of agents', collect, [])
+  .action(async (id: string, opts: { name?: string; tag?: string[] }) => {
+    await projectsCreateCommand(id, opts)
+  })
+
+projectsCmd
+  .command('tag <id> [tags...]')
+  .description('RoBrain cloud: show or set a project\'s tags (what kind of agent it is), so robrain promote --to tag:<tag> can reach it')
+  .option('--suppress <tag>',   'Remove a tag the tool mapping derived (repeatable)', collect, [])
+  .option('--unsuppress <tag>', 'Let a removed derived tag apply again (repeatable)', collect, [])
+  .option('--show',             'Only show the tags and the tools seen')
+  .action(async (id: string, tags: string[], opts: { suppress?: string[]; unsuppress?: string[]; show?: boolean }) => {
+    await projectsTagCommand(id, tags, opts)
+  })
+
+// ── tags — the org's tool → tag mapping (cloud) ───────────────
+
+const tagsCmd = program
+  .command('tags')
+  .description('RoBrain cloud: tags derived from the tools an agent uses, through the org\'s tool → tag mapping')
+
+const tagsMapCmd = tagsCmd
+  .command('map')
+  .description('List the mapping; `add "<tool pattern>" <tag>` and `remove "<tool pattern>" <tag>` change it (admins)')
+  .action(async () => {
+    await tagsMapCommand('list')
+  })
+
+tagsMapCmd
+  .command('add <pattern> <tag>')
+  .description('Map tools matching the pattern (e.g. "send_email*") to a tag; applies after three turns of use')
+  .action(async (pattern: string, tag: string) => {
+    await tagsMapCommand('add', pattern, tag)
+  })
+
+tagsMapCmd
+  .command('remove <pattern> <tag>')
+  .description('Remove one mapping')
+  .action(async (pattern: string, tag: string) => {
+    await tagsMapCommand('remove', pattern, tag)
+  })
+
+projectsCmd
   .command('merge <from-id> <to-id>')
   .description('Merge sessions and decisions from one project id into another, then delete the source project row')
   .action(async (fromId: string, toId: string) => {
@@ -271,7 +364,6 @@ projectsCmd
 
 // ── capture — what the classifier stores for this project ─────
 
-const collect = (value: string, previous: string[]): string[] => [...previous, value]
 
 function addCaptureSettingFlags<T extends import('commander').Command>(cmd: T): T {
   return cmd

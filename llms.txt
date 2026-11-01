@@ -18,11 +18,14 @@ Use RoBrain when an agent should know not just what was decided, but what was tr
 - Benchmarked: VetoBench — 0/50 re-proposals of rejected approaches through the full pipeline; receipts committed in `packages/vetobench/`.
 - Self-hosted privacy: nothing leaves your machine except calls to the LLM/embedding provider you configure (a local OpenAI-compatible server works too).
 - Tunable capture: `npx robrain capture set` takes plain-language instructions for what to store, a capture mode (keyword gate or every turn), a confidence threshold, and extra memory kinds beside decisions; `capture test` dry-runs them on sample turns. Defaults are unchanged for projects that never set anything.
+- Who decided: every decision records an author email and date (git `user.email` self-hosted; the signed-in identity on cloud), shown in review, `npx robrain search`, the summary and veto warnings. `npx robrain rules add` writes a rule by hand (confidence 1.0, approved on insert); `npx robrain projects create` makes a project a team shares across repos.
+- Production agents (cloud): a project per agent, registered by the eve provider; admins push rules to every production agent, to one tag of agents, or to one agent (`npx robrain promote`); tags come from the tools an agent uses through an admin-kept mapping (`npx robrain tags map`); every governance action is in a ledger. Self-hosted keeps one project by design.
 
 ## Docs
 
 - [README](https://github.com/adelinamart/robrain/blob/main/README.md): install, quickstart, cloud vs self-hosted
 - [Concepts](https://github.com/adelinamart/robrain/blob/main/docs/concepts.md): architecture (Sensing / Perception / Synthesis), comparisons
+- [Deprecation policy](https://github.com/adelinamart/robrain/blob/main/docs/deprecation.md): additive routes and migrations, nothing retired without a replacement, export at any version
 - [CLI reference](https://github.com/adelinamart/robrain/blob/main/docs/cli.md): every command
 - [VetoBench](https://github.com/adelinamart/robrain/blob/main/packages/vetobench/README.md): behavioral benchmark and receipts
 - [@robrain/eve](https://github.com/adelinamart/robrain/blob/main/packages/eve/README.md): memory provider for eve agents

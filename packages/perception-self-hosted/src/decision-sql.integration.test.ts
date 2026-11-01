@@ -942,6 +942,7 @@ function decisionWrite(
     conflictWithIds: [],
     kind: 'decision',
     subject: null,
+    authorEmail: null,
     ...overrides,
   }
 }

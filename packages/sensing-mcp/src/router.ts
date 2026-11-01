@@ -6,6 +6,13 @@
 
 import type { DecisionSignal, IngestSignalResponse, ReplyScore } from '@robrain/shared'
 import { config } from './config.js'
+import { resolveAuthorEmail } from './author.js'
+
+/** The signal with the session's author email attached, when one is known. */
+async function withAuthor(signal: DecisionSignal): Promise<DecisionSignal> {
+  const authorEmail = await resolveAuthorEmail()
+  return authorEmail ? { ...signal, author_email: authorEmail } : signal
+}
 
 export interface RouteDecisionOutcome {
   persisted: boolean
@@ -62,7 +69,7 @@ export async function routeDecisionSignal(
         'Authorization': `Bearer ${config.perceptionApiKey}`,
         'X-Project-Id':  projectId,
       },
-      body: JSON.stringify({ signal }),
+      body: JSON.stringify({ signal: await withAuthor(signal) }),
     })
 
     const raw = await res.text()
@@ -163,6 +170,7 @@ export async function routeFlushTurns(
     return errors
   }
 
+  const authorEmail = await resolveAuthorEmail()
   const signals = turns.map(turn => ({
     signal: {
       turn,
@@ -171,6 +179,7 @@ export async function routeFlushTurns(
       files_affected: turn.files_touched,
       scope:          'team' as const,
       needs_classification: true,
+      ...(authorEmail ? { author_email: authorEmail } : {}),
     },
   }))
 
