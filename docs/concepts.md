@@ -358,7 +358,18 @@ Your infrastructure / Rory Plans:
 
 ### What the cloud version adds — automatic intelligence
 
-The self-hosted version gives you capture, storage, the always-on summary, and manual focused retrieval. The Rory Plans cloud version adds two layers that make the system feel genuinely smart rather than just useful.
+The self-hosted version gives you capture, storage, the always-on summary, and manual focused retrieval. The Rory Plans cloud version adds two layers that make the system feel genuinely smart rather than just useful, and a governance model for production agents.
+
+#### Memory for production agents
+
+Self-hosted RoBrain keeps one project per repository and nothing above it, on purpose. Cloud adds two kinds of projects for agents that are not coding agents:
+
+- **Agent projects**, one per production agent, created automatically the first time the agent runs with the [eve provider](../packages/eve/README.md) (`agent: "rory-mailer"`). Everything the agent decides, every run it records and every rule pushed to it lives there. Captures flow with no human review; the confidence threshold, the capture instructions and trust screening are the gates.
+- **The org rules project**, one per org, read first by every production agent. Nothing is ever captured into it. Rules get there when an admin pushes a decision from coding memory (`robrain promote <id> --to production-agents`) or writes one by hand. The copy keeps the text, rejections and author and records who pushed it and when; invalidating the original later does not touch it.
+
+A production agent carries **tags** (`email`, `support`, `eu`). `robrain promote <id> --to tag:email` reaches every agent with that tag, including ones registered later. Tags are declared in the agent's config, set by an admin, or derived from the tools the agent calls: the provider reports tool names every turn, an admin keeps one mapping per org (`robrain tags map add "send_email*" email`), and the tag applies once a matching tool was used in three turns. Admins can remove a derived tag.
+
+What a production agent captures, its tags, pushing rules, and corrections or merges that touch an agent or the org rules project are admin-only. Members keep everything on coding projects. Coding projects do not read org rules unless a team opts a project in. Every governance action lands in a ledger with who did it. Org rules sit at the top of the agent's summary within a budget of 10 rules and about 2,500 characters, composed when the summary is served, so a new rule reaches a quiet agent on its next turn.
 
 #### Conflict detection
 
@@ -529,6 +540,12 @@ The stock classifier captures decisions and their rejected alternatives, and ski
 - **Kinds** — extra kinds of memory beside `decision`, each with a one-line description the model follows (`run`, `gotcha`, `owner`, whatever the project needs). Rows carry a `kind` and, for non-decision kinds, a `subject`; a newer entry whose subject matches an older one (same content words, or one contains the other, so "nightly sync" and "nightly sync agent" are one subject) supersedes it, so a kind can hold changing state. Only decisions carry vetoes; other kinds appear in the always-on summary under "Other memory" and filter with `review --kind`.
 
 Settings live on Perception (`projects.capture_*`), so every teammate's Sensing and Perception's own re-extraction read the same ones. `robrain capture test` is a dry run against sample turns: it reports, per turn, whether the gate let it through and what would be stored, and `--compare` shows the same for the settings saved today. A project that never set anything behaves exactly as before.
+
+### Who decided
+
+Every decision records an author email and a date (`decisions.author_email`, migration 010). Sensing sends the git `user.email` of the session (`ROBRAIN_AUTHOR_EMAIL` overrides it); on RoBrain cloud the API ignores anything the client sends and uses the signed-in identity, so a row can never be signed as someone else. The value is held to a strict shape (one address, conservative character set) because it is rendered into agent prompts, where the trust screen cannot judge it. Review, `robrain search`, the always-on summary (`… (ade@example.com, 2026-10-29)`), `POST /veto-scan` and the Claude Code hook all show it, so a rule that fires says who decided it and when. Rows saved before the migration show the date only.
+
+Two ways to put memory in without a session: `robrain rules add` stores a rule by hand with the same columns, vetoes, dedup and trust screening as a captured decision, confidence 1.0 and approved on insert; and `robrain projects create` makes a project that is not tied to one repository, for a team that shares memory across repos. The id shapes in use are in the [CLI reference](cli.md#project-ids-a-naming-convention).
 
 ### Decision lifecycle — memory that stays honest
 

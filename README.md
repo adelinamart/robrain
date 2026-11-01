@@ -94,6 +94,8 @@ Sign in at [roryplans.ai](https://roryplans.ai), create an API token on your pro
 
 Every paid plan qualifies — individual standard or annual, Teams, and enterprise. Solo subscribers get a private memory space; teams share one. Self-hosting stays free and fully supported (see Install above); the [comparison table](#self-hosted-vs-rory-plans-cloud) shows what each tier adds.
 
+Cloud also governs memory for **production agents**: each agent gets its own project (the [eve provider](packages/eve/README.md) registers it on first run), org admins push rules to every production agent or to one kind of agent by tag (`npx robrain promote`), tags come from the tools an agent uses through an admin-kept mapping (`npx robrain tags map`), and every governance action is recorded with who did it. The commands are in the [CLI reference](docs/cli.md#cli-commands); self-hosted RoBrain keeps one project by design.
+
 ## Quickstart
 
 After either install (self-hosted or cloud):
@@ -143,7 +145,7 @@ npx robrain search "confirm before sending"
 npx robrain rules add "Never auto-send a plan; the customer confirms first." --because "trust" --rejected "auto-send: customers lost drafts"
 ```
 
-Hand-written rules are stored like captured ones (same vetoes, summary and review), with confidence 1.0 and approved on insert. Upgrades never retire a command or route without a replacement: [deprecation policy](docs/deprecation.md).
+Hand-written rules are stored like captured ones (same vetoes, summary and review), with confidence 1.0 and approved on insert. A repo gets its own project from `init-project`; a team that wants one memory across several repos creates a project and pins it in each (`npx robrain projects create team-payments`, then `ROBRAIN_PROJECT_ID=team-payments`). The id shapes in use are listed in the [naming convention](docs/cli.md#project-ids-a-naming-convention). Upgrades never retire a command or route without a replacement: [deprecation policy](docs/deprecation.md).
 
 ## Synthesis
 
@@ -216,6 +218,10 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Synthesis prompt rubrics — per-project overrides (`.robrain/rubrics/`) | ✓ | ✓ |
 | Decision graph (`conflicts_with` / `extends` / `related_to`) | ✓ | ✓ |
 | Provenance on every memory — source session, turn, excerpt; compiled blocks carry source decision ids | ✓ | ✓ |
+| Who decided — author email and date on every decision, in review, search, the summary and veto warnings | ✓ git `user.email` | ✓ from the signed-in identity, never client-sent |
+| `npx robrain search` and hand-written rules (`rules add`, confidence 1.0, approved on insert) | ✓ | ✓ |
+| Production agent memory — a project per agent, org rules pushed by admins to all agents, one tag of agents, or one agent (`promote`); tags derived from the tools an agent uses (`tags map`) | — | ✓ |
+| Governance ledger — who registered, pushed, tagged or changed what (`memory_events`) | — | ✓ |
 | Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
 | Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
 | Secrets redaction at capture and ingest | ✓ | ✓ |
@@ -283,7 +289,8 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 ## Docs
 
 - Concepts (how it works, two pillars, Synthesis, comparisons) → [docs/concepts.md](docs/concepts.md)
-- CLI reference (`explain`, install, upgrading, editor setup, full command table) → [docs/cli.md](docs/cli.md)
+- CLI reference (`explain`, install, upgrading, editor setup, full command table, project id naming convention) → [docs/cli.md](docs/cli.md)
+- Deprecation policy (additive routes and migrations, nothing retired without a replacement) → [docs/deprecation.md](docs/deprecation.md)
 - Fully-local LLM (Ollama / LM Studio / vLLM, no cloud keys) → [docs/cli.md#fully-local-llm-ollama--lm-studio--vllm](docs/cli.md#fully-local-llm-ollama--lm-studio--vllm)
 - **Maintainer release checklist** (tag → GHCR → npm → MCP registry) → [docs/release.md](docs/release.md)
 - Troubleshooting (silent 401s, Docker rebuilds, stale summaries, local LLM) → [docs/troubleshooting.md](docs/troubleshooting.md)

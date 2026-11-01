@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
 import { normalizeAuthorEmail } from './author-email.js'
 
 describe('normalizeAuthorEmail', () => {
   it('accepts one ordinary address, lowercased and trimmed', () => {
-    expect(normalizeAuthorEmail('  Ade@RoryPlans.ai ')).toBe('ade@roryplans.ai')
-    expect(normalizeAuthorEmail('first.last+tag@sub.example.co.uk')).toBe('first.last+tag@sub.example.co.uk')
+    assert.equal(normalizeAuthorEmail('  Ade@RoryPlans.ai '), 'ade@roryplans.ai')
+    assert.equal(normalizeAuthorEmail('first.last+tag@sub.example.co.uk'), 'first.last+tag@sub.example.co.uk')
   })
 
   it('drops anything that could carry prompt text into the summary', () => {
@@ -18,8 +19,8 @@ describe('normalizeAuthorEmail', () => {
       'ü@example.com',
       `${'a'.repeat(65)}@example.com`,
       `a@${'b'.repeat(250)}.com`,
-    ]) expect(normalizeAuthorEmail(bad)).toBeNull()
-    expect(normalizeAuthorEmail(42)).toBeNull()
-    expect(normalizeAuthorEmail(null)).toBeNull()
+    ]) assert.equal(normalizeAuthorEmail(bad), null, bad)
+    assert.equal(normalizeAuthorEmail(42), null)
+    assert.equal(normalizeAuthorEmail(null), null)
   })
 })
