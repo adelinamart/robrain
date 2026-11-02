@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   agentProject,
   agentProjectId,
+  connectionIdentity,
   resolveConnection,
   resolveProjectId,
   slugifyAgentName,
@@ -175,6 +176,24 @@ describe("headers option", () => {
       {},
     );
     assert.deepEqual(perSession?.headers, { "x-session": "s7" });
+  });
+
+  it("drops header values with control characters (HTAB allowed)", async () => {
+    const c = await resolveConnection(
+      { headers: { "x-a": "ok\tok", "x-b": "nul\u0000here", "x-c": "bell\u0007" } },
+      ctx,
+      {},
+    );
+    assert.deepEqual(c?.headers, { "x-a": "ok\tok" });
+  });
+
+  it("connection identity is unambiguous: separators inside values never collide", () => {
+    const a = connectionIdentity({ apiUrl: "u", apiKey: "k", timeoutMs: 1, headers: { "x-a": "1\u0001x-b=2" } });
+    const b = connectionIdentity({ apiUrl: "u", apiKey: "k", timeoutMs: 1, headers: { "x-a": "1", "x-b": "2" } });
+    assert.notEqual(a, b);
+    const c = connectionIdentity({ apiUrl: "u\u0000k", apiKey: "", timeoutMs: 1 });
+    const d = connectionIdentity({ apiUrl: "u", apiKey: "k\u0000", timeoutMs: 1 });
+    assert.notEqual(c, d);
   });
 
   it("a throwing headers function skips the operation", async () => {

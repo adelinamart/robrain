@@ -230,7 +230,8 @@ function sanitizeHeaders(
   const out: Record<string, string> = {};
   for (const [rawName, value] of Object.entries(headers)) {
     const name = rawName.trim().toLowerCase();
-    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\r\n]/.test(value)) continue;
+    // Control characters (HTAB aside) never belong in a header value.
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) continue;
     out[name] = value;
   }
   return out;
@@ -243,11 +244,12 @@ function sanitizeHeaders(
  * here, or that state could be shared across sessions it should separate.
  */
 export function connectionIdentity(connection: ResolvedConnection): string {
-  const headers = Object.entries(connection.headers ?? {})
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([name, value]) => `${name}=${value}`)
-    .join("\u0001");
-  return [connection.apiUrl, connection.apiKey, headers].join("\u0000");
+  const headers = Object.entries(connection.headers ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  // JSON, not a separator join: every field is quoted and escaped, so no
+  // URL, key or header value can make two different connections collide.
+  return JSON.stringify([connection.apiUrl, connection.apiKey, headers]);
 }
 
 /** A project the provider registers itself: the agent's own. */
