@@ -171,11 +171,24 @@ describe("headers option", () => {
     );
     assert.deepEqual(normalized?.headers, { "x-tenant": "acme" });
     const perSession = await resolveConnection(
-      { headers: (c) => ({ "x-session": c?.session?.id ?? "none", bad: 1 as unknown as string }) },
+      { headers: (c) => ({ "x-session": c?.session?.id ?? "none" }) },
       sessionCtx("s7", "acme"),
       {},
     );
     assert.deepEqual(perSession?.headers, { "x-session": "s7" });
+  });
+
+  it("a headers FUNCTION with an unusable entry skips the operation (fail closed)", async () => {
+    for (const bad of <Array<Record<string, string>>>[
+      { "x-tenant": "acme", "bad name": "x" },
+      { "x-tenant": "acme\u0000" },
+      { "x-tenant": 1 as unknown as string },
+    ]) {
+      assert.equal(await resolveConnection({ headers: () => bad }, ctx, {}), null);
+    }
+    assert.equal(await resolveConnection({ headers: () => null as unknown as Record<string, string> }, ctx, {}), null);
+    // undefined still means "no extra headers".
+    assert.deepEqual((await resolveConnection({ headers: () => undefined }, ctx, {}))?.headers, {});
   });
 
   it("drops header values with control characters (HTAB allowed)", async () => {

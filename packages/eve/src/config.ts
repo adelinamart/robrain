@@ -206,11 +206,18 @@ export async function resolveConnection(
     env.ROBRAIN_API_KEY?.trim() ||
     env.PERCEPTION_API_KEY?.trim() ||
     "";
+  const headers = sanitizeHeaders(configuredHeaders);
+  // A per-session headers function may carry what tells sessions apart (a
+  // tenant header to a proxy). If any entry it answered is unusable, sending
+  // the rest would drop that distinction and merge sessions' state: skip the
+  // operation instead, like a throw. A fixed value is the same for every
+  // session, so dropping an entry of it cannot merge anything.
+  if (typeof options.headers === "function" && headers.dropped) return null;
   return {
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
     timeoutMs,
-    headers: sanitizeHeaders(configuredHeaders),
+    headers: headers.valid,
   };
 }
 
@@ -223,18 +230,25 @@ const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
  * normalized here so every later check (reserved names, the connection
  * identity) sees the key the HTTP layer will.
  */
-function sanitizeHeaders(
-  headers: Readonly<Record<string, string>> | undefined,
-): Readonly<Record<string, string>> {
-  if (!headers || typeof headers !== "object") return {};
+function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined): {
+  valid: Readonly<Record<string, string>>;
+  /** Whether any entry was unusable (and left out of `valid`). */
+  dropped: boolean;
+} {
+  if (headers === undefined) return { valid: {}, dropped: false };
+  if (!headers || typeof headers !== "object") return { valid: {}, dropped: true };
   const out: Record<string, string> = {};
+  let dropped = false;
   for (const [rawName, value] of Object.entries(headers)) {
     const name = rawName.trim().toLowerCase();
     // Control characters (HTAB aside) never belong in a header value.
-    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) continue;
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) {
+      dropped = true;
+      continue;
+    }
     out[name] = value;
   }
-  return out;
+  return { valid: out, dropped };
 }
 
 /**
