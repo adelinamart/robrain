@@ -35,7 +35,10 @@ export interface ProjectResolverContext {
  * `undefined` to fall back to the environment; THROW to skip the operation
  * (no request is made — the turn goes on without memory), which is what a
  * multi-tenant resolver should do when it cannot find this session's
- * credential, so it never falls back to a shared one.
+ * credential, so it never falls back to a shared one. A function for
+ * `apiKey` or `apiUrl` that returns an empty string or `null`, or any
+ * setting function that takes longer than `timeoutMs`, skips the operation
+ * too.
  */
 export type ConnectionSetting<T> =
   | T
@@ -97,7 +100,11 @@ export interface RobrainMemoryOptions {
   readonly contextBudgetTokens?: number;
   /** Capture completed turns for server-side decision extraction. Default true. */
   readonly capture?: boolean;
-  /** Per-request timeout. Recall runs before the model call, so keep it short. Default 2500. */
+  /**
+   * Per-request timeout, and the time each setting function (`apiKey`,
+   * `apiUrl`, `headers`) gets to answer. Recall runs before the model call,
+   * so keep it short. Default 2500.
+   */
   readonly timeoutMs?: number;
   /**
    * Extra headers on every request to the RoBrain API, e.g. a deployment
@@ -117,11 +124,37 @@ export interface ResolvedConnection {
   readonly headers?: Readonly<Record<string, string>>;
 }
 
-/** Thrown setting functions propagate: the caller treats them as "skip". */
-async function unwrap<T>(value: ConnectionSetting<T>, context?: ProjectResolverContext): Promise<T> {
-  return typeof value === "function"
-    ? await (value as (context?: ProjectResolverContext) => T | Promise<T>)(context)
-    : value;
+/**
+ * Thrown setting functions propagate: the caller treats them as "skip". So
+ * does one that takes longer than `timeoutMs`, so a hung credential lookup
+ * never holds up the turn.
+ */
+async function unwrap<T>(
+  value: ConnectionSetting<T>,
+  context: ProjectResolverContext | undefined,
+  timeoutMs: number,
+): Promise<T> {
+  if (typeof value !== "function") return value;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (value as (context?: ProjectResolverContext) => T | Promise<T>)(context),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("setting function timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A setting function answered for this operation, but with no usable value.
+ * Only `undefined` means "use the environment"; an empty string or `null`
+ * from a per-session lookup must never become the shared env credential.
+ */
+function answeredEmpty(setting: unknown, value: unknown): boolean {
+  return typeof setting === "function" && value !== undefined && (typeof value !== "string" || !value.trim());
 }
 
 // Node 17+ resolves `localhost` IPv6-first (::1) while the Docker stack only
@@ -140,26 +173,29 @@ function normalizeLoopback(url: string): string {
 }
 
 /**
- * The connection for one operation, or null when a setting function threw
- * (skip the operation; never fall back to the environment's shared values).
+ * The connection for one operation, or null when a setting function threw,
+ * timed out, or answered with an empty URL or key (skip the operation; never
+ * fall back to the environment's shared values).
  */
 export async function resolveConnection(
   options: RobrainMemoryOptions,
   context?: ProjectResolverContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedConnection | null> {
+  const timeoutMs = options.timeoutMs ?? 2500;
   let configuredUrl: string | undefined;
   let configuredKey: string | undefined;
   let configuredHeaders: Readonly<Record<string, string>> | undefined;
   try {
     [configuredUrl, configuredKey, configuredHeaders] = await Promise.all([
-      unwrap(options.apiUrl, context),
-      unwrap(options.apiKey, context),
-      unwrap(options.headers, context),
+      unwrap(options.apiUrl, context, timeoutMs),
+      unwrap(options.apiKey, context, timeoutMs),
+      unwrap(options.headers, context, timeoutMs),
     ]);
   } catch {
     return null;
   }
+  if (answeredEmpty(options.apiUrl, configuredUrl) || answeredEmpty(options.apiKey, configuredKey)) return null;
   const apiUrl =
     configuredUrl?.trim() ||
     env.ROBRAIN_API_URL?.trim() ||
@@ -173,7 +209,7 @@ export async function resolveConnection(
   return {
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
-    timeoutMs: options.timeoutMs ?? 2500,
+    timeoutMs,
     headers: sanitizeHeaders(configuredHeaders),
   };
 }

@@ -121,7 +121,7 @@ provider: robrainMemory({
 }),
 ```
 
-A setting function that returns `undefined` falls back to the environment (`ROBRAIN_API_KEY`, …). One that **throws** skips the operation: no request is made and the turn continues without memory. A multi-tenant resolver should throw when it cannot find the session's credential, so it never falls back to a shared one. Each tool call uses the connection of the operation that created the tool.
+A setting function that returns `undefined` falls back to the environment (`ROBRAIN_API_KEY`, …). One that **throws** skips the operation: no request is made and the turn continues without memory. So does an `apiKey` or `apiUrl` function that returns an empty string or `null`, and any setting function that takes longer than `timeoutMs` (default 2500 ms) to answer. A multi-tenant resolver should throw when it cannot find the session's credential, so it never falls back to a shared one. Each tool call uses the connection of the operation that created the tool.
 
 If `apiUrl` points at a proxy in your own app rather than at RoBrain itself (so the RoBrain credential never leaves your server), `headers` adds what that hop needs, for example a deployment-protection bypass: `headers: () => ({ "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "" })`. Like `apiKey`, it may be a function of the operation, and throwing skips the operation. The provider's own `Authorization`, `Content-Type` and `X-Project-Id` headers always win over yours, whatever their case.
 

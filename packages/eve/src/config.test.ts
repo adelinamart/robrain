@@ -74,6 +74,28 @@ describe("resolveConnection", () => {
       null,
     );
   });
+
+  it("a setting function answering empty or null skips the operation — only undefined falls back", async () => {
+    const env = { ROBRAIN_API_URL: "https://shared", ROBRAIN_API_KEY: "shared-key" };
+    for (const answer of ["", "   ", null]) {
+      assert.equal(await resolveConnection({ apiKey: async () => answer as string }, ctx, env), null);
+      assert.equal(await resolveConnection({ apiUrl: () => answer as string }, ctx, env), null);
+    }
+    // A plain empty value is still "not configured": the environment fills it in.
+    assert.equal((await resolveConnection({ apiKey: "" }, ctx, env))?.apiKey, "shared-key");
+  });
+
+  it("a setting function that does not answer within timeoutMs skips the operation", async () => {
+    const env = { ROBRAIN_API_KEY: "shared-key" };
+    const started = Date.now();
+    assert.equal(
+      await resolveConnection({ apiKey: () => new Promise<string>(() => {}), timeoutMs: 30 }, ctx, env),
+      null,
+    );
+    assert.ok(Date.now() - started < 1000);
+    const slow = () => new Promise<string>((resolve) => setTimeout(() => resolve("tenant-key"), 5));
+    assert.equal((await resolveConnection({ apiKey: slow, timeoutMs: 200 }, ctx, env))?.apiKey, "tenant-key");
+  });
 });
 
 describe("resolveProjectId", () => {
