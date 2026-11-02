@@ -207,12 +207,11 @@ export async function resolveConnection(
     env.PERCEPTION_API_KEY?.trim() ||
     "";
   const headers = sanitizeHeaders(configuredHeaders);
-  // A per-session headers function may carry what tells sessions apart (a
-  // tenant header to a proxy). If any entry it answered is unusable, sending
-  // the rest would drop that distinction and merge sessions' state: skip the
-  // operation instead, like a throw. A fixed value is the same for every
-  // session, so dropping an entry of it cannot merge anything.
-  if (typeof options.headers === "function" && headers.dropped) return null;
+  // Headers may carry what tells sessions apart (a tenant header to a proxy)
+  // or what the hop needs (a protection bypass). If any configured entry is
+  // unusable, sending the rest would silently drop it: skip the operation
+  // instead, like a throw, whether the value is fixed or per-session.
+  if (headers.dropped) return null;
   return {
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
@@ -238,8 +237,19 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
   if (headers === undefined) return { valid: {}, dropped: false };
   // Plain objects only: a Headers or Map instance has no own entries, so it
   // would silently send nothing.
-  const proto = headers && typeof headers === "object" ? Object.getPrototypeOf(headers) : undefined;
-  if (proto !== Object.prototype && proto !== null) return { valid: {}, dropped: true };
+  // Judged by structure, not prototype identity, so a plain config object
+  // from another realm still works. Containers whose entries are not own
+  // enumerable keys (Map, Headers, arrays, other iterables) are unusable.
+  if (
+    headers === null ||
+    typeof headers !== "object" ||
+    Array.isArray(headers) ||
+    headers instanceof Map ||
+    typeof (headers as { [Symbol.iterator]?: unknown })[Symbol.iterator] === "function" ||
+    typeof (headers as { forEach?: unknown }).forEach === "function"
+  ) {
+    return { valid: {}, dropped: true };
+  }
   // No prototype: a "__proto__" name is an ordinary key here, never a setter.
   const out: Record<string, string> = Object.create(null);
   let offered = 0;

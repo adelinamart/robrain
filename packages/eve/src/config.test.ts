@@ -164,12 +164,17 @@ describe("headers option", () => {
   it("resolves a value or a function of the operation, keeping string entries only", async () => {
     const fixed = await resolveConnection({ headers: { "x-bypass": "s3cret" } }, ctx, {});
     assert.deepEqual(fixed?.headers, { "x-bypass": "s3cret" });
-    const normalized = await resolveConnection(
-      { headers: { " X-Tenant ": "acme", "bad name": "x", "x-ok": "a\r\nInjected: 1" } },
-      ctx,
-      {},
-    );
+    const normalized = await resolveConnection({ headers: { " X-Tenant ": "acme" } }, ctx, {});
     assert.deepEqual(normalized?.headers, { "x-tenant": "acme" });
+    // A fixed value with an unusable entry skips too: never send a partial set.
+    assert.equal(
+      await resolveConnection({ headers: { "x-tenant": "acme", "bad name": "x" } }, ctx, {}),
+      null,
+    );
+    assert.equal(
+      await resolveConnection({ headers: { "x-ok": "a\r\nInjected: 1" } }, ctx, {}),
+      null,
+    );
     const perSession = await resolveConnection(
       { headers: (c) => ({ "x-session": c?.session?.id ?? "none" }) },
       sessionCtx("s7", "acme"),
@@ -203,13 +208,29 @@ describe("headers option", () => {
     assert.deepEqual((await resolveConnection({ headers: () => undefined }, ctx, {}))?.headers, {});
   });
 
-  it("drops header values with control characters (HTAB allowed)", async () => {
-    const c = await resolveConnection(
-      { headers: { "x-a": "ok\tok", "x-b": "nul\u0000here", "x-c": "bell\u0007" } },
-      ctx,
-      {},
+  it("refuses header values with control characters (HTAB allowed)", async () => {
+    const ok = await resolveConnection({ headers: { "x-a": "ok\tok" } }, ctx, {});
+    assert.deepEqual(ok?.headers, { "x-a": "ok\tok" });
+    for (const value of ["nul\u0000here", "bell\u0007", "del\u007f"]) {
+      assert.equal(await resolveConnection({ headers: { "x-b": value } }, ctx, {}), null);
+    }
+  });
+
+  it("accepts plain objects from any realm or class; refuses containers", async () => {
+    const { runInNewContext } = await import("node:vm");
+    const foreign = runInNewContext('({ "x-tenant": "acme" })') as Record<string, string>;
+    assert.deepEqual((await resolveConnection({ headers: foreign }, ctx, {}))?.headers, { "x-tenant": "acme" });
+    class Cfg { "x-tenant" = "acme"; }
+    assert.deepEqual(
+      (await resolveConnection({ headers: new Cfg() as unknown as Record<string, string> }, ctx, {}))?.headers,
+      { "x-tenant": "acme" },
     );
-    assert.deepEqual(c?.headers, { "x-a": "ok\tok" });
+    for (const container of [new Map([["x-tenant", "acme"]]), [["x-tenant", "acme"]], new Headers({ "x-tenant": "acme" })]) {
+      assert.equal(
+        await resolveConnection({ headers: container as unknown as Record<string, string> }, ctx, {}),
+        null,
+      );
+    }
   });
 
   it("connection identity is unambiguous: separators inside values never collide", () => {
