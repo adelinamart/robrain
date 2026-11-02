@@ -37,8 +37,10 @@ import {
 import {
   agentProject,
   connectionDigest,
-  resolveConnection,
+  connectionFor,
+  isSkip,
   resolveProjectId,
+  type ConnectionSkip,
   type ProjectResolverContext,
   type RobrainMemoryOptions,
 } from "./config.js";
@@ -113,6 +115,19 @@ export function renderMemory(memory: ContextMemory): string {
   return lines.join("\n");
 }
 
+export function skipMessage({ skip, why }: ConnectionSkip): string {
+  const cause =
+    why === "unusable"
+      ? `"headers" is not a plain object or has an unusable entry (a name that is not a header token, ` +
+        `a value with control characters, two names that differ only by case)`
+      : why === "timed out"
+        ? `the "${skip}" setting function took longer than timeoutMs`
+        : why === "empty"
+          ? `the "${skip}" setting function answered an empty string or null`
+          : `the "${skip}" setting function threw`;
+  return `${cause}; operations where this happens run without memory. Logged once.`;
+}
+
 export function decisionMessageId(decision: { id?: string; decision: string }): string {
   return `robrain:decision:${decision.id ?? decision.decision.slice(0, 120)}`;
 }
@@ -141,11 +156,16 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
 
   /**
    * The client for one operation, from its own resolved connection — apiKey
-   * and apiUrl may be per-session — or null when a setting function threw.
+   * and apiUrl may be per-session — or null when the operation is skipped.
+   * Each kind of skip is logged once, by setting and reason, never a value:
+   * a misconfigured fixed setting would otherwise turn memory off silently.
    */
   async function clientFor(context: ProjectResolverContext): Promise<Resolved | null> {
-    const connection = await resolveConnection(options, context);
-    if (!connection) return null;
+    const connection = await connectionFor(options, context);
+    if (isSkip(connection)) {
+      warnOnce(`skip:${connection.skip}:${connection.why}`, skipMessage(connection));
+      return null;
+    }
     return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey: connectionDigest(connection) };
   }
 

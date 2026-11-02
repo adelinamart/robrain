@@ -203,6 +203,28 @@ describe("capture turn.completed", () => {
     assert.equal(calls.filter((c) => c === "POST /signals").length, 1);
   });
 
+  it("warns once per kind of skip, naming the setting but never a value", async () => {
+    const calls = stub();
+    const lines: string[] = [];
+    const warn = console.warn;
+    console.warn = (line: string) => lines.push(line);
+    try {
+      const provider = robrainMemory({ projectId: "p1", apiKey: "k", headers: { "x-bypass": "s3\ncret" } });
+      await provider.capture!["turn.completed"]!(completed as any);
+      await provider.capture!["turn.completed"]!({ ...completed, operationId: "op-2" } as any);
+      assert.equal(calls.length, 0);
+      assert.equal(lines.length, 1);
+      assert.match(lines[0]!, /"headers" is not a plain object or has an unusable entry/);
+      assert.doesNotMatch(lines[0]!, /s3/);
+      const throwing = robrainMemory({ projectId: "p1", apiKey: () => { throw new Error("tenant-secret"); } });
+      await throwing.capture!["turn.completed"]!({ ...completed, operationId: "op-3" } as any);
+      assert.match(lines[1]!, /the "apiKey" setting function threw/);
+      assert.doesNotMatch(lines[1]!, /tenant-secret/);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it("can be disabled and never throws when the API is down", async () => {
     const calls = stub();
     await robrainMemory({ projectId: "p1", apiKey: "k", capture: false }).capture!["turn.completed"]!(completed as any);

@@ -129,6 +129,8 @@ export interface ResolvedConnection {
  * does one that takes longer than `timeoutMs`, so a hung credential lookup
  * never holds up the turn.
  */
+class SettingTimedOut extends Error {}
+
 async function unwrap<T>(
   value: ConnectionSetting<T>,
   context: ProjectResolverContext | undefined,
@@ -140,7 +142,7 @@ async function unwrap<T>(
     return await Promise.race([
       (value as (context?: ProjectResolverContext) => T | Promise<T>)(context),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("setting function timed out")), timeoutMs);
+        timer = setTimeout(() => reject(new SettingTimedOut("setting function timed out")), timeoutMs);
       }),
     ]);
   } finally {
@@ -173,29 +175,58 @@ function normalizeLoopback(url: string): string {
 }
 
 /**
- * The connection for one operation, or null when a setting function threw,
- * timed out, or answered with an empty URL or key (skip the operation; never
- * fall back to the environment's shared values).
+ * Why an operation was skipped: which setting, and what was wrong with it.
+ * Carries no values, so it is safe to log.
  */
-export async function resolveConnection(
+export interface ConnectionSkip {
+  readonly skip: "apiUrl" | "apiKey" | "headers";
+  readonly why: "threw" | "timed out" | "empty" | "unusable";
+}
+
+class SettingSkipped extends Error {
+  constructor(readonly reason: ConnectionSkip) {
+    super(`${reason.skip} ${reason.why}`);
+  }
+}
+
+function settle<T>(
+  setting: ConnectionSkip["skip"],
+  value: ConnectionSetting<T> | undefined,
+  context: ProjectResolverContext | undefined,
+  timeoutMs: number,
+): Promise<T | undefined> {
+  return unwrap(value, context, timeoutMs).catch((error: unknown) => {
+    throw new SettingSkipped({ skip: setting, why: error instanceof SettingTimedOut ? "timed out" : "threw" });
+  });
+}
+
+/**
+ * The connection for one operation, or the reason to skip it: a setting
+ * function threw, timed out, or answered with an empty URL or key, or the
+ * headers were unusable. A skip never falls back to the environment's shared
+ * values.
+ */
+export async function connectionFor(
   options: RobrainMemoryOptions,
   context?: ProjectResolverContext,
   env: NodeJS.ProcessEnv = process.env,
-): Promise<ResolvedConnection | null> {
+): Promise<ResolvedConnection | ConnectionSkip> {
   const timeoutMs = options.timeoutMs ?? 2500;
   let configuredUrl: string | undefined;
   let configuredKey: string | undefined;
   let configuredHeaders: Readonly<Record<string, string>> | undefined;
   try {
     [configuredUrl, configuredKey, configuredHeaders] = await Promise.all([
-      unwrap(options.apiUrl, context, timeoutMs),
-      unwrap(options.apiKey, context, timeoutMs),
-      unwrap(options.headers, context, timeoutMs),
+      settle("apiUrl", options.apiUrl, context, timeoutMs),
+      settle("apiKey", options.apiKey, context, timeoutMs),
+      settle("headers", options.headers, context, timeoutMs),
     ]);
-  } catch {
-    return null;
+  } catch (error) {
+    // Only settle() rejects here, always with the reason attached.
+    return (error as SettingSkipped).reason;
   }
-  if (answeredEmpty(options.apiUrl, configuredUrl) || answeredEmpty(options.apiKey, configuredKey)) return null;
+  if (answeredEmpty(options.apiUrl, configuredUrl)) return { skip: "apiUrl", why: "empty" };
+  if (answeredEmpty(options.apiKey, configuredKey)) return { skip: "apiKey", why: "empty" };
   const apiUrl =
     configuredUrl?.trim() ||
     env.ROBRAIN_API_URL?.trim() ||
@@ -211,13 +242,27 @@ export async function resolveConnection(
   // or what the hop needs (a protection bypass). If any configured entry is
   // unusable, sending the rest would silently drop it: skip the operation
   // instead, like a throw, whether the value is fixed or per-session.
-  if (headers.dropped) return null;
+  if (headers.dropped) return { skip: "headers", why: "unusable" };
   return {
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
     timeoutMs,
     headers: headers.valid,
   };
+}
+
+export function isSkip(result: ResolvedConnection | ConnectionSkip): result is ConnectionSkip {
+  return "skip" in result;
+}
+
+/** connectionFor without the reason: the connection, or null to skip the operation. */
+export async function resolveConnection(
+  options: RobrainMemoryOptions,
+  context?: ProjectResolverContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedConnection | null> {
+  const result = await connectionFor(options, context, env);
+  return isSkip(result) ? null : result;
 }
 
 function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -253,9 +298,12 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
   // No prototype: a "__proto__" name is an ordinary key here, never a setter.
   const out: Record<string, string> = Object.create(null);
   let offered = 0;
-  for (const [rawName, value] of Object.entries(headers)) {
+  for (const [rawName, rawValue] of Object.entries(headers)) {
     offered += 1;
     const name = rawName.trim().toLowerCase();
+    // fetch strips leading and trailing HTTP whitespace itself, so a secret
+    // pasted into an env var with a trailing newline is still usable.
+    const value = typeof rawValue === "string" ? rawValue.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "") : rawValue;
     // Control characters (HTAB aside) never belong in a header value.
     if (
       !HEADER_NAME.test(name) ||

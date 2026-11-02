@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   agentProject,
   agentProjectId,
+  connectionFor,
   connectionIdentity,
+  isSkip,
   resolveConnection,
   resolveProjectId,
   slugifyAgentName,
@@ -214,6 +216,27 @@ describe("headers option", () => {
     for (const value of ["nul\u0000here", "bell\u0007", "del\u007f"]) {
       assert.equal(await resolveConnection({ headers: { "x-b": value } }, ctx, {}), null);
     }
+  });
+
+  it("trims surrounding whitespace from header values, as fetch would", async () => {
+    // A secret pasted into an env var with a trailing newline is still usable.
+    const c = await resolveConnection({ headers: { "x-bypass": " s3cret\r\n", "x-tab": "\ta\tb\t" } }, ctx, {});
+    assert.deepEqual(c?.headers, { "x-bypass": "s3cret", "x-tab": "a\tb" });
+    // Interior line breaks are still refused.
+    assert.equal(await resolveConnection({ headers: { "x-bypass": "s3\ncret\n" } }, ctx, {}), null);
+  });
+
+  it("says which setting skipped the operation and why, never with a value", async () => {
+    const env = { ROBRAIN_API_KEY: "shared-key" };
+    assert.deepEqual(await connectionFor({ apiKey: () => { throw new Error("tenant-secret"); } }, ctx, env), { skip: "apiKey", why: "threw" });
+    assert.deepEqual(await connectionFor({ apiUrl: () => "" }, ctx, env), { skip: "apiUrl", why: "empty" });
+    assert.deepEqual(await connectionFor({ apiKey: async () => null as unknown as string }, ctx, env), { skip: "apiKey", why: "empty" });
+    assert.deepEqual(
+      await connectionFor({ headers: () => new Promise<Record<string, string>>(() => {}), timeoutMs: 20 }, ctx, env),
+      { skip: "headers", why: "timed out" },
+    );
+    assert.deepEqual(await connectionFor({ headers: { "x-b": "a\u0000b" } }, ctx, env), { skip: "headers", why: "unusable" });
+    assert.equal(isSkip(await connectionFor({ apiKey: () => "tenant-key" }, ctx, env)), false);
   });
 
   it("accepts plain records from any realm; refuses anything else", async () => {
