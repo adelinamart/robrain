@@ -124,13 +124,13 @@ export interface ResolvedConnection {
   readonly headers?: Readonly<Record<string, string>>;
 }
 
+class SettingTimedOut extends Error {}
+
 /**
  * Thrown setting functions propagate: the caller treats them as "skip". So
  * does one that takes longer than `timeoutMs`, so a hung credential lookup
  * never holds up the turn.
  */
-class SettingTimedOut extends Error {}
-
 async function unwrap<T>(
   value: ConnectionSetting<T>,
   context: ProjectResolverContext | undefined,
@@ -277,9 +277,11 @@ const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 
 /**
  * Lowercased, trimmed names that are valid header tokens, with string values
- * free of line breaks; anything else is dropped rather than sent. Names are
- * normalized here so every later check (reserved names, the connection
- * identity) sees the key the HTTP layer will.
+ * trimmed of surrounding HTTP whitespace and free of control characters.
+ * Any other entry is left out of `valid` and flagged in `dropped`, and the
+ * caller skips the operation rather than send the rest. Names are normalized
+ * here so every later check (reserved names, the connection identity) sees
+ * the key the HTTP layer will.
  */
 function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined): {
   valid: Readonly<Record<string, string>>;
@@ -287,8 +289,6 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
   dropped: boolean;
 } {
   if (headers === undefined) return { valid: {}, dropped: false };
-  // Plain objects only: a Headers or Map instance has no own entries, so it
-  // would silently send nothing.
   // Plain records only, proven positively (no denylist of container types to
   // outgrow): tagged "[object Object]" with a prototype that is null or the
   // root Object.prototype of SOME realm (its own prototype is null), so a
