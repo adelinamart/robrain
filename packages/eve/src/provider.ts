@@ -38,6 +38,7 @@ import {
 } from "./client.js";
 import {
   agentProject,
+  connectionIdentity,
   resolveConnection,
   resolveProjectId,
   type ProjectResolverContext,
@@ -136,7 +137,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   interface Resolved {
     readonly api: RobrainClient;
     readonly apiUrl: string;
-    /** Digest of API URL + key: a cache partition, never the key itself. */
+    /** Digest of connectionIdentity (URL, key, headers): a cache partition, never the key itself. */
     readonly connectionKey: string;
   }
 
@@ -148,7 +149,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     const connection = await resolveConnection(options, context);
     if (!connection) return null;
     const connectionKey = createHash("sha256")
-      .update(`${connection.apiUrl}\u0000${connection.apiKey}`)
+      .update(connectionIdentity(connection))
       .digest("hex")
       .slice(0, 32);
     return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey };

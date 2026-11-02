@@ -163,6 +163,12 @@ describe("headers option", () => {
   it("resolves a value or a function of the operation, keeping string entries only", async () => {
     const fixed = await resolveConnection({ headers: { "x-bypass": "s3cret" } }, ctx, {});
     assert.deepEqual(fixed?.headers, { "x-bypass": "s3cret" });
+    const normalized = await resolveConnection(
+      { headers: { " X-Tenant ": "acme", "bad name": "x", "x-ok": "a\r\nInjected: 1" } },
+      ctx,
+      {},
+    );
+    assert.deepEqual(normalized?.headers, { "x-tenant": "acme" });
     const perSession = await resolveConnection(
       { headers: (c) => ({ "x-session": c?.session?.id ?? "none", bad: 1 as unknown as string }) },
       sessionCtx("s7", "acme"),

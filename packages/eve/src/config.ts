@@ -214,16 +214,40 @@ export async function resolveConnection(
   };
 }
 
-/** String-valued entries only; anything else is dropped rather than sent. */
+/** RFC 9110 field-name token. */
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+/**
+ * Lowercased, trimmed names that are valid header tokens, with string values
+ * free of line breaks; anything else is dropped rather than sent. Names are
+ * normalized here so every later check (reserved names, the connection
+ * identity) sees the key the HTTP layer will.
+ */
 function sanitizeHeaders(
   headers: Readonly<Record<string, string>> | undefined,
 ): Readonly<Record<string, string>> {
   if (!headers || typeof headers !== "object") return {};
   const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "string" && name.trim()) out[name] = value;
+  for (const [rawName, value] of Object.entries(headers)) {
+    const name = rawName.trim().toLowerCase();
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\r\n]/.test(value)) continue;
+    out[name] = value;
   }
   return out;
+}
+
+/**
+ * Everything about a resolved connection that can differ between sessions,
+ * as one canonical string: per-process state (caches, registration outcomes)
+ * is partitioned by its digest. Add any new per-session connection setting
+ * here, or that state could be shared across sessions it should separate.
+ */
+export function connectionIdentity(connection: ResolvedConnection): string {
+  const headers = Object.entries(connection.headers ?? {})
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([name, value]) => `${name}=${value}`)
+    .join("\u0001");
+  return [connection.apiUrl, connection.apiKey, headers].join("\u0000");
 }
 
 /** A project the provider registers itself: the agent's own. */

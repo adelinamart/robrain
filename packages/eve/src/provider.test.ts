@@ -570,3 +570,31 @@ describe("a remembered 409 fails closed", () => {
     }
   });
 });
+
+describe("connection identity includes headers", () => {
+  it("two sessions that differ only by a header never share a cached summary", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const tenant = ((init?.headers ?? {}) as Record<string, string>)["x-tenant"] ?? "";
+      if (String(input).includes("/summary")) {
+        calls.push(tenant);
+        return new Response(JSON.stringify({ summary: `rules of ${tenant}` }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+    // One shared key; the proxy tells tenants apart by a header.
+    const provider = robrainMemory({
+      apiKey: "shared",
+      apiUrl: "https://proxy.test",
+      projectId: "p",
+      headers: (c: any) => ({ "x-tenant": tenantOf(c) }),
+    });
+    const session = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+    const a = await provider.recall["turn.started"]({ ...started("ok"), session: session("a") });
+    const b = await provider.recall["turn.started"]({ ...started("ok"), session: session("b") });
+    assert.match(a?.messages[0]?.content ?? "", /rules of a/);
+    assert.match(b?.messages[0]?.content ?? "", /rules of b/);
+    assert.deepEqual(calls, ["a", "b"]);
+  });
+});

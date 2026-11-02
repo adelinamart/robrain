@@ -262,8 +262,20 @@ export class RobrainClient {
 }
 
 /** Merge exact matches ahead of semantic ones, deduping by decision id. */
-/** Headers the provider sets itself; a caller's copy (any case) is dropped. */
-const RESERVED_HEADERS = new Set(["authorization", "content-type", "x-project-id"]);
+/**
+ * Headers a caller may not set: the ones the provider sets itself, and the
+ * transport ones fetch owns (setting them breaks or smuggles the request).
+ * A caller's copy, in any case, is dropped.
+ */
+const RESERVED_HEADERS = new Set([
+  "authorization",
+  "content-type",
+  "x-project-id",
+  "host",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+]);
 
 /**
  * Caller headers minus the reserved ones. Header names are case-insensitive,
