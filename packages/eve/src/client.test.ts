@@ -124,6 +124,19 @@ describe("contextRecall (cloud POST /context)", () => {
     assert.equal(cloud.contextSupported(), true);
   });
 
+  it("a connection in use keeps its confirmed /context past the cap (only idle ones are evicted)", async () => {
+    stubFetch({ "/context": () => ({ memories: [], veto_warnings: [] }) });
+    const busy = new RobrainClient({ ...conn, apiKey: "busy" });
+    await busy.contextRecall("p1", "q");
+    for (let i = 0; i < 999; i++) await new RobrainClient({ ...conn, apiKey: `idle-${i}` }).contextRecall("p1", "q");
+    await busy.contextRecall("p1", "q"); // a fresh confirmation refreshes its entry
+    await new RobrainClient({ ...conn, apiKey: "one-more" }).contextRecall("p1", "q"); // over the cap
+    assert.equal(new RobrainClient({ ...conn, apiKey: "busy" }).contextSupported(), true);
+    assert.equal(new RobrainClient({ ...conn, apiKey: "idle-0" }).contextSupported(), undefined);
+    resetContextSupport();
+    assert.equal(busy.contextSupported(), true); // and a client never forgets what it learned
+  });
+
   it("treats transient failures as null without disabling the route", async () => {
     const calls = stubFetch({ "/context": () => "FAIL" });
     const api = new RobrainClient(conn);

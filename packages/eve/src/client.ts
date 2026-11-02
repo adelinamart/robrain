@@ -62,8 +62,9 @@ const MIN_SIMILARITY = 0.45;
  * not probed yet. Keyed by the whole connection, not the URL: a proxy that
  * routes tenants by key or header can put a cloud tenant and a self-hosted
  * one behind one URL, and one's 404 must not turn /context off for the
- * other. Bounded like the provider's per-connection state; an evicted entry
- * costs one more probe.
+ * other. Bounded like the provider's per-connection state, least recently
+ * confirmed first: every answer refreshes its entry, so only an idle
+ * connection is evicted, and that costs one more probe.
  */
 const contextSupport = new Map<string, boolean>();
 const CONTEXT_SUPPORT_CAP = 1000;
@@ -79,6 +80,8 @@ function rememberContextSupport(key: string, supported: boolean): void {
 
 export class RobrainClient {
   private readonly probeKey: string;
+  /** What this client itself learned; eviction from the shared map never undoes it. */
+  private probed: boolean | undefined;
 
   constructor(private readonly connection: ResolvedConnection) {
     this.probeKey = connectionDigest(connection);
@@ -89,7 +92,12 @@ export class RobrainClient {
    * a success, false after a 404, undefined until probed.
    */
   contextSupported(): boolean | undefined {
-    return contextSupport.get(this.probeKey);
+    return this.probed ?? contextSupport.get(this.probeKey);
+  }
+
+  private rememberProbe(supported: boolean): void {
+    this.probed = supported;
+    rememberContextSupport(this.probeKey, supported);
   }
 
   private async request(
@@ -178,11 +186,11 @@ export class RobrainClient {
     );
     if (!res) return null;
     if (res.status === 404) {
-      rememberContextSupport(this.probeKey, false);
+      this.rememberProbe(false);
       return null;
     }
     if (res.status < 200 || res.status >= 300 || !res.body) return null;
-    if (this.contextSupported() !== true) rememberContextSupport(this.probeKey, true);
+    this.rememberProbe(true);
 
     const body = res.body;
     const memories: ContextMemory[] = (Array.isArray(body.memories) ? body.memories : [])
