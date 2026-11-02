@@ -236,19 +236,30 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
   dropped: boolean;
 } {
   if (headers === undefined) return { valid: {}, dropped: false };
-  if (!headers || typeof headers !== "object") return { valid: {}, dropped: true };
-  const out: Record<string, string> = {};
-  let dropped = false;
+  // Plain objects only: a Headers or Map instance has no own entries, so it
+  // would silently send nothing.
+  const proto = headers && typeof headers === "object" ? Object.getPrototypeOf(headers) : undefined;
+  if (proto !== Object.prototype && proto !== null) return { valid: {}, dropped: true };
+  // No prototype: a "__proto__" name is an ordinary key here, never a setter.
+  const out: Record<string, string> = Object.create(null);
+  let offered = 0;
   for (const [rawName, value] of Object.entries(headers)) {
+    offered += 1;
     const name = rawName.trim().toLowerCase();
     // Control characters (HTAB aside) never belong in a header value.
-    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) {
-      dropped = true;
+    if (
+      !HEADER_NAME.test(name) ||
+      name === "__proto__" ||
+      typeof value !== "string" ||
+      /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)
+    ) {
       continue;
     }
     out[name] = value;
   }
-  return { valid: out, dropped };
+  // Counted, not flagged: an entry offered but not emitted for ANY reason
+  // (unusable, or two names that collapse to one once lowercased) is dropped.
+  return { valid: { ...out }, dropped: Object.keys(out).length !== offered };
 }
 
 /**

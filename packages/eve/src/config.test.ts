@@ -187,6 +187,18 @@ describe("headers option", () => {
       assert.equal(await resolveConnection({ headers: () => bad }, ctx, {}), null);
     }
     assert.equal(await resolveConnection({ headers: () => null as unknown as Record<string, string> }, ctx, {}), null);
+    // Case-collapsing duplicates, a __proto__ name, and non-plain containers count as dropped.
+    assert.equal(await resolveConnection({ headers: () => ({ "X-Tenant": "a", "x-tenant": "b" }) }, ctx, {}), null);
+    assert.equal(
+      await resolveConnection({ headers: () => JSON.parse('{"__proto__":"x","x-tenant":"a"}') }, ctx, {}),
+      null,
+    );
+    assert.equal(
+      await resolveConnection({ headers: () => new Map([["x-tenant", "a"]]) as unknown as Record<string, string> }, ctx, {}),
+      null,
+    );
+    // A plain object with only valid, distinct names still resolves.
+    assert.deepEqual((await resolveConnection({ headers: () => ({ "x-tenant": "a" }) }, ctx, {}))?.headers, { "x-tenant": "a" });
     // undefined still means "no extra headers".
     assert.deepEqual((await resolveConnection({ headers: () => undefined }, ctx, {}))?.headers, {});
   });
