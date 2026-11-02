@@ -49,6 +49,27 @@ const SUMMARY_ID = "robrain:summary";
 const ACK_ID = "robrain:acknowledgement";
 const SUMMARY_TTL_MS = 5 * 60 * 1000;
 const SEEN_OPERATIONS_CAP = 2000;
+/**
+ * Max entries in each per-connection map. With per-session credentials the
+ * key space grows with tenants × projects, so every map is bounded; the
+ * oldest entry goes first. Evicting is always safe: a dropped summary is
+ * fetched again, a dropped registration re-registers (an upsert), and a
+ * dropped 409 is learned again from the server, which owns that decision.
+ */
+const CONNECTION_STATE_CAP = 1000;
+/** A 409 is re-checked after this long instead of being remembered forever. */
+const BLOCKED_RECHECK_MS = 60 * 60 * 1000;
+
+/** Insert (or refresh) and evict the oldest entries beyond `cap`. */
+function boundedSet<V>(map: Map<string, V>, key: string, value: V, cap: number): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > cap) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
 /** Below this, a message is a greeting or an acknowledgement — not worth a relevance lookup. */
 const MIN_QUERY_CHARS = 24;
 
@@ -142,26 +163,34 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   // connection: the slot goes inactive for that id instead of reading and
   // writing a foreign project on every turn, and the operator is told to
   // rename or pin.
-  const registered = new Set<string>();
-  const blocked = new Set<string>();
-  const warned = new Set<string>();
+  const registered = new Map<string, true>();
+  /** Connection+project → when the 409 was seen. */
+  const blocked = new Map<string, number>();
+  const warned = new Map<string, true>();
   function warnOnce(key: string, message: string): void {
     if (warned.has(key)) return;
-    warned.add(key);
+    boundedSet(warned, key, true, CONNECTION_STATE_CAP);
     console.warn(`[robrain/eve] ${message}`);
+  }
+  function isBlocked(key: string): boolean {
+    const at = blocked.get(key);
+    if (at === undefined) return false;
+    if (Date.now() - at < BLOCKED_RECHECK_MS) return true;
+    blocked.delete(key); // stale: ask the server again
+    return false;
   }
   async function ensureAgentProject(resolved: Resolved, projectId: string): Promise<"ready" | "blocked"> {
     const own = agentProject(options, resolved.apiUrl);
     if (!own || own.id !== projectId) return "ready";
     const key = stateKey(resolved, projectId);
-    if (blocked.has(key)) return "blocked";
+    if (isBlocked(key)) return "blocked";
     if (registered.has(key)) return "ready";
     try {
       const outcome = await resolved.api.registerProject(own.id, own.name, own.tags);
       if (outcome === "registered") {
-        registered.add(key);
+        boundedSet(registered, key, true, CONNECTION_STATE_CAP);
       } else if (outcome === "conflict") {
-        blocked.add(key);
+        boundedSet(blocked, key, Date.now(), CONNECTION_STATE_CAP);
         warnOnce(`conflict:${key}`,
           `project "${projectId}" for agent "${own.name}" belongs to another org on this RoBrain; ` +
           `memory is off for this agent. Rename the agent or pin a different id: agent: { name, id }.`);
@@ -188,9 +217,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   async function cachedSummary(resolved: Resolved, projectId: string): Promise<string | null> {
     const key = stateKey(resolved, projectId);
     const hit = summaryCache.get(key);
-    if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
+    if (hit) {
+      if (Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
+      summaryCache.delete(key);
+    }
     const text = await resolved.api.alwaysOnSummary(projectId);
-    summaryCache.set(key, { text, at: Date.now() });
+    boundedSet(summaryCache, key, { text, at: Date.now() }, CONNECTION_STATE_CAP);
     return text;
   }
 

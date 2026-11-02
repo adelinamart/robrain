@@ -474,3 +474,62 @@ describe("per-process state is partitioned by connection", () => {
     }
   });
 });
+
+describe("per-connection state is bounded", () => {
+  const sessionFor = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+
+  it("evicts the oldest cached summary past the cap (re-fetched, never stale-served)", async () => {
+    const summaryCalls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      if (String(input).includes("/summary")) {
+        summaryCalls.push(((init?.headers ?? {}) as Record<string, string>).Authorization ?? "");
+        return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const provider = robrainMemory({
+      apiKey: (c: any) => `key-${tenantOf(c)}`,
+      apiUrl: "https://robrain.test",
+      projectId: "p",
+    });
+    for (let i = 0; i <= 1000; i++) {
+      await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor(`t${i}`) });
+    }
+    assert.equal(summaryCalls.length, 1001);
+    // t0 was the oldest of 1001 entries with a cap of 1000: fetched again.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("t0") });
+    assert.equal(summaryCalls.length, 1002);
+    // The newest is still cached.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("t1000") });
+    assert.equal(summaryCalls.length, 1002);
+  });
+
+  it("re-checks a 409 after an hour instead of remembering it forever", async () => {
+    let registrations = 0;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      if (String(input).endsWith("/projects") && init?.method === "POST") {
+        registrations += 1;
+        return new Response("{}", { status: 409 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const realNow = Date.now;
+    const warn = console.warn;
+    console.warn = () => {};
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const provider = robrainMemory({ apiKey: "k", apiUrl: "https://robrain.test", agent: "Taken Name" });
+      await provider.recall["turn.started"](started("ok"));
+      await provider.recall["turn.started"](started("ok"));
+      assert.equal(registrations, 1); // still blocked: no new request
+      now += 61 * 60 * 1000;
+      assert.equal(await provider.recall["turn.started"](started("ok")), null);
+      assert.equal(registrations, 2); // asked the server again, got 409 again
+    } finally {
+      Date.now = realNow;
+      console.warn = warn;
+    }
+  });
+});
