@@ -216,16 +216,22 @@ describe("headers option", () => {
     }
   });
 
-  it("accepts plain objects from any realm or class; refuses containers", async () => {
+  it("accepts plain records from any realm; refuses anything else", async () => {
     const { runInNewContext } = await import("node:vm");
     const foreign = runInNewContext('({ "x-tenant": "acme" })') as Record<string, string>;
     assert.deepEqual((await resolveConnection({ headers: foreign }, ctx, {}))?.headers, { "x-tenant": "acme" });
+    const bare = Object.assign(Object.create(null), { "x-tenant": "acme" }) as Record<string, string>;
+    assert.deepEqual((await resolveConnection({ headers: bare }, ctx, {}))?.headers, { "x-tenant": "acme" });
     class Cfg { "x-tenant" = "acme"; }
-    assert.deepEqual(
-      (await resolveConnection({ headers: new Cfg() as unknown as Record<string, string> }, ctx, {}))?.headers,
-      { "x-tenant": "acme" },
-    );
-    for (const container of [new Map([["x-tenant", "acme"]]), [["x-tenant", "acme"]], new Headers({ "x-tenant": "acme" })]) {
+    const withProto = Object.create({ inherited: "x" }) as Record<string, string>;
+    withProto["x-tenant"] = "acme";
+    for (const container of [
+      new Map([["x-tenant", "acme"]]),
+      [["x-tenant", "acme"]],
+      new Headers({ "x-tenant": "acme" }),
+      new Cfg(),
+      withProto,
+    ]) {
       assert.equal(
         await resolveConnection({ headers: container as unknown as Record<string, string> }, ctx, {}),
         null,

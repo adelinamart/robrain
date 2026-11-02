@@ -220,6 +220,13 @@ export async function resolveConnection(
   };
 }
 
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== "object") return false;
+  if (Object.prototype.toString.call(value) !== "[object Object]") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
 /** RFC 9110 field-name token. */
 const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 
@@ -237,19 +244,12 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
   if (headers === undefined) return { valid: {}, dropped: false };
   // Plain objects only: a Headers or Map instance has no own entries, so it
   // would silently send nothing.
-  // Judged by structure, not prototype identity, so a plain config object
-  // from another realm still works. Containers whose entries are not own
-  // enumerable keys (Map, Headers, arrays, other iterables) are unusable.
-  if (
-    headers === null ||
-    typeof headers !== "object" ||
-    Array.isArray(headers) ||
-    headers instanceof Map ||
-    typeof (headers as { [Symbol.iterator]?: unknown })[Symbol.iterator] === "function" ||
-    typeof (headers as { forEach?: unknown }).forEach === "function"
-  ) {
-    return { valid: {}, dropped: true };
-  }
+  // Plain records only, proven positively (no denylist of container types to
+  // outgrow): tagged "[object Object]" with a prototype that is null or the
+  // root Object.prototype of SOME realm (its own prototype is null), so a
+  // record from another realm works and a Map, Headers, array or class
+  // instance does not. Anything else skips the operation.
+  if (!isPlainRecord(headers)) return { valid: {}, dropped: true };
   // No prototype: a "__proto__" name is an ordinary key here, never a setter.
   const out: Record<string, string> = Object.create(null);
   let offered = 0;
