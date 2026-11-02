@@ -533,3 +533,40 @@ describe("per-connection state is bounded", () => {
     }
   });
 });
+
+describe("a remembered 409 fails closed", () => {
+  it("stays blocked when the hourly re-check fails, lifts only on a successful registration", async () => {
+    let mode: "conflict" | "down" | "ok" = "conflict";
+    let registrations = 0;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/projects") && init?.method === "POST") {
+        registrations += 1;
+        if (mode === "down") throw new Error("ECONNRESET");
+        return new Response("{}", { status: mode === "conflict" ? 409 : 200 });
+      }
+      if (url.includes("/summary")) return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const realNow = Date.now;
+    const warn = console.warn;
+    console.warn = () => {};
+    let now = 5_000_000;
+    Date.now = () => now;
+    try {
+      const provider = robrainMemory({ apiKey: "k", apiUrl: "https://robrain.test", agent: "Taken Name" });
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // 409
+      now += 61 * 60 * 1000;
+      mode = "down";
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // re-check failed: still off
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // and retried, still off
+      assert.equal(registrations, 3);
+      mode = "ok";
+      const lifted = await provider.recall["turn.started"](started("ok"));
+      assert.deepEqual(lifted?.messages.map((m) => m.id), ["robrain:summary"]);
+    } finally {
+      Date.now = realNow;
+      console.warn = warn;
+    }
+  });
+});

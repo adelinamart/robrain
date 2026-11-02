@@ -54,7 +54,9 @@ const SEEN_OPERATIONS_CAP = 2000;
  * key space grows with tenants × projects, so every map is bounded; the
  * oldest entry goes first. Evicting is always safe: a dropped summary is
  * fetched again, a dropped registration re-registers (an upsert), and a
- * dropped 409 is learned again from the server, which owns that decision.
+ * dropped 409 is learned again from the server, which owns that decision
+ * (RoBrain cloud refuses reads and writes of another org's project either
+ * way; the remembered 409 only saves a request per turn).
  */
 const CONNECTION_STATE_CAP = 1000;
 /** A 409 is re-checked after this long instead of being remembered forever. */
@@ -172,22 +174,21 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     boundedSet(warned, key, true, CONNECTION_STATE_CAP);
     console.warn(`[robrain/eve] ${message}`);
   }
-  function isBlocked(key: string): boolean {
-    const at = blocked.get(key);
-    if (at === undefined) return false;
-    if (Date.now() - at < BLOCKED_RECHECK_MS) return true;
-    blocked.delete(key); // stale: ask the server again
-    return false;
-  }
   async function ensureAgentProject(resolved: Resolved, projectId: string): Promise<"ready" | "blocked"> {
     const own = agentProject(options, resolved.apiUrl);
     if (!own || own.id !== projectId) return "ready";
     const key = stateKey(resolved, projectId);
-    if (isBlocked(key)) return "blocked";
-    if (registered.has(key)) return "ready";
+    // A remembered 409 holds until the server says otherwise. Once due for a
+    // re-check, only a successful registration lifts it; a failed or
+    // unanswered re-check keeps the slot off (fail closed).
+    const blockedAt = blocked.get(key);
+    if (blockedAt !== undefined && Date.now() - blockedAt < BLOCKED_RECHECK_MS) return "blocked";
+    const wasBlocked = blockedAt !== undefined;
+    if (!wasBlocked && registered.has(key)) return "ready";
     try {
       const outcome = await resolved.api.registerProject(own.id, own.name, own.tags);
       if (outcome === "registered") {
+        blocked.delete(key);
         boundedSet(registered, key, true, CONNECTION_STATE_CAP);
       } else if (outcome === "conflict") {
         boundedSet(blocked, key, Date.now(), CONNECTION_STATE_CAP);
@@ -196,11 +197,13 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
           `memory is off for this agent. Rename the agent or pin a different id: agent: { name, id }.`);
         return "blocked";
       } else {
+        if (wasBlocked) return "blocked"; // re-check failed: still off, retried next handler
         warnOnce(`failed:${key}`,
           `could not register project "${projectId}" for agent "${own.name}" (API unreachable or error); ` +
           `memory stays off until it succeeds, retried on the next turn.`);
       }
     } catch {
+      if (wasBlocked) return "blocked";
       // retried on the next handler
     }
     return "ready";
