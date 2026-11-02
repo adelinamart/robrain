@@ -35,7 +35,13 @@ import {
   type ContextMemory,
   type VetoDecision,
 } from "./client.js";
-import { agentProject, resolveConnection, resolveProjectId, type RobrainMemoryOptions } from "./config.js";
+import {
+  agentProject,
+  resolveConnection,
+  resolveProjectId,
+  type ProjectResolverContext,
+  type RobrainMemoryOptions,
+} from "./config.js";
 import { lastTextByRole, toolNamesIn } from "./messages.js";
 
 const SUMMARY_ID = "robrain:summary";
@@ -98,8 +104,15 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   const summaryCache = new Map<string, { text: string | null; at: number }>();
   const seenOperations = new Set<string>();
 
-  function client(): RobrainClient {
-    return new RobrainClient(resolveConnection(options));
+  /**
+   * The client for one operation, from its own resolved connection — apiKey
+   * and apiUrl may be per-session — or null when a setting function threw.
+   */
+  async function clientFor(
+    context: ProjectResolverContext,
+  ): Promise<{ api: RobrainClient; apiUrl: string } | null> {
+    const connection = await resolveConnection(options, context);
+    return connection ? { api: new RobrainClient(connection), apiUrl: connection.apiUrl } : null;
   }
 
   // The agent's own project is registered once per process, the first time
@@ -116,8 +129,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     warned.add(key);
     console.warn(`[robrain/eve] ${message}`);
   }
-  async function ensureAgentProject(api: RobrainClient, projectId: string): Promise<"ready" | "blocked"> {
-    const own = agentProject(options);
+  async function ensureAgentProject(
+    api: RobrainClient,
+    projectId: string,
+    apiUrl: string,
+  ): Promise<"ready" | "blocked"> {
+    const own = agentProject(options, apiUrl);
     if (!own || own.id !== projectId) return "ready";
     if (blocked.has(projectId)) return "blocked";
     if (registered.has(projectId)) return "ready";
@@ -143,10 +160,14 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   }
 
   /** Resolve the project for this operation, registering the agent's own project on first use. */
-  async function projectFor(context: Parameters<typeof resolveProjectId>[1], api: RobrainClient): Promise<string | null> {
-    const projectId = await resolveProjectId(options, context);
+  async function projectFor(
+    context: ProjectResolverContext,
+    api: RobrainClient,
+    apiUrl: string,
+  ): Promise<string | null> {
+    const projectId = await resolveProjectId(options, context, apiUrl);
     if (!projectId) return null;
-    if ((await ensureAgentProject(api, projectId)) === "blocked") return null;
+    if ((await ensureAgentProject(api, projectId, apiUrl)) === "blocked") return null;
     return projectId;
   }
 
@@ -182,6 +203,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
    */
   async function relevance(
     api: RobrainClient,
+    apiUrl: string,
     projectId: string,
     text: string,
     coordinates: { sessionId: string; sequence: number },
@@ -198,7 +220,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     // injecting the newest vetoes regardless of relevance is worse than none.
     const semantic = context
       ? context.vetoes
-      : isContextSupported(resolveConnection(options).apiUrl) === true
+      : isContextSupported(apiUrl) === true
         ? []
         : await api.semanticVetoes(projectId, query);
     return {
@@ -210,8 +232,10 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
 
   async function recallTurnStarted(context: MemoryTurnStartedContext): Promise<MemoryRecallResult> {
     try {
-      const api = client();
-      const projectId = await projectFor(context, api);
+      const resolved = await clientFor(context);
+      if (!resolved) return null;
+      const { api, apiUrl } = resolved;
+      const projectId = await projectFor(context, api, apiUrl);
       if (!projectId) return null;
       const userText = lastTextByRole(context.turn.input, "user");
       const lookup = userText.length >= MIN_QUERY_CHARS;
@@ -219,7 +243,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       const [summary, found] = await Promise.all([
         includeSummary ? cachedSummary(api, projectId) : Promise.resolve(null),
         lookup
-          ? relevance(api, projectId, userText, {
+          ? relevance(api, apiUrl, projectId, userText, {
               sessionId: `eve-${context.session.id}`,
               // eve numbers turns from 0; RoBrain sequences are 1-based
               // (cloud /context rejects 0). Matches capture's numbering.
@@ -253,8 +277,10 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     try {
       if (!captureEnabled) return;
       if (!rememberOperation(context.operationId)) return;
-      const api = client();
-      const projectId = await projectFor(context, api);
+      const resolved = await clientFor(context);
+      if (!resolved) return;
+      const { api, apiUrl } = resolved;
+      const projectId = await projectFor(context, api, apiUrl);
       if (!projectId) return;
       const userMessage = lastTextByRole(context.turn.input, "user");
       const reply = lastTextByRole(context.messages, "assistant");
@@ -274,8 +300,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   }
 
   async function tools(context: MemoryToolsContext) {
-    const api = client();
-    const projectId = await projectFor(context, api);
+    // The tool closes over THIS operation's connection, so a call can never
+    // run with another session's credential.
+    const resolved = await clientFor(context);
+    if (!resolved) return null;
+    const { api, apiUrl } = resolved;
+    const projectId = await projectFor(context, api, apiUrl);
     if (!projectId) return null;
     return {
       check_prior_decisions: defineTool({
@@ -297,7 +327,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
           ]);
           const semantic = context
             ? context.vetoes
-            : isContextSupported(resolveConnection(options).apiUrl) === true
+            : isContextSupported(apiUrl) === true
               ? []
               : await api.semanticVetoes(projectId, query);
           const vetoes = mergeVetoes(exact, semantic);

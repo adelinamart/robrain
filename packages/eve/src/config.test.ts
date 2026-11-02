@@ -1,46 +1,101 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { agentProject, agentProjectId, resolveConnection, resolveProjectId, slugifyAgentName } from "./config.js";
+import {
+  agentProject,
+  agentProjectId,
+  resolveConnection,
+  resolveProjectId,
+  slugifyAgentName,
+  type ProjectResolverContext,
+} from "./config.js";
 
 const ctx = { memory: { scope: { key: "k", namespace: "ns", value: "team" }, slot: "robrain" } };
+const URL = "https://api.example.com";
+
+function sessionCtx(id: string, tenant: string): ProjectResolverContext {
+  return {
+    ...ctx,
+    session: { id, auth: { current: { attributes: { tenant } } } } as unknown as ProjectResolverContext["session"],
+  };
+}
 
 describe("resolveConnection", () => {
-  it("explicit options win, read lazily", () => {
-    const c = resolveConnection({ apiKey: () => "fn-key", apiUrl: "https://api.example.com/" }, {});
+  it("explicit options win, read lazily", async () => {
+    const c = await resolveConnection({ apiKey: () => "fn-key", apiUrl: "https://api.example.com/" }, ctx, {});
     assert.deepEqual(c, { apiUrl: "https://api.example.com", apiKey: "fn-key", timeoutMs: 2500 });
   });
 
-  it("falls back ROBRAIN_* → PERCEPTION_* → self-hosted default", () => {
-    const a = resolveConnection({}, { ROBRAIN_API_URL: "https://r", ROBRAIN_API_KEY: "a", PERCEPTION_API_KEY: "b" });
-    assert.equal(a.apiUrl, "https://r");
-    assert.equal(a.apiKey, "a");
-    const b = resolveConnection({}, { PERCEPTION_API_URL: "http://host:3001", PERCEPTION_API_KEY: "b" });
-    assert.equal(b.apiUrl, "http://host:3001");
-    assert.equal(b.apiKey, "b");
-    const c = resolveConnection({}, {});
-    assert.equal(c.apiUrl, "http://127.0.0.1:3001");
-    assert.equal(c.apiKey, "");
+  it("falls back ROBRAIN_* → PERCEPTION_* → self-hosted default", async () => {
+    const a = await resolveConnection({}, ctx, { ROBRAIN_API_URL: "https://r", ROBRAIN_API_KEY: "a", PERCEPTION_API_KEY: "b" });
+    assert.equal(a?.apiUrl, "https://r");
+    assert.equal(a?.apiKey, "a");
+    const b = await resolveConnection({}, ctx, { PERCEPTION_API_URL: "http://host:3001", PERCEPTION_API_KEY: "b" });
+    assert.equal(b?.apiUrl, "http://host:3001");
+    assert.equal(b?.apiKey, "b");
+    const c = await resolveConnection({}, ctx, {});
+    assert.equal(c?.apiUrl, "http://127.0.0.1:3001");
+    assert.equal(c?.apiKey, "");
   });
 
-  it("rewrites localhost to 127.0.0.1 (IPv6-first resolution vs IPv4-only Docker bind)", () => {
-    assert.equal(resolveConnection({ apiUrl: "http://localhost:3001/" }, {}).apiUrl, "http://127.0.0.1:3001");
+  it("rewrites localhost to 127.0.0.1 (IPv6-first resolution vs IPv4-only Docker bind)", async () => {
+    assert.equal((await resolveConnection({ apiUrl: "http://localhost:3001/" }, ctx, {}))?.apiUrl, "http://127.0.0.1:3001");
+  });
+
+  it("setting functions receive the operation context and may be async (per-session credentials)", async () => {
+    const keys: Record<string, string> = { acme: "key-acme", globex: "key-globex" };
+    const options = {
+      apiKey: async (c?: ProjectResolverContext) => {
+        const tenant = (c?.session?.auth as { current?: { attributes?: { tenant?: string } } } | undefined)
+          ?.current?.attributes?.tenant;
+        return tenant ? keys[tenant] : undefined;
+      },
+      apiUrl: (c?: ProjectResolverContext) => (c?.session ? `https://robrain.test/${c.session.id}` : undefined),
+    };
+    const a = await resolveConnection(options, sessionCtx("s1", "acme"), {});
+    const b = await resolveConnection(options, sessionCtx("s2", "globex"), {});
+    assert.deepEqual(a, { apiUrl: "https://robrain.test/s1", apiKey: "key-acme", timeoutMs: 2500 });
+    assert.deepEqual(b, { apiUrl: "https://robrain.test/s2", apiKey: "key-globex", timeoutMs: 2500 });
+  });
+
+  it("a setting function returning undefined falls back to the environment", async () => {
+    const c = await resolveConnection({ apiKey: () => undefined }, ctx, { ROBRAIN_API_KEY: "env-key" });
+    assert.equal(c?.apiKey, "env-key");
+  });
+
+  it("a throwing setting function skips the operation — never the shared env credential", async () => {
+    const env = { ROBRAIN_API_URL: "https://shared", ROBRAIN_API_KEY: "shared-key" };
+    assert.equal(
+      await resolveConnection({ apiKey: () => { throw new Error("no credential for this session"); } }, ctx, env),
+      null,
+    );
+    assert.equal(
+      await resolveConnection({ apiUrl: async () => { throw new Error("down"); } }, ctx, env),
+      null,
+    );
   });
 });
 
 describe("resolveProjectId", () => {
   it("string option, then env", async () => {
-    assert.equal(await resolveProjectId({ projectId: " p1 " }, ctx, {}), "p1");
-    assert.equal(await resolveProjectId({}, ctx, { ROBRAIN_PROJECT_ID: "p2" }), "p2");
-    assert.equal(await resolveProjectId({}, ctx, {}), null);
+    assert.equal(await resolveProjectId({ projectId: " p1 " }, ctx, URL, {}), "p1");
+    assert.equal(await resolveProjectId({}, ctx, URL, { ROBRAIN_PROJECT_ID: "p2" }), "p2");
+    assert.equal(await resolveProjectId({}, ctx, URL, {}), null);
   });
 
   it("resolver receives the scope and may return null; a throwing resolver is null, not an error", async () => {
-    assert.equal(await resolveProjectId({ projectId: (c) => `proj-${c.memory.scope.value}` }, ctx, {}), "proj-team");
-    assert.equal(await resolveProjectId({ projectId: () => null }, ctx, {}), null);
+    assert.equal(await resolveProjectId({ projectId: (c) => `proj-${c.memory.scope.value}` }, ctx, URL, {}), "proj-team");
+    assert.equal(await resolveProjectId({ projectId: () => null }, ctx, URL, {}), null);
     assert.equal(
-      await resolveProjectId({ projectId: () => { throw new Error("boom"); } }, ctx, {}),
+      await resolveProjectId({ projectId: () => { throw new Error("boom"); } }, ctx, URL, {}),
       null,
+    );
+  });
+
+  it("resolver receives the session", async () => {
+    assert.equal(
+      await resolveProjectId({ projectId: (c) => `proj-${c.session?.id}` }, sessionCtx("s9", "acme"), URL, {}),
+      "proj-s9",
     );
   });
 });
@@ -62,22 +117,22 @@ describe("agent project", () => {
     // The hash covers the full name, not the slug: names that only slugify alike stay apart.
     assert.notEqual(agentProjectId("rory planner", "https://x"), agentProjectId("rory_planner!", "https://x"));
     assert.equal(agentProjectId("rory_planner!", "https://x").startsWith("agent-rory-planner-"), true);
-    assert.equal(agentProject({ agent: "---" }, {}), null);
+    assert.equal(agentProject({ agent: "---" }, URL), null);
   });
 
   it("agentProject reads the option; a pinned id wins; no option means null", () => {
-    assert.equal(agentProject({}, {}), null);
-    const own = agentProject({ agent: "Rory Planner", apiUrl: "https://api.example.com" }, {});
+    assert.equal(agentProject({}, URL), null);
+    const own = agentProject({ agent: "Rory Planner" }, URL);
     assert.equal(own?.name, "Rory Planner");
-    assert.equal(own?.id, agentProjectId("Rory Planner", "https://api.example.com"));
-    assert.deepEqual(agentProject({ agent: { name: "x", id: "proj-42" } }, {}), { id: "proj-42", name: "x", tags: [] });
-    assert.deepEqual(agentProject({ agent: { name: "x", tags: [" Email", "eu"] } }, {})?.tags, ["email", "eu"]);
+    assert.equal(own?.id, agentProjectId("Rory Planner", URL));
+    assert.deepEqual(agentProject({ agent: { name: "x", id: "proj-42" } }, URL), { id: "proj-42", name: "x", tags: [] });
+    assert.deepEqual(agentProject({ agent: { name: "x", tags: [" Email", "eu"] } }, URL)?.tags, ["email", "eu"]);
   });
 
   it("resolveProjectId: projectId and ROBRAIN_PROJECT_ID win over agent, agent beats nothing", async () => {
-    const opts = { agent: "Rory Planner", apiUrl: "https://api.example.com" };
-    assert.equal(await resolveProjectId({ ...opts, projectId: "p1" }, ctx, {}), "p1");
-    assert.equal(await resolveProjectId(opts, ctx, { ROBRAIN_PROJECT_ID: "p2" }), "p2");
-    assert.equal(await resolveProjectId(opts, ctx, {}), agentProjectId("Rory Planner", "https://api.example.com"));
+    const opts = { agent: "Rory Planner" };
+    assert.equal(await resolveProjectId({ ...opts, projectId: "p1" }, ctx, URL, {}), "p1");
+    assert.equal(await resolveProjectId(opts, ctx, URL, { ROBRAIN_PROJECT_ID: "p2" }), "p2");
+    assert.equal(await resolveProjectId(opts, ctx, URL, {}), agentProjectId("Rory Planner", URL));
   });
 });

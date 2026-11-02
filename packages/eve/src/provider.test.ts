@@ -336,3 +336,75 @@ describe("tools used", () => {
     assert.deepEqual(signal.tools_used, ["send_email"]);
   });
 });
+
+describe("per-session connection (multi-tenant apps)", () => {
+  /** Records the API URL and bearer of every request. */
+  function recordAuth() {
+    const seen: Array<{ url: string; auth: string | undefined }> = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seen.push({ url: String(input), auth: headers.Authorization });
+      if (String(input).includes("/context")) return new Response("{}", { status: 404 });
+      return new Response(JSON.stringify({ summary: "s", matches: [], decisions: [] }), { status: 200 });
+    }) as typeof fetch;
+    return seen;
+  }
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string | undefined;
+  const KEYS: Record<string, string> = { acme: "key-acme", globex: "key-globex" };
+  const sessionOf = (id: string, tenant: string) => ({
+    id,
+    auth: { current: { principalId: `u-${tenant}`, attributes: { tenant } } },
+  });
+  const options = {
+    apiUrl: (c: any) => `https://${tenantOf(c)}.robrain.test`,
+    apiKey: async (c: any) => {
+      const key = KEYS[tenantOf(c) ?? ""];
+      if (!key) throw new Error("no credential for this session");
+      return key;
+    },
+    projectId: (c: any) => `proj-${tenantOf(c)}`,
+  };
+
+  it("each session's recall uses its own URL and key", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    await provider.recall["turn.started"]({ ...started(question), session: sessionOf("s1", "acme") });
+    await provider.recall["turn.started"]({ ...started(question), session: sessionOf("s2", "globex") });
+    const acme = seen.filter((r) => r.url.startsWith("https://acme.robrain.test"));
+    const globex = seen.filter((r) => r.url.startsWith("https://globex.robrain.test"));
+    assert.ok(acme.length > 0 && globex.length > 0);
+    assert.ok(acme.every((r) => r.auth === "Bearer key-acme"));
+    assert.ok(globex.every((r) => r.auth === "Bearer key-globex"));
+  });
+
+  it("a tool keeps the connection of the operation that made it", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    const acmeTools = (await provider.tools!({
+      ...base,
+      session: sessionOf("s1", "acme"),
+      turn: { id: "t0", sequence: 0, input: [] },
+    } as any)) as any;
+    await provider.tools!({ ...base, session: sessionOf("s2", "globex"), turn: { id: "t0", sequence: 0, input: [] } } as any);
+    seen.length = 0;
+    await acmeTools.check_prior_decisions.execute({ task: "add GraphQL for the mobile API" }, {} as any);
+    assert.ok(seen.length > 0);
+    assert.ok(seen.every((r) => r.url.startsWith("https://acme.robrain.test") && r.auth === "Bearer key-acme"));
+  });
+
+  it("a throwing key resolver skips the operation without any request", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    const session = sessionOf("s3", "initech");
+    assert.equal(await provider.recall["turn.started"]({ ...started(question), session }), null);
+    await provider.capture!["turn.completed"]!({
+      ...base,
+      session,
+      operationId: "op-x",
+      turn: { id: "t1", sequence: 1, input: turnInput("We chose Hono; rejected Koa.") },
+      messages: [{ role: "assistant", content: "Noted." }],
+    } as any);
+    assert.equal(await provider.tools!({ ...base, session, turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+    assert.equal(seen.length, 0);
+  });
+});

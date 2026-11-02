@@ -5,8 +5,7 @@
 // in the build environment too, and stale values bake into the artifact.)
 
 import { createHash } from "node:crypto";
-
-export type Lazy<T> = T | (() => T);
+import type { MemoryToolsContext } from "eve/memory";
 
 /** The subset of eve's operation context a project resolver may use. */
 export interface ProjectResolverContext {
@@ -18,17 +17,39 @@ export interface ProjectResolverContext {
     };
     readonly slot: string;
   };
+  /**
+   * The eve session the operation runs in: its id and verified
+   * authentication. Present for every recall, capture and tools call eve
+   * makes; absent only when the provider resolves outside an operation.
+   */
+  readonly session?: {
+    readonly id: string;
+    readonly auth: MemoryToolsContext["session"]["auth"];
+  };
 }
+
+/**
+ * A connection setting: a value, or a function of the operation that reads
+ * it at run time. The function form receives the operation's context, so a
+ * multi-tenant app can hand each session its own credential. Return
+ * `undefined` to fall back to the environment; THROW to skip the operation
+ * (no request is made — the turn goes on without memory), which is what a
+ * multi-tenant resolver should do when it cannot find this session's
+ * credential, so it never falls back to a shared one.
+ */
+export type ConnectionSetting<T> =
+  | T
+  | ((context?: ProjectResolverContext) => T | Promise<T>);
 
 export interface RobrainMemoryOptions {
   /** API key. Default: ROBRAIN_API_KEY, then PERCEPTION_API_KEY. */
-  readonly apiKey?: Lazy<string | undefined>;
+  readonly apiKey?: ConnectionSetting<string | undefined>;
   /**
    * Base URL of the RoBrain API — a self-hosted Perception or the Rory Plans
    * cloud API. Default: ROBRAIN_API_URL, then PERCEPTION_API_URL, then
    * http://127.0.0.1:3001 (the self-hosted Docker stack).
    */
-  readonly apiUrl?: Lazy<string | undefined>;
+  readonly apiUrl?: ConnectionSetting<string | undefined>;
   /**
    * RoBrain project whose decision memory this slot reads and writes. A
    * string binds the slot to one project (the common case: one eve app, one
@@ -86,8 +107,11 @@ export interface ResolvedConnection {
   readonly timeoutMs: number;
 }
 
-function unwrap<T>(value: Lazy<T>): T {
-  return typeof value === "function" ? (value as () => T)() : value;
+/** Thrown setting functions propagate: the caller treats them as "skip". */
+async function unwrap<T>(value: ConnectionSetting<T>, context?: ProjectResolverContext): Promise<T> {
+  return typeof value === "function"
+    ? await (value as (context?: ProjectResolverContext) => T | Promise<T>)(context)
+    : value;
 }
 
 // Node 17+ resolves `localhost` IPv6-first (::1) while the Docker stack only
@@ -105,17 +129,32 @@ function normalizeLoopback(url: string): string {
   return url.replace(/\/$/, "");
 }
 
-export function resolveConnection(
+/**
+ * The connection for one operation, or null when a setting function threw
+ * (skip the operation; never fall back to the environment's shared values).
+ */
+export async function resolveConnection(
   options: RobrainMemoryOptions,
+  context?: ProjectResolverContext,
   env: NodeJS.ProcessEnv = process.env,
-): ResolvedConnection {
+): Promise<ResolvedConnection | null> {
+  let configuredUrl: string | undefined;
+  let configuredKey: string | undefined;
+  try {
+    [configuredUrl, configuredKey] = await Promise.all([
+      unwrap(options.apiUrl, context),
+      unwrap(options.apiKey, context),
+    ]);
+  } catch {
+    return null;
+  }
   const apiUrl =
-    unwrap(options.apiUrl)?.trim() ||
+    configuredUrl?.trim() ||
     env.ROBRAIN_API_URL?.trim() ||
     env.PERCEPTION_API_URL?.trim() ||
     "http://127.0.0.1:3001";
   const apiKey =
-    unwrap(options.apiKey)?.trim() ||
+    configuredKey?.trim() ||
     env.ROBRAIN_API_KEY?.trim() ||
     env.PERCEPTION_API_KEY?.trim() ||
     "";
@@ -164,17 +203,15 @@ export function agentProjectId(name: string, apiUrl: string): string {
 /**
  * The agent project from the `agent` option, or null when the option is
  * not set or the name has no letters or digits (nothing to name a project
- * after; the slot then stays inactive like any unconfigured one).
+ * after; the slot then stays inactive like any unconfigured one). `apiUrl`
+ * is the operation's resolved API URL (the id hashes it).
  */
-export function agentProject(
-  options: RobrainMemoryOptions,
-  env: NodeJS.ProcessEnv = process.env,
-): AgentProject | null {
+export function agentProject(options: RobrainMemoryOptions, apiUrl: string): AgentProject | null {
   const raw = options.agent;
   const name = (typeof raw === "string" ? raw : raw?.name)?.trim() ?? "";
   if (!name || !slugifyAgentName(name)) return null;
   const pinned = typeof raw === "object" ? raw.id?.trim() : undefined;
-  const id = pinned || agentProjectId(name, resolveConnection(options, env).apiUrl);
+  const id = pinned || agentProjectId(name, apiUrl);
   const tags = typeof raw === "object" ? (raw.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
   return { id, name, tags };
 }
@@ -182,6 +219,7 @@ export function agentProject(
 export async function resolveProjectId(
   options: RobrainMemoryOptions,
   context: ProjectResolverContext,
+  apiUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | null> {
   const configured = options.projectId;
@@ -193,6 +231,6 @@ export async function resolveProjectId(
       return null;
     }
   }
-  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || agentProject(options, env)?.id || "";
+  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || agentProject(options, apiUrl)?.id || "";
   return id || null;
 }

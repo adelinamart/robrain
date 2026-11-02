@@ -85,7 +85,7 @@ Two things to know before production:
 | Option | Env fallback | Default |
 |---|---|---|
 | `apiUrl` | `ROBRAIN_API_URL`, `PERCEPTION_API_URL` | `http://127.0.0.1:3001` |
-| `apiKey` | `ROBRAIN_API_KEY`, `PERCEPTION_API_KEY` | — |
+| `apiKey` | `ROBRAIN_API_KEY`, `PERCEPTION_API_KEY` | — (a value or a function of the operation, see [Multi-tenant apps](#multi-tenant-apps)) |
 | `agent` | | — (the agent's own project, created on first use) |
 | `projectId` | `ROBRAIN_PROJECT_ID` | — (slot is inactive without `agent` or a project id) |
 | `summary` | | `true` |
@@ -105,6 +105,22 @@ scope: (ctx) => ctx.session.auth.current?.attributes.tenantId ?? null,
 ```
 
 Returning `null` leaves the slot inactive for that operation.
+
+On RoBrain cloud a project belongs to one org, and so does a credential. When different sessions belong to different orgs, give each its own credential too: `apiKey` and `apiUrl` also accept a function of the operation, which receives the same context as the `projectId` resolver, including `session` (its id and verified `auth`). The function may be async:
+
+```ts
+provider: robrainMemory({
+  apiKey: async (ctx) => {
+    const credential = await credentialFor(ctx?.session); // your app's lookup
+    if (!credential) throw new Error("no RoBrain credential for this session");
+    return credential.apiKey;
+  },
+  apiUrl: () => process.env.ROBRAIN_API_URL,
+  projectId: ({ session }) => projectFor(session),
+}),
+```
+
+A setting function that returns `undefined` falls back to the environment (`ROBRAIN_API_KEY`, …). One that **throws** skips the operation: no request is made and the turn continues without memory. A multi-tenant resolver should throw when it cannot find the session's credential, so it never falls back to a shared one. Each tool call uses the connection of the operation that created the tool.
 
 ## Cloud-specific behavior
 
