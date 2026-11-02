@@ -408,3 +408,69 @@ describe("per-session connection (multi-tenant apps)", () => {
     assert.equal(seen.length, 0);
   });
 });
+
+describe("per-process state is partitioned by connection", () => {
+  const sessionFor = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+
+  it("never serves one credential's cached summary to another for the same project id", async () => {
+    const summaries: Record<string, string> = { "Bearer key-a": "A's private rules", "Bearer key-b": "B's rules" };
+    const summaryCalls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      if (String(input).includes("/summary")) {
+        summaryCalls.push(auth);
+        return new Response(JSON.stringify({ summary: summaries[auth] }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    // Same project id string for both tenants (e.g. "default" in two orgs).
+    const provider = robrainMemory({
+      apiKey: (c: any) => `key-${tenantOf(c)}`,
+      apiUrl: "https://robrain.test",
+      projectId: "default",
+    });
+    const a = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") });
+    const b = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("b") });
+    assert.match(a?.messages[0]?.content ?? "", /A's private rules/);
+    assert.match(b?.messages[0]?.content ?? "", /B's rules/);
+    assert.doesNotMatch(b?.messages[0]?.content ?? "", /A's private rules/);
+    assert.deepEqual(summaryCalls, ["Bearer key-a", "Bearer key-b"]);
+    // Still cached per connection.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") });
+    assert.equal(summaryCalls.length, 2);
+  });
+
+  it("one credential's 409 or registration never decides for another", async () => {
+    const registrations: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      const url = String(input);
+      if (url.endsWith("/projects") && init?.method === "POST") {
+        registrations.push(auth);
+        return new Response("{}", { status: auth === "Bearer key-a" ? 409 : 200 });
+      }
+      if (url.includes("/summary")) return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const provider = robrainMemory({
+        apiKey: (c: any) => `key-${tenantOf(c)}`,
+        apiUrl: "https://robrain.test",
+        agent: "Shared Name",
+      });
+      // a gets 409 → blocked for a only.
+      assert.equal(await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") }), null);
+      // b registers on its own and gets memory.
+      const b = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("b") });
+      assert.deepEqual(b?.messages.map((m) => m.id), ["robrain:summary"]);
+      // c registers on its own too: b's success is not reused for c.
+      await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("c") });
+      assert.deepEqual(registrations, ["Bearer key-a", "Bearer key-b", "Bearer key-c"]);
+    } finally {
+      console.warn = warn;
+    }
+  });
+});

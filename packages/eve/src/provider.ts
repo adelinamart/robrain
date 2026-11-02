@@ -25,6 +25,7 @@ import type {
   MemoryTurnCompletedContext,
   MemoryTurnStartedContext,
 } from "eve/memory";
+import { createHash } from "node:crypto";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
@@ -101,26 +102,46 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   const vetoLimit = options.vetoLimit ?? 3;
   const contextBudgetTokens = options.contextBudgetTokens ?? 1500;
 
+  // Per-process state below is keyed by connection AND project: with
+  // per-session credentials, one project id can mean different orgs (or
+  // different RoBrain installs), and what one credential may read — or the
+  // 409 it got — must never be reused for another.
   const summaryCache = new Map<string, { text: string | null; at: number }>();
   const seenOperations = new Set<string>();
+
+  /** One operation's client and the identity of its connection. */
+  interface Resolved {
+    readonly api: RobrainClient;
+    readonly apiUrl: string;
+    /** Digest of API URL + key: a cache partition, never the key itself. */
+    readonly connectionKey: string;
+  }
 
   /**
    * The client for one operation, from its own resolved connection — apiKey
    * and apiUrl may be per-session — or null when a setting function threw.
    */
-  async function clientFor(
-    context: ProjectResolverContext,
-  ): Promise<{ api: RobrainClient; apiUrl: string } | null> {
+  async function clientFor(context: ProjectResolverContext): Promise<Resolved | null> {
     const connection = await resolveConnection(options, context);
-    return connection ? { api: new RobrainClient(connection), apiUrl: connection.apiUrl } : null;
+    if (!connection) return null;
+    const connectionKey = createHash("sha256")
+      .update(`${connection.apiUrl}\u0000${connection.apiKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey };
   }
 
-  // The agent's own project is registered once per process, the first time
-  // a handler runs. A failed registration is logged once and retried on the
-  // next handler; the handler itself goes on either way (fail-open). A 409
-  // (the id belongs to another org on RoBrain cloud) is final: the slot
-  // goes inactive for that id instead of reading and writing a foreign
-  // project on every turn, and the operator is told to rename or pin.
+  function stateKey(resolved: Resolved, projectId: string): string {
+    return `${resolved.connectionKey}:${projectId}`;
+  }
+
+  // The agent's own project is registered once per connection, the first
+  // time a handler runs. A failed registration is logged once and retried on
+  // the next handler; the handler itself goes on either way (fail-open). A
+  // 409 (the id belongs to another org on RoBrain cloud) is final for that
+  // connection: the slot goes inactive for that id instead of reading and
+  // writing a foreign project on every turn, and the operator is told to
+  // rename or pin.
   const registered = new Set<string>();
   const blocked = new Set<string>();
   const warned = new Set<string>();
@@ -129,27 +150,24 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     warned.add(key);
     console.warn(`[robrain/eve] ${message}`);
   }
-  async function ensureAgentProject(
-    api: RobrainClient,
-    projectId: string,
-    apiUrl: string,
-  ): Promise<"ready" | "blocked"> {
-    const own = agentProject(options, apiUrl);
+  async function ensureAgentProject(resolved: Resolved, projectId: string): Promise<"ready" | "blocked"> {
+    const own = agentProject(options, resolved.apiUrl);
     if (!own || own.id !== projectId) return "ready";
-    if (blocked.has(projectId)) return "blocked";
-    if (registered.has(projectId)) return "ready";
+    const key = stateKey(resolved, projectId);
+    if (blocked.has(key)) return "blocked";
+    if (registered.has(key)) return "ready";
     try {
-      const outcome = await api.registerProject(own.id, own.name, own.tags);
+      const outcome = await resolved.api.registerProject(own.id, own.name, own.tags);
       if (outcome === "registered") {
-        registered.add(projectId);
+        registered.add(key);
       } else if (outcome === "conflict") {
-        blocked.add(projectId);
-        warnOnce(`conflict:${projectId}`,
+        blocked.add(key);
+        warnOnce(`conflict:${key}`,
           `project "${projectId}" for agent "${own.name}" belongs to another org on this RoBrain; ` +
           `memory is off for this agent. Rename the agent or pin a different id: agent: { name, id }.`);
         return "blocked";
       } else {
-        warnOnce(`failed:${projectId}`,
+        warnOnce(`failed:${key}`,
           `could not register project "${projectId}" for agent "${own.name}" (API unreachable or error); ` +
           `memory stays off until it succeeds, retried on the next turn.`);
       }
@@ -160,22 +178,19 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   }
 
   /** Resolve the project for this operation, registering the agent's own project on first use. */
-  async function projectFor(
-    context: ProjectResolverContext,
-    api: RobrainClient,
-    apiUrl: string,
-  ): Promise<string | null> {
-    const projectId = await resolveProjectId(options, context, apiUrl);
+  async function projectFor(context: ProjectResolverContext, resolved: Resolved): Promise<string | null> {
+    const projectId = await resolveProjectId(options, context, resolved.apiUrl);
     if (!projectId) return null;
-    if ((await ensureAgentProject(api, projectId, apiUrl)) === "blocked") return null;
+    if ((await ensureAgentProject(resolved, projectId)) === "blocked") return null;
     return projectId;
   }
 
-  async function cachedSummary(api: RobrainClient, projectId: string): Promise<string | null> {
-    const hit = summaryCache.get(projectId);
+  async function cachedSummary(resolved: Resolved, projectId: string): Promise<string | null> {
+    const key = stateKey(resolved, projectId);
+    const hit = summaryCache.get(key);
     if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
-    const text = await api.alwaysOnSummary(projectId);
-    summaryCache.set(projectId, { text, at: Date.now() });
+    const text = await resolved.api.alwaysOnSummary(projectId);
+    summaryCache.set(key, { text, at: Date.now() });
     return text;
   }
 
@@ -235,13 +250,13 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       const resolved = await clientFor(context);
       if (!resolved) return null;
       const { api, apiUrl } = resolved;
-      const projectId = await projectFor(context, api, apiUrl);
+      const projectId = await projectFor(context, resolved);
       if (!projectId) return null;
       const userText = lastTextByRole(context.turn.input, "user");
       const lookup = userText.length >= MIN_QUERY_CHARS;
 
       const [summary, found] = await Promise.all([
-        includeSummary ? cachedSummary(api, projectId) : Promise.resolve(null),
+        includeSummary ? cachedSummary(resolved, projectId) : Promise.resolve(null),
         lookup
           ? relevance(api, apiUrl, projectId, userText, {
               sessionId: `eve-${context.session.id}`,
@@ -279,8 +294,8 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       if (!rememberOperation(context.operationId)) return;
       const resolved = await clientFor(context);
       if (!resolved) return;
-      const { api, apiUrl } = resolved;
-      const projectId = await projectFor(context, api, apiUrl);
+      const { api } = resolved;
+      const projectId = await projectFor(context, resolved);
       if (!projectId) return;
       const userMessage = lastTextByRole(context.turn.input, "user");
       const reply = lastTextByRole(context.messages, "assistant");
@@ -305,7 +320,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     const resolved = await clientFor(context);
     if (!resolved) return null;
     const { api, apiUrl } = resolved;
-    const projectId = await projectFor(context, api, apiUrl);
+    const projectId = await projectFor(context, resolved);
     if (!projectId) return null;
     return {
       check_prior_decisions: defineTool({
