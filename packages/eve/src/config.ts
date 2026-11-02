@@ -99,12 +99,22 @@ export interface RobrainMemoryOptions {
   readonly capture?: boolean;
   /** Per-request timeout. Recall runs before the model call, so keep it short. Default 2500. */
   readonly timeoutMs?: number;
+  /**
+   * Extra headers on every request to the RoBrain API, e.g. a deployment
+   * protection bypass when the API URL is a proxy in your own app. A value
+   * or a function of the operation, like `apiKey`; a throwing function skips
+   * the operation. The provider's own `Authorization`, `Content-Type` and
+   * `X-Project-Id` always win over these.
+   */
+  readonly headers?: ConnectionSetting<Readonly<Record<string, string>> | undefined>;
 }
 
 export interface ResolvedConnection {
   readonly apiUrl: string;
   readonly apiKey: string;
   readonly timeoutMs: number;
+  /** Extra request headers; absent means none. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /** Thrown setting functions propagate: the caller treats them as "skip". */
@@ -140,10 +150,12 @@ export async function resolveConnection(
 ): Promise<ResolvedConnection | null> {
   let configuredUrl: string | undefined;
   let configuredKey: string | undefined;
+  let configuredHeaders: Readonly<Record<string, string>> | undefined;
   try {
-    [configuredUrl, configuredKey] = await Promise.all([
+    [configuredUrl, configuredKey, configuredHeaders] = await Promise.all([
       unwrap(options.apiUrl, context),
       unwrap(options.apiKey, context),
+      unwrap(options.headers, context),
     ]);
   } catch {
     return null;
@@ -162,7 +174,20 @@ export async function resolveConnection(
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
     timeoutMs: options.timeoutMs ?? 2500,
+    headers: sanitizeHeaders(configuredHeaders),
   };
+}
+
+/** String-valued entries only; anything else is dropped rather than sent. */
+function sanitizeHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  if (!headers || typeof headers !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (typeof value === "string" && name.trim()) out[name] = value;
+  }
+  return out;
 }
 
 /** A project the provider registers itself: the agent's own. */

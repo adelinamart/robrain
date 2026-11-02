@@ -23,7 +23,7 @@ function sessionCtx(id: string, tenant: string): ProjectResolverContext {
 describe("resolveConnection", () => {
   it("explicit options win, read lazily", async () => {
     const c = await resolveConnection({ apiKey: () => "fn-key", apiUrl: "https://api.example.com/" }, ctx, {});
-    assert.deepEqual(c, { apiUrl: "https://api.example.com", apiKey: "fn-key", timeoutMs: 2500 });
+    assert.deepEqual(c, { apiUrl: "https://api.example.com", apiKey: "fn-key", timeoutMs: 2500, headers: {} });
   });
 
   it("falls back ROBRAIN_* → PERCEPTION_* → self-hosted default", async () => {
@@ -54,8 +54,8 @@ describe("resolveConnection", () => {
     };
     const a = await resolveConnection(options, sessionCtx("s1", "acme"), {});
     const b = await resolveConnection(options, sessionCtx("s2", "globex"), {});
-    assert.deepEqual(a, { apiUrl: "https://robrain.test/s1", apiKey: "key-acme", timeoutMs: 2500 });
-    assert.deepEqual(b, { apiUrl: "https://robrain.test/s2", apiKey: "key-globex", timeoutMs: 2500 });
+    assert.deepEqual(a, { apiUrl: "https://robrain.test/s1", apiKey: "key-acme", timeoutMs: 2500, headers: {} });
+    assert.deepEqual(b, { apiUrl: "https://robrain.test/s2", apiKey: "key-globex", timeoutMs: 2500, headers: {} });
   });
 
   it("a setting function returning undefined falls back to the environment", async () => {
@@ -134,5 +134,22 @@ describe("agent project", () => {
     assert.equal(await resolveProjectId({ ...opts, projectId: "p1" }, ctx, URL, {}), "p1");
     assert.equal(await resolveProjectId(opts, ctx, URL, { ROBRAIN_PROJECT_ID: "p2" }), "p2");
     assert.equal(await resolveProjectId(opts, ctx, URL, {}), agentProjectId("Rory Planner", URL));
+  });
+});
+
+describe("headers option", () => {
+  it("resolves a value or a function of the operation, keeping string entries only", async () => {
+    const fixed = await resolveConnection({ headers: { "x-bypass": "s3cret" } }, ctx, {});
+    assert.deepEqual(fixed?.headers, { "x-bypass": "s3cret" });
+    const perSession = await resolveConnection(
+      { headers: (c) => ({ "x-session": c?.session?.id ?? "none", bad: 1 as unknown as string }) },
+      sessionCtx("s7", "acme"),
+      {},
+    );
+    assert.deepEqual(perSession?.headers, { "x-session": "s7" });
+  });
+
+  it("a throwing headers function skips the operation", async () => {
+    assert.equal(await resolveConnection({ headers: () => { throw new Error("no"); } }, ctx, {}), null);
   });
 });

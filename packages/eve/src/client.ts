@@ -68,15 +68,21 @@ export class RobrainClient {
     init: RequestInit = {},
     timeoutMs?: number,
   ): Promise<{ status: number; body: any } | null> {
-    const { apiUrl, apiKey } = this.connection;
+    const { apiUrl, apiKey, headers } = this.connection;
     try {
       const res = await fetch(`${apiUrl}${path}`, {
         ...init,
+        // Caller headers first: the provider's own always win.
         headers: {
+          ...stripReserved(headers ?? {}),
           "Content-Type": "application/json",
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
           ...(init.headers ?? {}),
         },
+        // Never follow a redirect with the credential and headers: a 3xx
+        // (e.g. a deployment-protection login page) is a failed request, not
+        // a 200 from somewhere else.
+        redirect: "error",
         signal: AbortSignal.timeout(timeoutMs ?? this.connection.timeoutMs),
       });
       const body = await res.json().catch(() => null);
@@ -256,6 +262,22 @@ export class RobrainClient {
 }
 
 /** Merge exact matches ahead of semantic ones, deduping by decision id. */
+/** Headers the provider sets itself; a caller's copy (any case) is dropped. */
+const RESERVED_HEADERS = new Set(["authorization", "content-type", "x-project-id"]);
+
+/**
+ * Caller headers minus the reserved ones. Header names are case-insensitive,
+ * so a caller's "authorization" next to the provider's "Authorization" would
+ * otherwise be joined into one value instead of being overridden.
+ */
+function stripReserved(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!RESERVED_HEADERS.has(name.toLowerCase())) out[name] = value;
+  }
+  return out;
+}
+
 export function mergeVetoes(exact: readonly VetoDecision[], semantic: readonly VetoDecision[]): VetoDecision[] {
   const seen = new Set<string>();
   const merged: VetoDecision[] = [];

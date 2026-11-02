@@ -158,3 +158,37 @@ describe("captureTurn", () => {
     );
   });
 });
+
+describe("request headers and redirects", () => {
+  it("sends caller headers, never lets them replace the provider's, and refuses redirects", async () => {
+    let seen: RequestInit | undefined;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
+      seen = init;
+      return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const api = new RobrainClient({
+        apiUrl: "https://robrain.test",
+        apiKey: "real-key",
+        timeoutMs: 1000,
+        headers: {
+          "x-vercel-protection-bypass": "bypass",
+          authorization: "Bearer attacker",
+          "content-type": "text/plain",
+          "X-Project-Id": "other",
+        },
+      });
+      await api.alwaysOnSummary("p1");
+      const headers = seen?.headers as Record<string, string>;
+      assert.equal(headers["x-vercel-protection-bypass"], "bypass");
+      assert.equal(headers.Authorization, "Bearer real-key");
+      assert.equal(headers.authorization, undefined);
+      assert.equal(headers["content-type"], undefined);
+      assert.equal(headers["X-Project-Id"], undefined);
+      assert.equal(seen?.redirect, "error");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

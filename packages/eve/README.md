@@ -92,6 +92,7 @@ Two things to know before production:
 | `vetoLimit` | | `3` |
 | `capture` | | `true` |
 | `timeoutMs` | | `2500` |
+| `headers` | | — (extra request headers; a value or a function of the operation) |
 
 ### Multi-tenant apps
 
@@ -122,6 +123,8 @@ provider: robrainMemory({
 
 A setting function that returns `undefined` falls back to the environment (`ROBRAIN_API_KEY`, …). One that **throws** skips the operation: no request is made and the turn continues without memory. A multi-tenant resolver should throw when it cannot find the session's credential, so it never falls back to a shared one. Each tool call uses the connection of the operation that created the tool.
 
+If `apiUrl` points at a proxy in your own app rather than at RoBrain itself (so the RoBrain credential never leaves your server), `headers` adds what that hop needs, for example a deployment-protection bypass: `headers: () => ({ "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "" })`. Like `apiKey`, it may be a function of the operation, and throwing skips the operation. The provider's own `Authorization`, `Content-Type` and `X-Project-Id` headers always win over yours, whatever their case.
+
 ## Cloud-specific behavior
 
 - Veto warnings from `/context` arrive one per rejected option with a server-rendered line; the provider groups them per decision and recalls those lines verbatim.
@@ -132,7 +135,7 @@ A setting function that returns `undefined` falls back to the environment (`ROBR
 
 ## Behavior under failure
 
-eve fails a turn if a recall handler throws, so this provider never throws: an unreachable or misconfigured API means "recall nothing" and "capture nothing," and the agent continues without memory. Requests carry hard timeouts (`timeoutMs`; recall runs before the model call, so keep it short). eve delivers capture at least once; the provider skips repeated `operationId`s in-process, and RoBrain dedups near-identical decisions server-side.
+eve fails a turn if a recall handler throws, so this provider never throws: an unreachable or misconfigured API means "recall nothing" and "capture nothing," and the agent continues without memory. Requests carry hard timeouts (`timeoutMs`; recall runs before the model call, so keep it short) and never follow redirects: a 3xx (an `http` → `https` hop, a login page in front of a protected deployment) is a failed request, so set `apiUrl` to the final URL. eve delivers capture at least once; the provider skips repeated `operationId`s in-process, and RoBrain dedups near-identical decisions server-side.
 
 ## Notes
 
