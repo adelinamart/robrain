@@ -56,7 +56,7 @@ circumstances changed.
 The provider talks to the RoBrain API. Point it at either:
 
 - **Rory Plans cloud** (hosted; reachable from deployed agents on Vercel): set `ROBRAIN_API_URL` to your Rory Plans API URL and `ROBRAIN_API_KEY` to an org API key (`rp_live_…`). On cloud, relevance comes from `POST /context` — planning-ranked, token-budgeted decisions plus server-side veto warnings, recorded in the injection ledger so effectiveness can be measured per session — in addition to the deterministic veto scan.
-- **Self-hosted RoBrain** (open source): `ROBRAIN_API_URL=http://127.0.0.1:3001` for `eve dev` (the default), or the public URL of your own Perception for deployed agents. `PERCEPTION_API_URL` / `PERCEPTION_API_KEY` are honored as fallbacks, so an existing self-hosted setup needs no new variables. Relevance uses `GET /decisions?query=` (similarity-gated); the provider detects the missing `/context` route once and falls back automatically.
+- **Self-hosted RoBrain** (open source): `ROBRAIN_API_URL=http://127.0.0.1:3001` for `eve dev` (the default), or the public URL of your own Perception for deployed agents. `PERCEPTION_API_URL` / `PERCEPTION_API_KEY` are honored as fallbacks, so an existing self-hosted setup needs no new variables. Relevance uses `GET /decisions?query=` (similarity-gated); the provider detects the missing `/context` route once per connection and falls back automatically.
 
 Either way, the agent needs a project. Give it a name and the provider creates one for it on first use:
 
@@ -139,7 +139,7 @@ Keep header values stable for a given tenant. Per-process state (the cached summ
 - Decisions that were **captured but not yet reviewed** still produce veto warnings, and the cloud attaches a `required_acknowledgement`. The provider recalls it as its own message (`robrain:acknowledgement`) so the agent surfaces the warning and gets an explicit acknowledgement before proceeding against the option — the cloud's pre-task veto acknowledgement, carried into eve.
 - Only **reviewed** decisions are eligible as ranked memories; unreviewed ones surface via warnings only.
 - Turn sequences sent to the cloud are 1-based (eve counts from 0), matching how capture numbers turns.
-- Once `/context` has succeeded for an API URL, a transient failure recalls no semantic vetoes for that turn rather than falling back to the unranked list endpoint.
+- Once `/context` has succeeded for a connection (URL, key and headers), a transient failure recalls no semantic vetoes for that turn rather than falling back to the unranked list endpoint.
 
 ## Behavior under failure
 

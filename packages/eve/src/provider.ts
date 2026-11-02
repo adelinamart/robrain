@@ -343,8 +343,9 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       if (!rememberOperation(context.operationId)) return;
       const resolved = await clientFor(context);
       if (!resolved) {
-        // No connection yet (a setting function threw or timed out): forget
-        // the operation so eve's redelivery can still capture this turn.
+        // No connection (the operation was skipped, e.g. a credential lookup
+        // failed): forget the operation so eve's redelivery can still
+        // capture this turn.
         seenOperations.delete(context.operationId);
         return;
       }
