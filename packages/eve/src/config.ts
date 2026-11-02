@@ -266,6 +266,11 @@ export function connectionIdentity(connection: ResolvedConnection): string {
   return JSON.stringify([connection.apiUrl, connection.apiKey, headers]);
 }
 
+/** Digest of connectionIdentity: the partition key for per-process state, never the key itself. */
+export function connectionDigest(connection: ResolvedConnection): string {
+  return createHash("sha256").update(connectionIdentity(connection)).digest("hex").slice(0, 32);
+}
+
 /** A project the provider registers itself: the agent's own. */
 export interface AgentProject {
   readonly id: string;

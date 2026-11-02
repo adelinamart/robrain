@@ -7,9 +7,9 @@
 // self-hosted Perception, and POST /context on Rory cloud (planning-ranked,
 // token-budgeted, with server-side veto warnings and an injection ledger).
 // Cloud's GET /decisions is a plain list. The client probes /context once per
-// API URL and remembers the answer.
+// connection and remembers the answer.
 
-import type { ResolvedConnection } from "./config.js";
+import { connectionDigest, type ResolvedConnection } from "./config.js";
 
 export interface RejectedOption {
   readonly option: string;
@@ -57,11 +57,40 @@ export interface CapturedTurn {
 /** Similarity gate for the self-hosted semantic tier; exact /veto-scan matches are exempt. */
 const MIN_SIMILARITY = 0.45;
 
-/** Per API URL: does POST /context exist? undefined = not probed yet. */
+/**
+ * Per connection (connectionDigest): does POST /context exist? undefined =
+ * not probed yet. Keyed by the whole connection, not the URL: a proxy that
+ * routes tenants by key or header can put a cloud tenant and a self-hosted
+ * one behind one URL, and one's 404 must not turn /context off for the
+ * other. Bounded like the provider's per-connection state; an evicted entry
+ * costs one more probe.
+ */
 const contextSupport = new Map<string, boolean>();
+const CONTEXT_SUPPORT_CAP = 1000;
+
+function rememberContextSupport(key: string, supported: boolean): void {
+  contextSupport.delete(key);
+  contextSupport.set(key, supported);
+  if (contextSupport.size > CONTEXT_SUPPORT_CAP) {
+    const oldest = contextSupport.keys().next().value;
+    if (oldest !== undefined) contextSupport.delete(oldest);
+  }
+}
 
 export class RobrainClient {
-  constructor(private readonly connection: ResolvedConnection) {}
+  private readonly probeKey: string;
+
+  constructor(private readonly connection: ResolvedConnection) {
+    this.probeKey = connectionDigest(connection);
+  }
+
+  /**
+   * Whether POST /context has been confirmed for this connection: true after
+   * a success, false after a 404, undefined until probed.
+   */
+  contextSupported(): boolean | undefined {
+    return contextSupport.get(this.probeKey);
+  }
 
   private async request(
     path: string,
@@ -123,16 +152,15 @@ export class RobrainClient {
   /**
    * Cloud semantic tier: POST /context. Returns null when the API does not
    * offer the route (self-hosted) or the call failed; the caller falls back to
-   * semanticVetoes(). A 404 is remembered per API URL so self-hosted setups
-   * pay for the probe once.
+   * semanticVetoes(). A 404 is remembered per connection so self-hosted
+   * setups pay for the probe once.
    */
   async contextRecall(
     projectId: string,
     text: string,
     options: { sessionId?: string; sequence?: number; budgetTokens?: number } = {},
   ): Promise<ContextRecall | null> {
-    const { apiUrl } = this.connection;
-    if (contextSupport.get(apiUrl) === false) return null;
+    if (this.contextSupported() === false) return null;
 
     const res = await this.request(
       "/context",
@@ -150,11 +178,11 @@ export class RobrainClient {
     );
     if (!res) return null;
     if (res.status === 404) {
-      contextSupport.set(apiUrl, false);
+      rememberContextSupport(this.probeKey, false);
       return null;
     }
     if (res.status < 200 || res.status >= 300 || !res.body) return null;
-    contextSupport.set(apiUrl, true);
+    if (this.contextSupported() !== true) rememberContextSupport(this.probeKey, true);
 
     const body = res.body;
     const memories: ContextMemory[] = (Array.isArray(body.memories) ? body.memories : [])
@@ -261,11 +289,11 @@ export class RobrainClient {
   }
 }
 
-/** Merge exact matches ahead of semantic ones, deduping by decision id. */
 /**
  * Headers a caller may not set: the ones the provider sets itself, and the
- * transport ones fetch owns (setting them breaks or smuggles the request).
- * A caller's copy, in any case, is dropped.
+ * transport ones fetch owns (setting them breaks or smuggles the request,
+ * and Node's fetch rejects several outright, which would fail every
+ * request). A caller's copy, in any case, is dropped.
  */
 const RESERVED_HEADERS = new Set([
   "authorization",
@@ -275,6 +303,12 @@ const RESERVED_HEADERS = new Set([
   "content-length",
   "transfer-encoding",
   "connection",
+  "keep-alive",
+  "proxy-connection",
+  "upgrade",
+  "expect",
+  "te",
+  "trailer",
 ]);
 
 /**
@@ -290,6 +324,7 @@ function stripReserved(headers: Readonly<Record<string, string>>): Record<string
   return out;
 }
 
+/** Merge exact matches ahead of semantic ones, deduping by decision id. */
 export function mergeVetoes(exact: readonly VetoDecision[], semantic: readonly VetoDecision[]): VetoDecision[] {
   const seen = new Set<string>();
   const merged: VetoDecision[] = [];
@@ -302,15 +337,7 @@ export function mergeVetoes(exact: readonly VetoDecision[], semantic: readonly V
   return merged;
 }
 
-/**
- * Whether POST /context has been confirmed for an API URL: true after a
- * success, false after a 404, undefined until probed.
- */
-export function isContextSupported(apiUrl: string): boolean | undefined {
-  return contextSupport.get(apiUrl);
-}
-
-/** Reset the per-URL /context probe memo (tests). */
+/** Reset the per-connection /context probe memo (tests). */
 export function resetContextSupport(): void {
   contextSupport.clear();
 }

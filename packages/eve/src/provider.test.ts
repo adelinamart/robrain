@@ -187,6 +187,22 @@ describe("capture turn.completed", () => {
     assert.equal(calls.filter((c) => c === "POST /signals").length, 1);
   });
 
+  it("a redelivered operation is still captured when the first try had no connection", async () => {
+    const calls = stub();
+    let lookups = 0;
+    const provider = robrainMemory({
+      projectId: "p1",
+      apiKey: async () => {
+        if (lookups++ === 0) throw new Error("credential store blip");
+        return "k";
+      },
+    });
+    await provider.capture!["turn.completed"]!(completed as any);
+    assert.equal(calls.filter((c) => c === "POST /signals").length, 0);
+    await provider.capture!["turn.completed"]!(completed as any); // eve redelivers the same operation
+    assert.equal(calls.filter((c) => c === "POST /signals").length, 1);
+  });
+
   it("can be disabled and never throws when the API is down", async () => {
     const calls = stub();
     await robrainMemory({ projectId: "p1", apiKey: "k", capture: false }).capture!["turn.completed"]!(completed as any);

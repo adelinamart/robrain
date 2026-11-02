@@ -25,20 +25,18 @@ import type {
   MemoryTurnCompletedContext,
   MemoryTurnStartedContext,
 } from "eve/memory";
-import { createHash } from "node:crypto";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import {
   RobrainClient,
-  isContextSupported,
   mergeVetoes,
   type ContextMemory,
   type VetoDecision,
 } from "./client.js";
 import {
   agentProject,
-  connectionIdentity,
+  connectionDigest,
   resolveConnection,
   resolveProjectId,
   type ProjectResolverContext,
@@ -148,11 +146,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   async function clientFor(context: ProjectResolverContext): Promise<Resolved | null> {
     const connection = await resolveConnection(options, context);
     if (!connection) return null;
-    const connectionKey = createHash("sha256")
-      .update(connectionIdentity(connection))
-      .digest("hex")
-      .slice(0, 32);
-    return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey };
+    return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey: connectionDigest(connection) };
   }
 
   function stateKey(resolved: Resolved, projectId: string): string {
@@ -254,7 +248,6 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
    */
   async function relevance(
     api: RobrainClient,
-    apiUrl: string,
     projectId: string,
     text: string,
     coordinates: { sessionId: string; sequence: number },
@@ -266,12 +259,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
         ? api.contextRecall(projectId, query, { ...coordinates, budgetTokens: contextBudgetTokens })
         : Promise.resolve(null),
     ]);
-    // Once /context is confirmed for this API, a transient failure must not
-    // degrade to the list endpoint: cloud GET /decisions is unranked, and
+    // Once /context is confirmed for this connection, a transient failure must
+    // not degrade to the list endpoint: cloud GET /decisions is unranked, and
     // injecting the newest vetoes regardless of relevance is worse than none.
     const semantic = context
       ? context.vetoes
-      : isContextSupported(apiUrl) === true
+      : api.contextSupported() === true
         ? []
         : await api.semanticVetoes(projectId, query);
     return {
@@ -285,7 +278,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     try {
       const resolved = await clientFor(context);
       if (!resolved) return null;
-      const { api, apiUrl } = resolved;
+      const { api } = resolved;
       const projectId = await projectFor(context, resolved);
       if (!projectId) return null;
       const userText = lastTextByRole(context.turn.input, "user");
@@ -294,7 +287,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       const [summary, found] = await Promise.all([
         includeSummary ? cachedSummary(resolved, projectId) : Promise.resolve(null),
         lookup
-          ? relevance(api, apiUrl, projectId, userText, {
+          ? relevance(api, projectId, userText, {
               sessionId: `eve-${context.session.id}`,
               // eve numbers turns from 0; RoBrain sequences are 1-based
               // (cloud /context rejects 0). Matches capture's numbering.
@@ -329,7 +322,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
       if (!captureEnabled) return;
       if (!rememberOperation(context.operationId)) return;
       const resolved = await clientFor(context);
-      if (!resolved) return;
+      if (!resolved) {
+        // No connection yet (a setting function threw or timed out): forget
+        // the operation so eve's redelivery can still capture this turn.
+        seenOperations.delete(context.operationId);
+        return;
+      }
       const { api } = resolved;
       const projectId = await projectFor(context, resolved);
       if (!projectId) return;
@@ -355,7 +353,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     // run with another session's credential.
     const resolved = await clientFor(context);
     if (!resolved) return null;
-    const { api, apiUrl } = resolved;
+    const { api } = resolved;
     const projectId = await projectFor(context, resolved);
     if (!projectId) return null;
     return {
@@ -378,7 +376,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
           ]);
           const semantic = context
             ? context.vetoes
-            : isContextSupported(apiUrl) === true
+            : api.contextSupported() === true
               ? []
               : await api.semanticVetoes(projectId, query);
           const vetoes = mergeVetoes(exact, semantic);
