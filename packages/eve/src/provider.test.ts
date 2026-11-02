@@ -445,6 +445,41 @@ describe("per-session connection (multi-tenant apps)", () => {
     assert.equal(await provider.tools!({ ...base, session, turn: { id: "t0", sequence: 0, input: [] } } as any), null);
     assert.equal(seen.length, 0);
   });
+
+  it("a key resolver answering undefined skips the operation even when a shared env key is set", async () => {
+    const seen = recordAuth();
+    const before = process.env.ROBRAIN_API_KEY;
+    process.env.ROBRAIN_API_KEY = "shared-env-key";
+    try {
+      const provider = robrainMemory({
+        ...options,
+        // keys[tenant] on a miss: the resolver bug this must not turn into a write under the shared key
+        apiKey: async (c: any) => KEYS[tenantOf(c) ?? ""],
+      });
+      const session = sessionOf("s4", "initech");
+      assert.equal(await provider.recall["turn.started"]({ ...started(question), session }), null);
+      await provider.capture!["turn.completed"]!({
+        ...base,
+        session,
+        operationId: "op-y",
+        turn: { id: "t1", sequence: 1, input: turnInput("We chose Hono; rejected Koa.") },
+        messages: [{ role: "assistant", content: "Noted." }],
+      } as any);
+      assert.equal(await provider.tools!({ ...base, session, turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+      assert.equal(seen.length, 0);
+      // A session the resolver does know still works.
+      assert.notEqual(await provider.tools!({ ...base, session: sessionOf("s5", "acme"), turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+    } finally {
+      if (before === undefined) delete process.env.ROBRAIN_API_KEY;
+      else process.env.ROBRAIN_API_KEY = before;
+    }
+  });
+
+  it("tools() never throws: a resolver that rejects yields no tools", async () => {
+    recordAuth();
+    const provider = robrainMemory({ ...options, projectId: () => { throw new Error("boom"); } });
+    assert.equal(await provider.tools!({ ...base, session: sessionOf("s6", "acme"), turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+  });
 });
 
 describe("per-process state is partitioned by connection", () => {

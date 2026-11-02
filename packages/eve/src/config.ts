@@ -31,14 +31,14 @@ export interface ProjectResolverContext {
 /**
  * A connection setting: a value, or a function of the operation that reads
  * it at run time. The function form receives the operation's context, so a
- * multi-tenant app can hand each session its own credential. Return
- * `undefined` to fall back to the environment; THROW to skip the operation
- * (no request is made — the turn goes on without memory), which is what a
- * multi-tenant resolver should do when it cannot find this session's
- * credential, so it never falls back to a shared one. A function for
- * `apiKey` or `apiUrl` that returns an empty string or `null`, or any
- * setting function that takes longer than `timeoutMs`, skips the operation
- * too.
+ * multi-tenant app can hand each session its own credential. A function
+ * for `apiKey` or `apiUrl` that answers `undefined`, `null` or an empty
+ * string skips the operation (no request is made — the turn goes on without
+ * memory), and so does one that throws or takes longer than `timeoutMs`.
+ * The environment (`ROBRAIN_API_KEY`, …) only fills in a setting that is
+ * left out or given as a fixed empty value, never one a function answered:
+ * a per-session lookup that misses (`keys[tenant]` is `undefined`) must not
+ * turn into the shared credential.
  */
 export type ConnectionSetting<T> =
   | T
@@ -151,12 +151,13 @@ async function unwrap<T>(
 }
 
 /**
- * A setting function answered for this operation, but with no usable value.
- * Only `undefined` means "use the environment"; an empty string or `null`
- * from a per-session lookup must never become the shared env credential.
+ * A setting function answered for this operation, but with no usable value:
+ * `undefined`, `null`, or an empty string. None of them falls back to the
+ * environment. `undefined` is what a per-session lookup answers on a miss,
+ * and the shared env credential must never stand in for a session's own.
  */
 function answeredEmpty(setting: unknown, value: unknown): boolean {
-  return typeof setting === "function" && value !== undefined && (typeof value !== "string" || !value.trim());
+  return typeof setting === "function" && (typeof value !== "string" || !value.trim());
 }
 
 // Node 17+ resolves `localhost` IPv6-first (::1) while the Docker stack only
@@ -202,9 +203,9 @@ function settle<T>(
 
 /**
  * The connection for one operation, or the reason to skip it: a setting
- * function threw, timed out, or answered with an empty URL or key, or the
- * headers were unusable. A skip never falls back to the environment's shared
- * values.
+ * function threw, timed out, or answered with no URL or key (`undefined`,
+ * `null` or empty), or the headers were unusable. A skip never falls back to
+ * the environment's shared values.
  */
 export async function connectionFor(
   options: RobrainMemoryOptions,
@@ -304,12 +305,15 @@ function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined):
     // fetch strips leading and trailing HTTP whitespace itself, so a secret
     // pasted into an env var with a trailing newline is still usable.
     const value = typeof rawValue === "string" ? rawValue.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "") : rawValue;
-    // Control characters (HTAB aside) never belong in a header value.
+    // A header value is a byte string: HTAB, printable ASCII and 0x80-0xFF.
+    // Control characters never belong in one, and a code point above 0xFF
+    // makes `new Headers()` throw inside fetch, which would turn memory off
+    // for every request with no log. Refuse both here instead.
     if (
       !HEADER_NAME.test(name) ||
       name === "__proto__" ||
       typeof value !== "string" ||
-      /[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)
+      /[^\t\x20-\x7e\x80-\xff]/.test(value)
     ) {
       continue;
     }

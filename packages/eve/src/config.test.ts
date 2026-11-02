@@ -61,9 +61,14 @@ describe("resolveConnection", () => {
     assert.deepEqual(b, { apiUrl: "https://robrain.test/s2", apiKey: "key-globex", timeoutMs: 2500, headers: {} });
   });
 
-  it("a setting function returning undefined falls back to the environment", async () => {
-    const c = await resolveConnection({ apiKey: () => undefined }, ctx, { ROBRAIN_API_KEY: "env-key" });
-    assert.equal(c?.apiKey, "env-key");
+  it("a setting function returning undefined skips the operation — never the shared env credential", async () => {
+    // `keys[tenant]` on a miss is undefined: the most natural resolver bug.
+    const env = { ROBRAIN_API_URL: "https://shared", ROBRAIN_API_KEY: "env-key" };
+    assert.equal(await resolveConnection({ apiKey: () => undefined }, sessionCtx("s9", "unknown"), env), null);
+    assert.equal(await resolveConnection({ apiKey: () => undefined }, ctx, env), null);
+    assert.equal(await resolveConnection({ apiUrl: async () => undefined }, ctx, env), null);
+    // A setting left out is "not configured": the environment fills it in.
+    assert.equal((await resolveConnection({}, ctx, env))?.apiKey, "env-key");
   });
 
   it("a throwing setting function skips the operation — never the shared env credential", async () => {
@@ -78,7 +83,7 @@ describe("resolveConnection", () => {
     );
   });
 
-  it("a setting function answering empty or null skips the operation — only undefined falls back", async () => {
+  it("a setting function answering empty or null skips the operation", async () => {
     const env = { ROBRAIN_API_URL: "https://shared", ROBRAIN_API_KEY: "shared-key" };
     for (const answer of ["", "   ", null]) {
       assert.equal(await resolveConnection({ apiKey: async () => answer as string }, ctx, env), null);
@@ -218,6 +223,15 @@ describe("headers option", () => {
     }
   });
 
+  it("refuses header values outside Latin-1 (fetch would throw building the request)", async () => {
+    assert.throws(() => new Headers({ "x-a": "\u{1F600}" })); // what we are guarding against
+    for (const value of ["\u{1F600}", "caf\u00e9\u0100", "\u2028"]) {
+      assert.deepEqual(await connectionFor({ headers: { "x-b": value } }, ctx, {}), { skip: "headers", why: "unusable" });
+    }
+    // The high half of Latin-1 is a byte string and stays usable.
+    assert.deepEqual((await resolveConnection({ headers: { "x-c": "caf\u00e9" } }, ctx, {}))?.headers, { "x-c": "caf\u00e9" });
+  });
+
   it("trims surrounding whitespace from header values, as fetch would", async () => {
     // A secret pasted into an env var with a trailing newline is still usable.
     const c = await resolveConnection({ headers: { "x-bypass": " s3cret\r\n", "x-tab": "\ta\tb\t" } }, ctx, {});
@@ -231,6 +245,7 @@ describe("headers option", () => {
     assert.deepEqual(await connectionFor({ apiKey: () => { throw new Error("tenant-secret"); } }, ctx, env), { skip: "apiKey", why: "threw" });
     assert.deepEqual(await connectionFor({ apiUrl: () => "" }, ctx, env), { skip: "apiUrl", why: "empty" });
     assert.deepEqual(await connectionFor({ apiKey: async () => null as unknown as string }, ctx, env), { skip: "apiKey", why: "empty" });
+    assert.deepEqual(await connectionFor({ apiKey: () => undefined }, ctx, env), { skip: "apiKey", why: "empty" });
     assert.deepEqual(
       await connectionFor({ headers: () => new Promise<Record<string, string>>(() => {}), timeoutMs: 20 }, ctx, env),
       { skip: "headers", why: "timed out" },

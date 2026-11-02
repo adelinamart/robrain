@@ -123,7 +123,7 @@ export function skipMessage({ skip, why }: ConnectionSkip): string {
       : why === "timed out"
         ? `the "${skip}" setting function took longer than timeoutMs`
         : why === "empty"
-          ? `the "${skip}" setting function answered an empty string or null`
+          ? `the "${skip}" setting function answered nothing (undefined, null or an empty string)`
           : `the "${skip}" setting function threw`;
   return `${cause}; operations where this happens run without memory. Logged once.`;
 }
@@ -371,12 +371,19 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
 
   async function tools(context: MemoryToolsContext) {
     // The tool closes over THIS operation's connection, so a call can never
-    // run with another session's credential.
-    const resolved = await clientFor(context);
-    if (!resolved) return null;
+    // run with another session's credential. Resolution is guarded like
+    // recall: a throw here would fail the turn, and memory is best-effort.
+    let resolved: Resolved | null;
+    let projectId: string | null;
+    try {
+      resolved = await clientFor(context);
+      if (!resolved) return null;
+      projectId = await projectFor(context, resolved);
+      if (!projectId) return null;
+    } catch {
+      return null;
+    }
     const { api } = resolved;
-    const projectId = await projectFor(context, resolved);
-    if (!projectId) return null;
     return {
       check_prior_decisions: defineTool({
         description:
