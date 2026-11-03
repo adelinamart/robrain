@@ -47,6 +47,11 @@ Emergency bypass (avoid unless you know why): `ROBRAIN_SKIP_RELEASE_GUARD=1`.
 | `server.json` | top-level `version` **and** `packages[0].version` |
 | `Dockerfile` (root, Glama introspection) | `pnpm add -g robrain@X.Y.Z` pin |
 
+**Not in the lockstep bump:** `@robrain/eve` (`packages/eve`) uses its own
+**0.x** line. Bump and publish it only when the eve provider changes — see
+[Publish `@robrain/eve`](#publish-robraineve) below. Vetobench stays unversioned
+with the CLI release.
+
 Keep `"mcpName": "io.github.adelinamart/robrain"` in `packages/cli/package.json`
 — the MCP Registry ownership check reads it from the **published** npm tarball.
 
@@ -108,8 +113,10 @@ git push origin v2.3.8 && gh run watch
 
 ### 3. Publish npm
 
-Two packages ship to npm every release: **`@robrain/shared`** (consumed by the
-cloud repo as a normal registry dependency) and **`robrain`** (the CLI).
+Every CLI release ships **`@robrain/shared`** (cloud dependency) and
+**`robrain`** (the CLI). When `packages/eve/package.json` was bumped this cycle,
+also publish **`@robrain/eve`** (see next section) — it is independent of the
+GHCR guard.
 
 > **One-time setup:** the `@robrain` scope is an npm **organization**, created on
 > https://www.npmjs.com/org/create with the same account that owns the `robrain`
@@ -117,7 +124,7 @@ cloud repo as a normal registry dependency) and **`robrain`** (the CLI).
 > the free *Unlimited public packages* plan. Verify with `npm org ls robrain`.
 > Scoped packages default to restricted on publish, which a free org cannot
 > host — hence `publishConfig.access: "public"` in `packages/shared/package.json`
-> **and** `--access public` on the publish command.
+> and `packages/eve/package.json`, **and** `--access public` on the publish command.
 
 Preflight — confirm the shared tarball has `dist/*` (no `*.test.js`, no
 `*.map`), `schema.sql`, `README.md`, `LICENSE`, and `package.json`, and nothing
@@ -161,10 +168,30 @@ Smoke:
 
 ```bash
 npm view @robrain/shared version   # → X.Y.Z
-npx robrain@X.Y.Z --version
-npx robrain@X.Y.Z up          # only if no conflicting stack already running (see below)
+npx -y robrain@X.Y.Z --version
+npx -y robrain@X.Y.Z up          # only if no conflicting stack already running (see below)
 cd packages/cli && pnpm pack:verify
 ```
+
+### 3b. Publish `@robrain/eve`
+
+`@robrain/eve` is the memory provider for [eve](https://github.com/eve) agents.
+It does **not** share the `X.Y.Z` lockstep with the CLI, does **not** need a
+`v*` tag or GHCR image, and is **not** included in `pnpm publish:npm`.
+
+Publish whenever `packages/eve/package.json` `"version"` is ahead of npm
+(today that is often a `0.x` bump for provider API changes):
+
+```bash
+cd /path/to/robrain
+pnpm --filter @robrain/eve exec npm pack --dry-run
+# expect dist/*.js + dist/*.d.ts, README.md, LICENSE, package.json — no *.test.*
+pnpm --filter @robrain/eve publish --access public --no-git-checks
+npm view @robrain/eve version
+```
+
+OTP once if 2FA is on. Skip this step on a CLI-only release when eve’s version
+did not change.
 
 ### 4. Official MCP Registry
 
@@ -278,6 +305,8 @@ git tag vX.Y.Z → push tag → wait publish-perception-image.yml ✓
 docker pull ghcr.io/.../robrain-perception:X.Y.Z  (verify)
        ↓
 pnpm publish:npm   (@robrain/shared, then robrain — release guard must pass)
+       ↓
+pnpm --filter @robrain/eve publish   (only if packages/eve version changed)
        ↓
 mcp-publisher publish   (login github only if 401)
        ↓
