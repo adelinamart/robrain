@@ -99,12 +99,42 @@ describe("contextRecall (cloud POST /context)", () => {
     assert.deepEqual(body, { project_id: "p1", task_description: "add graphql", session_id: "eve-s1", sequence: 2, budget_tokens: 900 });
   });
 
-  it("remembers a 404 per API URL so self-hosted pays for the probe once", async () => {
+  it("remembers a 404 per connection so self-hosted pays for the probe once", async () => {
     const calls = stubFetch({ "/context": () => "NOT_FOUND" });
     const api = new RobrainClient(conn);
     assert.equal(await api.contextRecall("p1", "q"), null);
-    assert.equal(await api.contextRecall("p1", "q"), null);
+    assert.equal(await new RobrainClient(conn).contextRecall("p1", "q"), null);
     assert.equal(calls.filter((c) => c.url.includes("/context")).length, 1);
+    assert.equal(api.contextSupported(), false);
+  });
+
+  it("one connection's 404 never turns /context off for another behind the same URL", async () => {
+    // A proxy routing tenants by key: one lands on self-hosted, one on cloud.
+    stubFetch({
+      "/context": (_url, init) =>
+        (init?.headers as Record<string, string>).Authorization === "Bearer self-hosted"
+          ? "NOT_FOUND"
+          : { memories: [{ id: "m1", decision: "Use Hono", rejected: [] }], veto_warnings: [] },
+    });
+    const selfHosted = new RobrainClient({ ...conn, apiKey: "self-hosted" });
+    const cloud = new RobrainClient({ ...conn, apiKey: "cloud" });
+    assert.equal(await selfHosted.contextRecall("p1", "q"), null);
+    assert.equal((await cloud.contextRecall("p1", "q"))?.memories[0]?.id, "m1");
+    assert.equal(selfHosted.contextSupported(), false);
+    assert.equal(cloud.contextSupported(), true);
+  });
+
+  it("a connection in use keeps its confirmed /context past the cap (only idle ones are evicted)", async () => {
+    stubFetch({ "/context": () => ({ memories: [], veto_warnings: [] }) });
+    const busy = new RobrainClient({ ...conn, apiKey: "busy" });
+    await busy.contextRecall("p1", "q");
+    for (let i = 0; i < 999; i++) await new RobrainClient({ ...conn, apiKey: `idle-${i}` }).contextRecall("p1", "q");
+    await busy.contextRecall("p1", "q"); // a fresh confirmation refreshes its entry
+    await new RobrainClient({ ...conn, apiKey: "one-more" }).contextRecall("p1", "q"); // over the cap
+    assert.equal(new RobrainClient({ ...conn, apiKey: "busy" }).contextSupported(), true);
+    assert.equal(new RobrainClient({ ...conn, apiKey: "idle-0" }).contextSupported(), undefined);
+    resetContextSupport();
+    assert.equal(busy.contextSupported(), true); // and a client never forgets what it learned
   });
 
   it("treats transient failures as null without disabling the route", async () => {
@@ -156,5 +186,43 @@ describe("captureTurn", () => {
       await new RobrainClient(conn).captureTurn("p1", { sessionId: "s", sequence: 1, userMessage: "u", reply: "r" }),
       false,
     );
+  });
+});
+
+describe("request headers and redirects", () => {
+  it("sends caller headers, never lets them replace the provider's, and refuses redirects", async () => {
+    let seen: RequestInit | undefined;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
+      seen = init;
+      return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const api = new RobrainClient({
+        apiUrl: "https://robrain.test",
+        apiKey: "real-key",
+        timeoutMs: 1000,
+        headers: {
+          "x-vercel-protection-bypass": "bypass",
+          authorization: "Bearer attacker",
+          "content-type": "text/plain",
+          "X-Project-Id": "other",
+          "keep-alive": "timeout=5",
+          Upgrade: "h2c",
+        },
+      });
+      await api.alwaysOnSummary("p1");
+      const headers = seen?.headers as Record<string, string>;
+      assert.equal(headers["x-vercel-protection-bypass"], "bypass");
+      assert.equal(headers.Authorization, "Bearer real-key");
+      assert.equal(headers.authorization, undefined);
+      assert.equal(headers["content-type"], undefined);
+      assert.equal(headers["X-Project-Id"], undefined);
+      assert.equal(headers["keep-alive"], undefined);
+      assert.equal(headers.Upgrade, undefined);
+      assert.equal(seen?.redirect, "error");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

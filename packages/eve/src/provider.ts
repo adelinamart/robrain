@@ -30,18 +30,49 @@ import { z } from "zod";
 
 import {
   RobrainClient,
-  isContextSupported,
   mergeVetoes,
   type ContextMemory,
   type VetoDecision,
 } from "./client.js";
-import { agentProject, resolveConnection, resolveProjectId, type RobrainMemoryOptions } from "./config.js";
+import {
+  agentProject,
+  connectionDigest,
+  connectionFor,
+  isSkip,
+  resolveProjectId,
+  type ConnectionSkip,
+  type ProjectResolverContext,
+  type RobrainMemoryOptions,
+} from "./config.js";
 import { lastTextByRole, toolNamesIn } from "./messages.js";
 
 const SUMMARY_ID = "robrain:summary";
 const ACK_ID = "robrain:acknowledgement";
 const SUMMARY_TTL_MS = 5 * 60 * 1000;
 const SEEN_OPERATIONS_CAP = 2000;
+/**
+ * Max entries in each per-connection map. With per-session credentials the
+ * key space grows with tenants × projects, so every map is bounded; the
+ * oldest entry goes first. Evicting is always safe: a dropped summary is
+ * fetched again, a dropped registration re-registers (an upsert), and a
+ * dropped 409 is learned again from the server, which owns that decision
+ * (RoBrain cloud refuses reads and writes of another org's project either
+ * way; the remembered 409 only saves a request per turn).
+ */
+const CONNECTION_STATE_CAP = 1000;
+/** A 409 is re-checked after this long instead of being remembered forever. */
+const BLOCKED_RECHECK_MS = 60 * 60 * 1000;
+
+/** Insert (or refresh) and evict the oldest entries beyond `cap`. */
+function boundedSet<V>(map: Map<string, V>, key: string, value: V, cap: number): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > cap) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
 /** Below this, a message is a greeting or an acknowledgement — not worth a relevance lookup. */
 const MIN_QUERY_CHARS = 24;
 
@@ -84,6 +115,19 @@ export function renderMemory(memory: ContextMemory): string {
   return lines.join("\n");
 }
 
+export function skipMessage({ skip, why }: ConnectionSkip): string {
+  const cause =
+    why === "unusable"
+      ? `"headers" is not a plain object or has an unusable entry (a name that is not a header token, ` +
+        `a value with control characters, two names that differ only by case)`
+      : why === "timed out"
+        ? `the "${skip}" setting function took longer than timeoutMs`
+        : why === "empty"
+          ? `the "${skip}" setting function answered nothing (undefined, null or an empty string)`
+          : `the "${skip}" setting function threw`;
+  return `${cause}; operations where this happens run without memory. Logged once.`;
+}
+
 export function decisionMessageId(decision: { id?: string; decision: string }): string {
   return `robrain:decision:${decision.id ?? decision.decision.slice(0, 120)}`;
 }
@@ -95,66 +139,108 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   const vetoLimit = options.vetoLimit ?? 3;
   const contextBudgetTokens = options.contextBudgetTokens ?? 1500;
 
+  // Per-process state below is keyed by connection AND project: with
+  // per-session credentials, one project id can mean different orgs (or
+  // different RoBrain installs), and what one credential may read — or the
+  // 409 it got — must never be reused for another.
   const summaryCache = new Map<string, { text: string | null; at: number }>();
   const seenOperations = new Set<string>();
 
-  function client(): RobrainClient {
-    return new RobrainClient(resolveConnection(options));
+  /** One operation's client and the identity of its connection. */
+  interface Resolved {
+    readonly api: RobrainClient;
+    readonly apiUrl: string;
+    /** Digest of connectionIdentity (URL, key, headers): a cache partition, never the key itself. */
+    readonly connectionKey: string;
   }
 
-  // The agent's own project is registered once per process, the first time
-  // a handler runs. A failed registration is logged once and retried on the
-  // next handler; the handler itself goes on either way (fail-open). A 409
-  // (the id belongs to another org on RoBrain cloud) is final: the slot
-  // goes inactive for that id instead of reading and writing a foreign
-  // project on every turn, and the operator is told to rename or pin.
-  const registered = new Set<string>();
-  const blocked = new Set<string>();
-  const warned = new Set<string>();
+  /**
+   * The client for one operation, from its own resolved connection — apiKey
+   * and apiUrl may be per-session — or null when the operation is skipped.
+   * Each kind of skip is logged once, by setting and reason, never a value:
+   * a misconfigured fixed setting would otherwise turn memory off silently.
+   */
+  async function clientFor(context: ProjectResolverContext): Promise<Resolved | null> {
+    const connection = await connectionFor(options, context);
+    if (isSkip(connection)) {
+      warnOnce(`skip:${connection.skip}:${connection.why}`, skipMessage(connection));
+      return null;
+    }
+    return { api: new RobrainClient(connection), apiUrl: connection.apiUrl, connectionKey: connectionDigest(connection) };
+  }
+
+  function stateKey(resolved: Resolved, projectId: string): string {
+    return `${resolved.connectionKey}:${projectId}`;
+  }
+
+  // The agent's own project is registered once per connection, the first
+  // time a handler runs. A failed registration is logged once and retried on
+  // the next handler; the handler itself goes on either way (fail-open). A
+  // 409 (the id belongs to another org on RoBrain cloud) is final for that
+  // connection: the slot goes inactive for that id instead of reading and
+  // writing a foreign project on every turn, and the operator is told to
+  // rename or pin.
+  const registered = new Map<string, true>();
+  /** Connection+project → when the 409 was seen. */
+  const blocked = new Map<string, number>();
+  const warned = new Map<string, true>();
   function warnOnce(key: string, message: string): void {
     if (warned.has(key)) return;
-    warned.add(key);
+    boundedSet(warned, key, true, CONNECTION_STATE_CAP);
     console.warn(`[robrain/eve] ${message}`);
   }
-  async function ensureAgentProject(api: RobrainClient, projectId: string): Promise<"ready" | "blocked"> {
-    const own = agentProject(options);
+  async function ensureAgentProject(resolved: Resolved, projectId: string): Promise<"ready" | "blocked"> {
+    const own = agentProject(options, resolved.apiUrl);
     if (!own || own.id !== projectId) return "ready";
-    if (blocked.has(projectId)) return "blocked";
-    if (registered.has(projectId)) return "ready";
+    const key = stateKey(resolved, projectId);
+    // A remembered 409 holds until the server says otherwise. Once due for a
+    // re-check, only a successful registration lifts it; a failed or
+    // unanswered re-check keeps the slot off (fail closed).
+    const blockedAt = blocked.get(key);
+    if (blockedAt !== undefined && Date.now() - blockedAt < BLOCKED_RECHECK_MS) return "blocked";
+    const wasBlocked = blockedAt !== undefined;
+    if (!wasBlocked && registered.has(key)) return "ready";
     try {
-      const outcome = await api.registerProject(own.id, own.name, own.tags);
+      const outcome = await resolved.api.registerProject(own.id, own.name, own.tags);
       if (outcome === "registered") {
-        registered.add(projectId);
+        blocked.delete(key);
+        boundedSet(registered, key, true, CONNECTION_STATE_CAP);
       } else if (outcome === "conflict") {
-        blocked.add(projectId);
-        warnOnce(`conflict:${projectId}`,
+        boundedSet(blocked, key, Date.now(), CONNECTION_STATE_CAP);
+        warnOnce(`conflict:${key}`,
           `project "${projectId}" for agent "${own.name}" belongs to another org on this RoBrain; ` +
           `memory is off for this agent. Rename the agent or pin a different id: agent: { name, id }.`);
         return "blocked";
       } else {
-        warnOnce(`failed:${projectId}`,
+        if (wasBlocked) return "blocked"; // re-check failed: still off, retried next handler
+        warnOnce(`failed:${key}`,
           `could not register project "${projectId}" for agent "${own.name}" (API unreachable or error); ` +
           `memory stays off until it succeeds, retried on the next turn.`);
       }
     } catch {
+      if (wasBlocked) return "blocked";
       // retried on the next handler
     }
     return "ready";
   }
 
   /** Resolve the project for this operation, registering the agent's own project on first use. */
-  async function projectFor(context: Parameters<typeof resolveProjectId>[1], api: RobrainClient): Promise<string | null> {
-    const projectId = await resolveProjectId(options, context);
+  async function projectFor(context: ProjectResolverContext, resolved: Resolved): Promise<string | null> {
+    const projectId = await resolveProjectId(options, context, resolved.apiUrl);
     if (!projectId) return null;
-    if ((await ensureAgentProject(api, projectId)) === "blocked") return null;
+    if ((await ensureAgentProject(resolved, projectId)) === "blocked") return null;
     return projectId;
   }
 
-  async function cachedSummary(api: RobrainClient, projectId: string): Promise<string | null> {
-    const hit = summaryCache.get(projectId);
-    if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
-    const text = await api.alwaysOnSummary(projectId);
-    summaryCache.set(projectId, { text, at: Date.now() });
+  async function cachedSummary(resolved: Resolved, projectId: string): Promise<string | null> {
+    const key = stateKey(resolved, projectId);
+    const hit = summaryCache.get(key);
+    if (hit) {
+      if (Date.now() - hit.at < SUMMARY_TTL_MS) return hit.text;
+      summaryCache.delete(key);
+    }
+    const text = await resolved.api.alwaysOnSummary(projectId);
+    boundedSet(summaryCache, key, { text, at: Date.now() }, CONNECTION_STATE_CAP);
     return text;
   }
 
@@ -193,12 +279,12 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
         ? api.contextRecall(projectId, query, { ...coordinates, budgetTokens: contextBudgetTokens })
         : Promise.resolve(null),
     ]);
-    // Once /context is confirmed for this API, a transient failure must not
-    // degrade to the list endpoint: cloud GET /decisions is unranked, and
+    // Once /context is confirmed for this connection, a transient failure must
+    // not degrade to the list endpoint: cloud GET /decisions is unranked, and
     // injecting the newest vetoes regardless of relevance is worse than none.
     const semantic = context
       ? context.vetoes
-      : isContextSupported(resolveConnection(options).apiUrl) === true
+      : api.contextSupported() === true
         ? []
         : await api.semanticVetoes(projectId, query);
     return {
@@ -210,14 +296,16 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
 
   async function recallTurnStarted(context: MemoryTurnStartedContext): Promise<MemoryRecallResult> {
     try {
-      const api = client();
-      const projectId = await projectFor(context, api);
+      const resolved = await clientFor(context);
+      if (!resolved) return null;
+      const { api } = resolved;
+      const projectId = await projectFor(context, resolved);
       if (!projectId) return null;
       const userText = lastTextByRole(context.turn.input, "user");
       const lookup = userText.length >= MIN_QUERY_CHARS;
 
       const [summary, found] = await Promise.all([
-        includeSummary ? cachedSummary(api, projectId) : Promise.resolve(null),
+        includeSummary ? cachedSummary(resolved, projectId) : Promise.resolve(null),
         lookup
           ? relevance(api, projectId, userText, {
               sessionId: `eve-${context.session.id}`,
@@ -253,8 +341,16 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
     try {
       if (!captureEnabled) return;
       if (!rememberOperation(context.operationId)) return;
-      const api = client();
-      const projectId = await projectFor(context, api);
+      const resolved = await clientFor(context);
+      if (!resolved) {
+        // No connection (the operation was skipped, e.g. a credential lookup
+        // failed): forget the operation so eve's redelivery can still
+        // capture this turn.
+        seenOperations.delete(context.operationId);
+        return;
+      }
+      const { api } = resolved;
+      const projectId = await projectFor(context, resolved);
       if (!projectId) return;
       const userMessage = lastTextByRole(context.turn.input, "user");
       const reply = lastTextByRole(context.messages, "assistant");
@@ -274,9 +370,20 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
   }
 
   async function tools(context: MemoryToolsContext) {
-    const api = client();
-    const projectId = await projectFor(context, api);
-    if (!projectId) return null;
+    // The tool closes over THIS operation's connection, so a call can never
+    // run with another session's credential. Resolution is guarded like
+    // recall: a throw here would fail the turn, and memory is best-effort.
+    let resolved: Resolved | null;
+    let projectId: string | null;
+    try {
+      resolved = await clientFor(context);
+      if (!resolved) return null;
+      projectId = await projectFor(context, resolved);
+      if (!projectId) return null;
+    } catch {
+      return null;
+    }
+    const { api } = resolved;
     return {
       check_prior_decisions: defineTool({
         description:
@@ -297,7 +404,7 @@ export function robrainMemory(options: RobrainMemoryOptions = {}): MemoryProvide
           ]);
           const semantic = context
             ? context.vetoes
-            : isContextSupported(resolveConnection(options).apiUrl) === true
+            : api.contextSupported() === true
               ? []
               : await api.semanticVetoes(projectId, query);
           const vetoes = mergeVetoes(exact, semantic);

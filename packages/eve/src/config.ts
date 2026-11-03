@@ -5,8 +5,7 @@
 // in the build environment too, and stale values bake into the artifact.)
 
 import { createHash } from "node:crypto";
-
-export type Lazy<T> = T | (() => T);
+import type { MemoryToolsContext } from "eve/memory";
 
 /** The subset of eve's operation context a project resolver may use. */
 export interface ProjectResolverContext {
@@ -18,17 +17,42 @@ export interface ProjectResolverContext {
     };
     readonly slot: string;
   };
+  /**
+   * The eve session the operation runs in: its id and verified
+   * authentication. Present for every recall, capture and tools call eve
+   * makes; absent only when the provider resolves outside an operation.
+   */
+  readonly session?: {
+    readonly id: string;
+    readonly auth: MemoryToolsContext["session"]["auth"];
+  };
 }
+
+/**
+ * A connection setting: a value, or a function of the operation that reads
+ * it at run time. The function form receives the operation's context, so a
+ * multi-tenant app can hand each session its own credential. A function
+ * for `apiKey` or `apiUrl` that answers `undefined`, `null` or an empty
+ * string skips the operation (no request is made — the turn goes on without
+ * memory), and so does one that throws or takes longer than `timeoutMs`.
+ * The environment (`ROBRAIN_API_KEY`, …) only fills in a setting that is
+ * left out or given as a fixed empty value, never one a function answered:
+ * a per-session lookup that misses (`keys[tenant]` is `undefined`) must not
+ * turn into the shared credential.
+ */
+export type ConnectionSetting<T> =
+  | T
+  | ((context?: ProjectResolverContext) => T | Promise<T>);
 
 export interface RobrainMemoryOptions {
   /** API key. Default: ROBRAIN_API_KEY, then PERCEPTION_API_KEY. */
-  readonly apiKey?: Lazy<string | undefined>;
+  readonly apiKey?: ConnectionSetting<string | undefined>;
   /**
    * Base URL of the RoBrain API — a self-hosted Perception or the Rory Plans
    * cloud API. Default: ROBRAIN_API_URL, then PERCEPTION_API_URL, then
    * http://127.0.0.1:3001 (the self-hosted Docker stack).
    */
-  readonly apiUrl?: Lazy<string | undefined>;
+  readonly apiUrl?: ConnectionSetting<string | undefined>;
   /**
    * RoBrain project whose decision memory this slot reads and writes. A
    * string binds the slot to one project (the common case: one eve app, one
@@ -76,18 +100,64 @@ export interface RobrainMemoryOptions {
   readonly contextBudgetTokens?: number;
   /** Capture completed turns for server-side decision extraction. Default true. */
   readonly capture?: boolean;
-  /** Per-request timeout. Recall runs before the model call, so keep it short. Default 2500. */
+  /**
+   * Per-request timeout, and the time each setting function (`apiKey`,
+   * `apiUrl`, `headers`) gets to answer. Recall runs before the model call,
+   * so keep it short. Default 2500.
+   */
   readonly timeoutMs?: number;
+  /**
+   * Extra headers on every request to the RoBrain API, e.g. a deployment
+   * protection bypass when the API URL is a proxy in your own app. A value
+   * or a function of the operation, like `apiKey`; a throwing function skips
+   * the operation. The provider's own `Authorization`, `Content-Type` and
+   * `X-Project-Id` always win over these.
+   */
+  readonly headers?: ConnectionSetting<Readonly<Record<string, string>> | undefined>;
 }
 
 export interface ResolvedConnection {
   readonly apiUrl: string;
   readonly apiKey: string;
   readonly timeoutMs: number;
+  /** Extra request headers; absent means none. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
-function unwrap<T>(value: Lazy<T>): T {
-  return typeof value === "function" ? (value as () => T)() : value;
+class SettingTimedOut extends Error {}
+
+/**
+ * Thrown setting functions propagate: the caller treats them as "skip". So
+ * does one that takes longer than `timeoutMs`, so a hung credential lookup
+ * never holds up the turn.
+ */
+async function unwrap<T>(
+  value: ConnectionSetting<T>,
+  context: ProjectResolverContext | undefined,
+  timeoutMs: number,
+): Promise<T> {
+  if (typeof value !== "function") return value;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (value as (context?: ProjectResolverContext) => T | Promise<T>)(context),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new SettingTimedOut("setting function timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A setting function answered for this operation, but with no usable value:
+ * `undefined`, `null`, or an empty string. None of them falls back to the
+ * environment. `undefined` is what a per-session lookup answers on a miss,
+ * and the shared env credential must never stand in for a session's own.
+ */
+function answeredEmpty(setting: unknown, value: unknown): boolean {
+  return typeof setting === "function" && (typeof value !== "string" || !value.trim());
 }
 
 // Node 17+ resolves `localhost` IPv6-first (::1) while the Docker stack only
@@ -105,25 +175,173 @@ function normalizeLoopback(url: string): string {
   return url.replace(/\/$/, "");
 }
 
-export function resolveConnection(
+/**
+ * Why an operation was skipped: which setting, and what was wrong with it.
+ * Carries no values, so it is safe to log.
+ */
+export interface ConnectionSkip {
+  readonly skip: "apiUrl" | "apiKey" | "headers";
+  readonly why: "threw" | "timed out" | "empty" | "unusable";
+}
+
+class SettingSkipped extends Error {
+  constructor(readonly reason: ConnectionSkip) {
+    super(`${reason.skip} ${reason.why}`);
+  }
+}
+
+function settle<T>(
+  setting: ConnectionSkip["skip"],
+  value: ConnectionSetting<T> | undefined,
+  context: ProjectResolverContext | undefined,
+  timeoutMs: number,
+): Promise<T | undefined> {
+  return unwrap(value, context, timeoutMs).catch((error: unknown) => {
+    throw new SettingSkipped({ skip: setting, why: error instanceof SettingTimedOut ? "timed out" : "threw" });
+  });
+}
+
+/**
+ * The connection for one operation, or the reason to skip it: a setting
+ * function threw, timed out, or answered with no URL or key (`undefined`,
+ * `null` or empty), or the headers were unusable. A skip never falls back to
+ * the environment's shared values.
+ */
+export async function connectionFor(
   options: RobrainMemoryOptions,
+  context?: ProjectResolverContext,
   env: NodeJS.ProcessEnv = process.env,
-): ResolvedConnection {
+): Promise<ResolvedConnection | ConnectionSkip> {
+  const timeoutMs = options.timeoutMs ?? 2500;
+  let configuredUrl: string | undefined;
+  let configuredKey: string | undefined;
+  let configuredHeaders: Readonly<Record<string, string>> | undefined;
+  try {
+    [configuredUrl, configuredKey, configuredHeaders] = await Promise.all([
+      settle("apiUrl", options.apiUrl, context, timeoutMs),
+      settle("apiKey", options.apiKey, context, timeoutMs),
+      settle("headers", options.headers, context, timeoutMs),
+    ]);
+  } catch (error) {
+    // Only settle() rejects here, always with the reason attached.
+    return (error as SettingSkipped).reason;
+  }
+  if (answeredEmpty(options.apiUrl, configuredUrl)) return { skip: "apiUrl", why: "empty" };
+  if (answeredEmpty(options.apiKey, configuredKey)) return { skip: "apiKey", why: "empty" };
   const apiUrl =
-    unwrap(options.apiUrl)?.trim() ||
+    configuredUrl?.trim() ||
     env.ROBRAIN_API_URL?.trim() ||
     env.PERCEPTION_API_URL?.trim() ||
     "http://127.0.0.1:3001";
   const apiKey =
-    unwrap(options.apiKey)?.trim() ||
+    configuredKey?.trim() ||
     env.ROBRAIN_API_KEY?.trim() ||
     env.PERCEPTION_API_KEY?.trim() ||
     "";
+  const headers = sanitizeHeaders(configuredHeaders);
+  // Headers may carry what tells sessions apart (a tenant header to a proxy)
+  // or what the hop needs (a protection bypass). If any configured entry is
+  // unusable, sending the rest would silently drop it: skip the operation
+  // instead, like a throw, whether the value is fixed or per-session.
+  if (headers.dropped) return { skip: "headers", why: "unusable" };
   return {
     apiUrl: normalizeLoopback(apiUrl),
     apiKey,
-    timeoutMs: options.timeoutMs ?? 2500,
+    timeoutMs,
+    headers: headers.valid,
   };
+}
+
+export function isSkip(result: ResolvedConnection | ConnectionSkip): result is ConnectionSkip {
+  return "skip" in result;
+}
+
+/** connectionFor without the reason: the connection, or null to skip the operation. */
+export async function resolveConnection(
+  options: RobrainMemoryOptions,
+  context?: ProjectResolverContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedConnection | null> {
+  const result = await connectionFor(options, context, env);
+  return isSkip(result) ? null : result;
+}
+
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== "object") return false;
+  if (Object.prototype.toString.call(value) !== "[object Object]") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
+/** RFC 9110 field-name token. */
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+/**
+ * Lowercased, trimmed names that are valid header tokens, with string values
+ * trimmed of surrounding HTTP whitespace and free of control characters.
+ * Any other entry is left out of `valid` and flagged in `dropped`, and the
+ * caller skips the operation rather than send the rest. Names are normalized
+ * here so every later check (reserved names, the connection identity) sees
+ * the key the HTTP layer will.
+ */
+function sanitizeHeaders(headers: Readonly<Record<string, string>> | undefined): {
+  valid: Readonly<Record<string, string>>;
+  /** Whether any entry was unusable (and left out of `valid`). */
+  dropped: boolean;
+} {
+  if (headers === undefined) return { valid: {}, dropped: false };
+  // Plain records only, proven positively (no denylist of container types to
+  // outgrow): tagged "[object Object]" with a prototype that is null or the
+  // root Object.prototype of SOME realm (its own prototype is null), so a
+  // record from another realm works and a Map, Headers, array or class
+  // instance does not. Anything else skips the operation.
+  if (!isPlainRecord(headers)) return { valid: {}, dropped: true };
+  // No prototype: a "__proto__" name is an ordinary key here, never a setter.
+  const out: Record<string, string> = Object.create(null);
+  let offered = 0;
+  for (const [rawName, rawValue] of Object.entries(headers)) {
+    offered += 1;
+    const name = rawName.trim().toLowerCase();
+    // fetch strips leading and trailing HTTP whitespace itself, so a secret
+    // pasted into an env var with a trailing newline is still usable.
+    const value = typeof rawValue === "string" ? rawValue.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "") : rawValue;
+    // A header value is a byte string: HTAB, printable ASCII and 0x80-0xFF.
+    // Control characters never belong in one, and a code point above 0xFF
+    // makes `new Headers()` throw inside fetch, which would turn memory off
+    // for every request with no log. Refuse both here instead.
+    if (
+      !HEADER_NAME.test(name) ||
+      name === "__proto__" ||
+      typeof value !== "string" ||
+      /[^\t\x20-\x7e\x80-\xff]/.test(value)
+    ) {
+      continue;
+    }
+    out[name] = value;
+  }
+  // Counted, not flagged: an entry offered but not emitted for ANY reason
+  // (unusable, or two names that collapse to one once lowercased) is dropped.
+  return { valid: { ...out }, dropped: Object.keys(out).length !== offered };
+}
+
+/**
+ * Everything about a resolved connection that can differ between sessions,
+ * as one canonical string: per-process state (caches, registration outcomes)
+ * is partitioned by its digest. Add any new per-session connection setting
+ * here, or that state could be shared across sessions it should separate.
+ */
+export function connectionIdentity(connection: ResolvedConnection): string {
+  const headers = Object.entries(connection.headers ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  // JSON, not a separator join: every field is quoted and escaped, so no
+  // URL, key or header value can make two different connections collide.
+  return JSON.stringify([connection.apiUrl, connection.apiKey, headers]);
+}
+
+/** Digest of connectionIdentity: the partition key for per-process state, never the key itself. */
+export function connectionDigest(connection: ResolvedConnection): string {
+  return createHash("sha256").update(connectionIdentity(connection)).digest("hex").slice(0, 32);
 }
 
 /** A project the provider registers itself: the agent's own. */
@@ -164,17 +382,15 @@ export function agentProjectId(name: string, apiUrl: string): string {
 /**
  * The agent project from the `agent` option, or null when the option is
  * not set or the name has no letters or digits (nothing to name a project
- * after; the slot then stays inactive like any unconfigured one).
+ * after; the slot then stays inactive like any unconfigured one). `apiUrl`
+ * is the operation's resolved API URL (the id hashes it).
  */
-export function agentProject(
-  options: RobrainMemoryOptions,
-  env: NodeJS.ProcessEnv = process.env,
-): AgentProject | null {
+export function agentProject(options: RobrainMemoryOptions, apiUrl: string): AgentProject | null {
   const raw = options.agent;
   const name = (typeof raw === "string" ? raw : raw?.name)?.trim() ?? "";
   if (!name || !slugifyAgentName(name)) return null;
   const pinned = typeof raw === "object" ? raw.id?.trim() : undefined;
-  const id = pinned || agentProjectId(name, resolveConnection(options, env).apiUrl);
+  const id = pinned || agentProjectId(name, apiUrl);
   const tags = typeof raw === "object" ? (raw.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
   return { id, name, tags };
 }
@@ -182,6 +398,7 @@ export function agentProject(
 export async function resolveProjectId(
   options: RobrainMemoryOptions,
   context: ProjectResolverContext,
+  apiUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | null> {
   const configured = options.projectId;
@@ -193,6 +410,6 @@ export async function resolveProjectId(
       return null;
     }
   }
-  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || agentProject(options, env)?.id || "";
+  const id = configured?.trim() || env.ROBRAIN_PROJECT_ID?.trim() || agentProject(options, apiUrl)?.id || "";
   return id || null;
 }

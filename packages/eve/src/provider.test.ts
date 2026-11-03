@@ -187,6 +187,44 @@ describe("capture turn.completed", () => {
     assert.equal(calls.filter((c) => c === "POST /signals").length, 1);
   });
 
+  it("a redelivered operation is still captured when the first try had no connection", async () => {
+    const calls = stub();
+    let lookups = 0;
+    const provider = robrainMemory({
+      projectId: "p1",
+      apiKey: async () => {
+        if (lookups++ === 0) throw new Error("credential store blip");
+        return "k";
+      },
+    });
+    await provider.capture!["turn.completed"]!(completed as any);
+    assert.equal(calls.filter((c) => c === "POST /signals").length, 0);
+    await provider.capture!["turn.completed"]!(completed as any); // eve redelivers the same operation
+    assert.equal(calls.filter((c) => c === "POST /signals").length, 1);
+  });
+
+  it("warns once per kind of skip, naming the setting but never a value", async () => {
+    const calls = stub();
+    const lines: string[] = [];
+    const warn = console.warn;
+    console.warn = (line: string) => lines.push(line);
+    try {
+      const provider = robrainMemory({ projectId: "p1", apiKey: "k", headers: { "x-bypass": "s3\ncret" } });
+      await provider.capture!["turn.completed"]!(completed as any);
+      await provider.capture!["turn.completed"]!({ ...completed, operationId: "op-2" } as any);
+      assert.equal(calls.length, 0);
+      assert.equal(lines.length, 1);
+      assert.match(lines[0]!, /"headers" is not a plain object or has an unusable entry/);
+      assert.doesNotMatch(lines[0]!, /s3/);
+      const throwing = robrainMemory({ projectId: "p1", apiKey: () => { throw new Error("tenant-secret"); } });
+      await throwing.capture!["turn.completed"]!({ ...completed, operationId: "op-3" } as any);
+      assert.match(lines[1]!, /the "apiKey" setting function threw/);
+      assert.doesNotMatch(lines[1]!, /tenant-secret/);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it("can be disabled and never throws when the API is down", async () => {
     const calls = stub();
     await robrainMemory({ projectId: "p1", apiKey: "k", capture: false }).capture!["turn.completed"]!(completed as any);
@@ -334,5 +372,302 @@ describe("tools used", () => {
     } as any;
     await robrainMemory({ projectId: "p1", apiKey: "k" }).capture!["turn.completed"]!(completed);
     assert.deepEqual(signal.tools_used, ["send_email"]);
+  });
+});
+
+describe("per-session connection (multi-tenant apps)", () => {
+  /** Records the API URL and bearer of every request. */
+  function recordAuth() {
+    const seen: Array<{ url: string; auth: string | undefined }> = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seen.push({ url: String(input), auth: headers.Authorization });
+      if (String(input).includes("/context")) return new Response("{}", { status: 404 });
+      return new Response(JSON.stringify({ summary: "s", matches: [], decisions: [] }), { status: 200 });
+    }) as typeof fetch;
+    return seen;
+  }
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string | undefined;
+  const KEYS: Record<string, string> = { acme: "key-acme", globex: "key-globex" };
+  const sessionOf = (id: string, tenant: string) => ({
+    id,
+    auth: { current: { principalId: `u-${tenant}`, attributes: { tenant } } },
+  });
+  const options = {
+    apiUrl: (c: any) => `https://${tenantOf(c)}.robrain.test`,
+    apiKey: async (c: any) => {
+      const key = KEYS[tenantOf(c) ?? ""];
+      if (!key) throw new Error("no credential for this session");
+      return key;
+    },
+    projectId: (c: any) => `proj-${tenantOf(c)}`,
+  };
+
+  it("each session's recall uses its own URL and key", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    await provider.recall["turn.started"]({ ...started(question), session: sessionOf("s1", "acme") });
+    await provider.recall["turn.started"]({ ...started(question), session: sessionOf("s2", "globex") });
+    const acme = seen.filter((r) => r.url.startsWith("https://acme.robrain.test"));
+    const globex = seen.filter((r) => r.url.startsWith("https://globex.robrain.test"));
+    assert.ok(acme.length > 0 && globex.length > 0);
+    assert.ok(acme.every((r) => r.auth === "Bearer key-acme"));
+    assert.ok(globex.every((r) => r.auth === "Bearer key-globex"));
+  });
+
+  it("a tool keeps the connection of the operation that made it", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    const acmeTools = (await provider.tools!({
+      ...base,
+      session: sessionOf("s1", "acme"),
+      turn: { id: "t0", sequence: 0, input: [] },
+    } as any)) as any;
+    await provider.tools!({ ...base, session: sessionOf("s2", "globex"), turn: { id: "t0", sequence: 0, input: [] } } as any);
+    seen.length = 0;
+    await acmeTools.check_prior_decisions.execute({ task: "add GraphQL for the mobile API" }, {} as any);
+    assert.ok(seen.length > 0);
+    assert.ok(seen.every((r) => r.url.startsWith("https://acme.robrain.test") && r.auth === "Bearer key-acme"));
+  });
+
+  it("a throwing key resolver skips the operation without any request", async () => {
+    const seen = recordAuth();
+    const provider = robrainMemory(options);
+    const session = sessionOf("s3", "initech");
+    assert.equal(await provider.recall["turn.started"]({ ...started(question), session }), null);
+    await provider.capture!["turn.completed"]!({
+      ...base,
+      session,
+      operationId: "op-x",
+      turn: { id: "t1", sequence: 1, input: turnInput("We chose Hono; rejected Koa.") },
+      messages: [{ role: "assistant", content: "Noted." }],
+    } as any);
+    assert.equal(await provider.tools!({ ...base, session, turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+    assert.equal(seen.length, 0);
+  });
+
+  it("a key resolver answering undefined skips the operation even when a shared env key is set", async () => {
+    const seen = recordAuth();
+    const before = process.env.ROBRAIN_API_KEY;
+    process.env.ROBRAIN_API_KEY = "shared-env-key";
+    try {
+      const provider = robrainMemory({
+        ...options,
+        // keys[tenant] on a miss: the resolver bug this must not turn into a write under the shared key
+        apiKey: async (c: any) => KEYS[tenantOf(c) ?? ""],
+      });
+      const session = sessionOf("s4", "initech");
+      assert.equal(await provider.recall["turn.started"]({ ...started(question), session }), null);
+      await provider.capture!["turn.completed"]!({
+        ...base,
+        session,
+        operationId: "op-y",
+        turn: { id: "t1", sequence: 1, input: turnInput("We chose Hono; rejected Koa.") },
+        messages: [{ role: "assistant", content: "Noted." }],
+      } as any);
+      assert.equal(await provider.tools!({ ...base, session, turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+      assert.equal(seen.length, 0);
+      // A session the resolver does know still works.
+      assert.notEqual(await provider.tools!({ ...base, session: sessionOf("s5", "acme"), turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+    } finally {
+      if (before === undefined) delete process.env.ROBRAIN_API_KEY;
+      else process.env.ROBRAIN_API_KEY = before;
+    }
+  });
+
+  it("tools() never throws: a resolver that rejects yields no tools", async () => {
+    recordAuth();
+    const provider = robrainMemory({ ...options, projectId: () => { throw new Error("boom"); } });
+    assert.equal(await provider.tools!({ ...base, session: sessionOf("s6", "acme"), turn: { id: "t0", sequence: 0, input: [] } } as any), null);
+  });
+});
+
+describe("per-process state is partitioned by connection", () => {
+  const sessionFor = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+
+  it("never serves one credential's cached summary to another for the same project id", async () => {
+    const summaries: Record<string, string> = { "Bearer key-a": "A's private rules", "Bearer key-b": "B's rules" };
+    const summaryCalls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      if (String(input).includes("/summary")) {
+        summaryCalls.push(auth);
+        return new Response(JSON.stringify({ summary: summaries[auth] }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    // Same project id string for both tenants (e.g. "default" in two orgs).
+    const provider = robrainMemory({
+      apiKey: (c: any) => `key-${tenantOf(c)}`,
+      apiUrl: "https://robrain.test",
+      projectId: "default",
+    });
+    const a = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") });
+    const b = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("b") });
+    assert.match(a?.messages[0]?.content ?? "", /A's private rules/);
+    assert.match(b?.messages[0]?.content ?? "", /B's rules/);
+    assert.doesNotMatch(b?.messages[0]?.content ?? "", /A's private rules/);
+    assert.deepEqual(summaryCalls, ["Bearer key-a", "Bearer key-b"]);
+    // Still cached per connection.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") });
+    assert.equal(summaryCalls.length, 2);
+  });
+
+  it("one credential's 409 or registration never decides for another", async () => {
+    const registrations: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      const url = String(input);
+      if (url.endsWith("/projects") && init?.method === "POST") {
+        registrations.push(auth);
+        return new Response("{}", { status: auth === "Bearer key-a" ? 409 : 200 });
+      }
+      if (url.includes("/summary")) return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const provider = robrainMemory({
+        apiKey: (c: any) => `key-${tenantOf(c)}`,
+        apiUrl: "https://robrain.test",
+        agent: "Shared Name",
+      });
+      // a gets 409 → blocked for a only.
+      assert.equal(await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("a") }), null);
+      // b registers on its own and gets memory.
+      const b = await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("b") });
+      assert.deepEqual(b?.messages.map((m) => m.id), ["robrain:summary"]);
+      // c registers on its own too: b's success is not reused for c.
+      await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("c") });
+      assert.deepEqual(registrations, ["Bearer key-a", "Bearer key-b", "Bearer key-c"]);
+    } finally {
+      console.warn = warn;
+    }
+  });
+});
+
+describe("per-connection state is bounded", () => {
+  const sessionFor = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+  const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+
+  it("evicts the oldest cached summary past the cap (re-fetched, never stale-served)", async () => {
+    const summaryCalls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      if (String(input).includes("/summary")) {
+        summaryCalls.push(((init?.headers ?? {}) as Record<string, string>).Authorization ?? "");
+        return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const provider = robrainMemory({
+      apiKey: (c: any) => `key-${tenantOf(c)}`,
+      apiUrl: "https://robrain.test",
+      projectId: "p",
+    });
+    for (let i = 0; i <= 1000; i++) {
+      await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor(`t${i}`) });
+    }
+    assert.equal(summaryCalls.length, 1001);
+    // t0 was the oldest of 1001 entries with a cap of 1000: fetched again.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("t0") });
+    assert.equal(summaryCalls.length, 1002);
+    // The newest is still cached.
+    await provider.recall["turn.started"]({ ...started("ok"), session: sessionFor("t1000") });
+    assert.equal(summaryCalls.length, 1002);
+  });
+
+  it("re-checks a 409 after an hour instead of remembering it forever", async () => {
+    let registrations = 0;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      if (String(input).endsWith("/projects") && init?.method === "POST") {
+        registrations += 1;
+        return new Response("{}", { status: 409 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const realNow = Date.now;
+    const warn = console.warn;
+    console.warn = () => {};
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const provider = robrainMemory({ apiKey: "k", apiUrl: "https://robrain.test", agent: "Taken Name" });
+      await provider.recall["turn.started"](started("ok"));
+      await provider.recall["turn.started"](started("ok"));
+      assert.equal(registrations, 1); // still blocked: no new request
+      now += 61 * 60 * 1000;
+      assert.equal(await provider.recall["turn.started"](started("ok")), null);
+      assert.equal(registrations, 2); // asked the server again, got 409 again
+    } finally {
+      Date.now = realNow;
+      console.warn = warn;
+    }
+  });
+});
+
+describe("a remembered 409 fails closed", () => {
+  it("stays blocked when the hourly re-check fails, lifts only on a successful registration", async () => {
+    let mode: "conflict" | "down" | "ok" = "conflict";
+    let registrations = 0;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/projects") && init?.method === "POST") {
+        registrations += 1;
+        if (mode === "down") throw new Error("ECONNRESET");
+        return new Response("{}", { status: mode === "conflict" ? 409 : 200 });
+      }
+      if (url.includes("/summary")) return new Response(JSON.stringify({ summary: "s" }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const realNow = Date.now;
+    const warn = console.warn;
+    console.warn = () => {};
+    let now = 5_000_000;
+    Date.now = () => now;
+    try {
+      const provider = robrainMemory({ apiKey: "k", apiUrl: "https://robrain.test", agent: "Taken Name" });
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // 409
+      now += 61 * 60 * 1000;
+      mode = "down";
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // re-check failed: still off
+      assert.equal(await provider.recall["turn.started"](started("ok")), null); // and retried, still off
+      assert.equal(registrations, 3);
+      mode = "ok";
+      const lifted = await provider.recall["turn.started"](started("ok"));
+      assert.deepEqual(lifted?.messages.map((m) => m.id), ["robrain:summary"]);
+    } finally {
+      Date.now = realNow;
+      console.warn = warn;
+    }
+  });
+});
+
+describe("connection identity includes headers", () => {
+  it("two sessions that differ only by a header never share a cached summary", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const tenant = ((init?.headers ?? {}) as Record<string, string>)["x-tenant"] ?? "";
+      if (String(input).includes("/summary")) {
+        calls.push(tenant);
+        return new Response(JSON.stringify({ summary: `rules of ${tenant}` }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    const tenantOf = (c: any) => c?.session?.auth?.current?.attributes?.tenant as string;
+    // One shared key; the proxy tells tenants apart by a header.
+    const provider = robrainMemory({
+      apiKey: "shared",
+      apiUrl: "https://proxy.test",
+      projectId: "p",
+      headers: (c: any) => ({ "x-tenant": tenantOf(c) }),
+    });
+    const session = (tenant: string) => ({ id: `s-${tenant}`, auth: { current: { attributes: { tenant } } } });
+    const a = await provider.recall["turn.started"]({ ...started("ok"), session: session("a") });
+    const b = await provider.recall["turn.started"]({ ...started("ok"), session: session("b") });
+    assert.match(a?.messages[0]?.content ?? "", /rules of a/);
+    assert.match(b?.messages[0]?.content ?? "", /rules of b/);
+    assert.deepEqual(calls, ["a", "b"]);
   });
 });
