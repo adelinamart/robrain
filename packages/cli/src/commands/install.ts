@@ -298,7 +298,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   })
 
   for (const editor of editorsToConfig) {
-    writeMcpConfig(editor.configPath, mcpOpts)
+    writeMcpConfig(editor.configPath, mcpOpts, editor.editor)
   }
 
   if (!includeControl) {
@@ -511,7 +511,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
   }
 
   for (const editor of editorsToConfig) {
-    writeMcpConfig(editor.configPath, mcpOpts)
+    writeMcpConfig(editor.configPath, mcpOpts, editor.editor)
   }
 
   if (!perceptionKey) {
