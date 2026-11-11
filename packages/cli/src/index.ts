@@ -318,7 +318,7 @@ program
   .option('-l, --limit <n>',    'Max entries (default: 30, max 200)', parseInt)
   .option('--action <name>',    'Only one action: project_registered | rule_added | promoted | capture_settings_changed | tags_changed | tag_rules_changed')
   .option('--project-id <id>',  'Only entries about this project (where it happened, or where a rule was pushed)')
-  .option('--before <date>',    'Only entries older than this date or timestamp (for paging)')
+  .option('--before <date>',    'Only entries older than this date, or the value the previous page printed')
   .option('--json',             'Print the raw entries as JSON')
   .action(async (opts: AuditOptions) => {
     await auditCommand(opts)

@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  describeAuditEvent, fetchConflictVerdict, isMissingRoute, lineageLines, lineageStatus, splitConflictMatches,
+  auditBeforeParam, auditNextCommand, describeAuditEvent, fetchConflictVerdict, isMissingRoute, lineageLines,
+  lineageStatus, splitConflictMatches,
   type AuditEvent, type LineageNode,
 } from './cloud.js'
 
@@ -70,6 +71,25 @@ test('describeAuditEvent: says where a rule went and what changed', () => {
     'changed what agent-mailer-1 captures (mode broad, threshold 0.75, kinds run)',
   )
   assert.equal(describeAuditEvent(event({ action: 'something_new', project_id: 'repo-1' })), 'something new in repo-1')
+})
+
+test('auditBeforeParam: a page cursor goes back unchanged, a date becomes a timestamp, anything else is refused', () => {
+  const cursor = '2026-11-05T10:00:00.123456Z_aaaaaaaa-1111-4111-8111-111111111111'
+  assert.equal(auditBeforeParam(` ${cursor} `), cursor)
+  assert.equal(auditBeforeParam('2026-11-01'), '2026-11-01T00:00:00.000Z')
+  assert.equal(auditBeforeParam('2026-11-01T12:30:00+02:00'), '2026-11-01T10:30:00.000Z')
+  assert.equal(auditBeforeParam('last week'), null)
+  // A cursor cut short while copying is not silently read as something else.
+  assert.equal(auditBeforeParam('2026-11-05T10:00:00.123456Z_aaaaaaaa-1111'), null)
+})
+
+test('auditNextCommand: the next page keeps the filters of this one', () => {
+  const cursor = '2026-11-05T10:00:00.123456Z_aaaaaaaa-1111-4111-8111-111111111111'
+  assert.equal(auditNextCommand(cursor, {}), `robrain audit --before ${cursor}`)
+  assert.equal(
+    auditNextCommand(cursor, { action: 'promoted', projectId: ' repo-1 ', limit: 50 }),
+    `robrain audit --action promoted --project-id repo-1 --limit 50 --before ${cursor}`,
+  )
 })
 
 test('splitConflictMatches: only "contradicts" blocks; extends and related are context; unrelated is dropped', () => {
