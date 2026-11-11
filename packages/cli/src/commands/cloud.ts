@@ -214,6 +214,28 @@ export interface AuditOptions {
   json?: boolean
 }
 
+// The cursor a ledger page hands back: a microsecond timestamp and the row id,
+// so paging never skips rows that share a timestamp. Sent back unchanged.
+const LEDGER_CURSOR_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+
+/** What to send as `before`: a page cursor as it is, a date as an ISO timestamp, null if neither. */
+export function auditBeforeParam(raw: string): string | null {
+  const value = raw.trim()
+  if (LEDGER_CURSOR_RE.test(value)) return value
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+/** The command that reads the next, older page with the same filters. */
+export function auditNextCommand(cursor: string, opts: Pick<AuditOptions, 'action' | 'projectId' | 'limit'>): string {
+  const parts = ['robrain audit']
+  if (opts.action) parts.push(`--action ${opts.action}`)
+  if (opts.projectId?.trim()) parts.push(`--project-id ${opts.projectId.trim()}`)
+  if (Number.isFinite(opts.limit)) parts.push(`--limit ${Math.trunc(opts.limit as number)}`)
+  parts.push(`--before ${cursor}`)
+  return parts.join(' ')
+}
+
 export async function auditCommand(opts: AuditOptions = {}): Promise<void> {
   if (opts.action && !(AUDIT_ACTIONS as readonly string[]).includes(opts.action)) {
     console.log(chalk.red(`\n  ✗ Unknown action "${opts.action}".`) + chalk.dim(`  One of: ${AUDIT_ACTIONS.join(', ')}\n`))
@@ -224,12 +246,12 @@ export async function auditCommand(opts: AuditOptions = {}): Promise<void> {
   if (opts.action) params.set('action', opts.action)
   if (opts.projectId?.trim()) params.set('project_id', opts.projectId.trim())
   if (opts.before?.trim()) {
-    const before = new Date(opts.before.trim())
-    if (Number.isNaN(before.getTime())) {
-      console.log(chalk.red(`\n  ✗ --before "${opts.before}" is not a date.`) + chalk.dim('  Use e.g. 2026-11-01 or the timestamp of the last row.\n'))
+    const before = auditBeforeParam(opts.before)
+    if (!before) {
+      console.log(chalk.red(`\n  ✗ --before "${opts.before}" is not a date.`) + chalk.dim('  Use e.g. 2026-11-01, or the value the previous page printed.\n'))
       process.exit(1)
     }
-    params.set('before', before.toISOString())
+    params.set('before', before)
   }
 
   const { url, key } = perceptionEndpoint()
@@ -267,7 +289,7 @@ export async function auditCommand(opts: AuditOptions = {}): Promise<void> {
   }
   console.log()
   if (payload.next_before) {
-    console.log(chalk.dim(`  Older entries: robrain audit --before ${payload.next_before}\n`))
+    console.log(chalk.dim(`  Older entries: ${auditNextCommand(payload.next_before, opts)}\n`))
   }
 }
 
