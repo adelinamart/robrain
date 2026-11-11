@@ -122,7 +122,7 @@ registry and queryable. For future releases, follow the full checklist in
 1. Keep `"mcpName": "io.github.adelinamart/robrain"` in `packages/cli/package.json`.
 2. Bump both `version` fields in `server.json` (description ≤ 100 chars).
 3. Complete tag → GHCR → npm per **[release.md](../release.md)**.
-4. `mcp-publisher publish` from repo root (`login github` only on 401 / expired JWT).
+4. From repo root: `mcp-publisher login github`, then `mcp-publisher publish`. Log in every release; the token has expired by then.
 
 PulseMCP ingests registry entries automatically (§4).
 

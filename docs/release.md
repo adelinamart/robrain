@@ -134,9 +134,12 @@ else:
 pnpm --filter @robrain/shared exec npm pack --dry-run
 ```
 
-Then from repo root:
+Then from repo root. Log in first, every release: the npm session has usually
+expired since the last one, and finding that out halfway through the chain
+stalls the release.
 
 ```bash
+pnpm login
 pnpm publish:npm
 # equivalent: pnpm --filter robrain build && node packages/cli/scripts/verify-release-artifacts.mjs && pnpm --filter @robrain/shared publish --access public --no-git-checks && pnpm --filter @robrain/sensing-mcp build && pnpm --filter @robrain/synthesis build && pnpm --filter robrain publish --access public --no-git-checks
 ```
@@ -186,6 +189,7 @@ Publish whenever `packages/eve/package.json` `"version"` is ahead of npm
 cd /path/to/robrain
 pnpm --filter @robrain/eve exec npm pack --dry-run
 # expect dist/*.js + dist/*.d.ts, README.md, LICENSE, package.json — no *.test.*
+pnpm login                   # skip only if you logged in for step 3 a moment ago
 pnpm --filter @robrain/eve publish --access public --no-git-checks
 npm view @robrain/eve version
 ```
@@ -195,13 +199,8 @@ did not change.
 
 ### 4. Official MCP Registry
 
-After npm is live, publish the bumped `server.json`:
-
-```bash
-mcp-publisher publish
-```
-
-Re-authenticate **only** when you get `401` / expired JWT:
+After npm is live, publish the bumped `server.json`. Log in first, every
+release: the registry token is short-lived and has expired by the next release.
 
 ```bash
 mcp-publisher login github
@@ -210,8 +209,7 @@ mcp-publisher publish
 
 `mcp-publisher validate` is optional sanity check before publish.
 
-You do **not** need `login` on every release — only when the token expires.
-You **do** need `publish` on every release where `server.json` version changes.
+You need `publish` on every release where `server.json` version changes.
 
 PulseMCP ingests registry updates automatically ([distribution notes](distribution/mcp-directories.md)).
 
@@ -240,7 +238,6 @@ Codex users: trust hooks on first run after reinstall.
 | awesome-mcp-servers | Glama score changes | PR with Glama badge (see [mcp-directories.md](distribution/mcp-directories.md)) |
 | mcp.so | optional | Web form — may auto-ingest registry |
 | Smithery | skip | User-run backend; listing cannot launch |
-| MCP Registry re-login | 401 on publish | `mcp-publisher login github` |
 
 **Glama:** zero-maintenance per release — its build config installs unpinned `npm install -g robrain` (its own config, not the repo `Dockerfile`), so every Glama re-check automatically tests the latest npm release, license/score read from GitHub, and the badge refreshes itself. After publishing, glance at the [score badge](https://glama.ai/mcp/servers/adelinamart/robrain): green means npm install → server start → introspection just re-verified for free; red means a broken release — fix on the npm side, then one **Build & Release** in the Glama admin.
 
@@ -304,11 +301,11 @@ git tag vX.Y.Z → push tag → wait publish-perception-image.yml ✓
        ↓
 docker pull ghcr.io/.../robrain-perception:X.Y.Z  (verify)
        ↓
-pnpm publish:npm   (@robrain/shared, then robrain — release guard must pass)
+pnpm login → pnpm publish:npm   (@robrain/shared, then robrain — release guard must pass)
        ↓
 pnpm --filter @robrain/eve publish   (only if packages/eve version changed)
        ↓
-mcp-publisher publish   (login github only if 401)
+mcp-publisher login github → mcp-publisher publish
        ↓
 GitHub Release notes
 ```
