@@ -1,6 +1,6 @@
 {
   "name": "@robrain/eve",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "RoBrain memory provider for eve agents: shared memory, decision provenance, and architectural guardrails for multi-agent systems",
   "license": "Apache-2.0",
