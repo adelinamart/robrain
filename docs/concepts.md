@@ -369,7 +369,7 @@ Self-hosted RoBrain keeps one project per repository and nothing above it, on pu
 
 A production agent carries **tags** (`email`, `support`, `eu`). `robrain promote <id> --to tag:email` reaches every agent with that tag, including ones registered later. Tags are declared in the agent's config, set by an admin, or derived from the tools the agent calls: the provider reports tool names every turn, an admin keeps one mapping per org (`robrain tags map add "send_email*" email`), and the tag applies once a matching tool was used in three turns. Admins can remove a derived tag.
 
-What a production agent captures, its tags, pushing rules, and corrections or merges that touch an agent or the org rules project are admin-only. Members keep everything on coding projects. Coding projects do not read org rules unless a team opts a project in. Every governance action lands in a ledger with who did it. Org rules sit at the top of the agent's summary within a budget of 10 rules and about 2,500 characters, composed when the summary is served, so a new rule reaches a quiet agent on its next turn.
+What a production agent captures, its tags, pushing rules, and corrections or merges that touch an agent or the org rules project are admin-only. Members keep everything on coding projects. Coding projects do not read org rules. Every governance action lands in a ledger with who did it; any member can read it with `robrain audit` or on the dashboard's Activity page. Org rules sit at the top of the agent's summary within a budget of 10 rules and about 2,500 characters, composed when the summary is served, so a new rule reaches a quiet agent on its next turn.
 
 #### Conflict detection
 
@@ -407,9 +407,9 @@ This happens at the right moment — before the agent has suggested anything —
 
 All of this runs on the `rejected[]` substrate the Free / self-hosted version captures. On Claude Code the plugin hook acts on those vetoes locally, before the agent responds. Codex CLI gets the same three hooks via `robrain install` (materialized under `~/.robrain/hooks/codex/` and wired in `~/.codex/config.toml`). Hermes does the same via semantic prefetch (`REJECTED:` warnings per turn). Cloud extends task-boundary injection to Cursor, Copilot, and Codex without a per-prompt hook.
 
-#### `POST /veto-scan` — deterministic tier (self-hosted Perception)
+#### `POST /veto-scan` — deterministic tier (both editions)
 
-Self-hosted Perception exposes a fast endpoint for hooks and integrations — the **zero-embedding tier** of the pre-task check:
+Self-hosted Perception and the cloud API both expose a fast endpoint for hooks and integrations — the **zero-embedding tier** of the pre-task check. `robrain check "<proposal>"` calls it by hand:
 
 ```http
 POST /veto-scan
@@ -436,7 +436,9 @@ SQL pre-filters active decisions whose `rejected[].option` appears in the text; 
 
 The [Claude Code plugin](../plugins/claude-code/README.md) calls this on `UserPromptSubmit` as **tier 1**, then runs semantic `GET /decisions?query=` as **tier 2** for longer prompts.
 
-**Not the same as cloud pre-commit `/dry-run`:** that is a structured write-time conflict verdict on Rory Plans cloud. `POST /veto-scan` is the OSS pre-action check for literal rejected-option mentions.
+**Not the same as cloud `/dry-run`:** that is the semantic conflict verdict on Rory Plans cloud. It labels each close stored decision as contradicts, extends, related or unrelated, so it catches a contradiction that names no rejected option. `robrain check "<proposal>" --conflicts` asks for both. `POST /veto-scan` is the check for literal rejected-option mentions and runs on both editions.
+
+**Hooks on cloud:** the same Claude Code plugin and Codex hooks work on a cloud install. There the prompt hook makes one call to the ranked context route, which returns the memories relevant to the prompt, the veto warnings, and a required acknowledgement when a warning comes from a rejection nobody has reviewed; the stop hook then scores the reply against what was injected. If that route does not answer, the hooks fall back to the two tiers above.
 
 **Get cloud access:** included with every paid [Rory Plans](https://roryplans.ai) plan. Sign in, create an API token on your profile page, then run `npx robrain install`. Teams share one memory; solo subscribers get their own.
 
@@ -466,15 +468,15 @@ The self-hosted version already brings decisions back automatically through the 
 | Calibrated extraction prompt (fewer false positives) | — | ✓ |
 | Calibrated 4-way contradiction taxonomy | — | ✓ |
 | Automatic injection at task boundaries | — | ✓ |
-| Deterministic veto scan (`POST /veto-scan` — exact rejected-option match) | ✓ | — |
+| Deterministic veto scan (`robrain check`, `POST /veto-scan` — exact rejected-option match) | ✓ | ✓ |
 | Pre-task `rejected[]` warning | ✓ Claude Code plugin + Codex hooks + Hermes provider | ✓ every tool |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
-| Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
+| Pre-commit conflict verdict — does a proposal contradict a stored decision (`robrain check --conflicts`, `/dry-run`) | — | ✓ |
 | 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
 | Vetoes survive supersession — rejection history follows the newest decision | ✓ | ✓ full history merge |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
-| Decision lineage timeline (API + dashboard) | — | ✓ |
+| Decision lineage timeline (`robrain lineage`, API, dashboard) | — | ✓ |
 | Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |
 | Web dashboard | — | ✓ |
 

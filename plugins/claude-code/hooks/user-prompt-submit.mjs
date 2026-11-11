@@ -9,11 +9,17 @@
 //     because it is old.
 // Warnings already shown this session are not repeated (state file) —
 // injected context must never cost more than it saves.
+//
+// On RoBrain cloud one call replaces both tiers: POST /context returns the
+// memories ranked for this prompt, the veto warnings (including ones pushed
+// to the project as org rules), and a required acknowledgement when a
+// warning comes from a rejection nobody has reviewed yet. If that call does
+// not answer, the two tiers below run exactly as on self-hosted.
 
 import {
   readStdin, parseHookInput, loadPerception, resolveProjectId,
   perceptionFetch, emitContext, exitSilently, loadWarnedIds, recordWarnedIds,
-  stashPrompt,
+  stashPrompt, recordInjection, renderCloudContext,
 } from './lib.mjs'
 
 const input = parseHookInput(await readStdin())
@@ -31,6 +37,28 @@ const sessionId = typeof input.session_id === 'string' ? input.session_id : ''
 stashPrompt(sessionId, prompt)
 const perception = loadPerception()
 const projectId = resolveProjectId(cwd)
+
+// RoBrain cloud — ranked context, veto warnings and acknowledgement in one call.
+if (perception.cloud && sessionId) {
+  const ctx = await perceptionFetch('/context', perception, {
+    method: 'POST',
+    body: JSON.stringify({
+      project_id:       projectId,
+      session_id:       `cc-${sessionId}`.slice(0, 200),
+      task_description: prompt.slice(0, 2000),
+    }),
+  }, 4000)
+  if (ctx && Array.isArray(ctx.memories)) {
+    const rendered = renderCloudContext(ctx, loadWarnedIds(sessionId))
+    // Nothing new to show: stay silent, and leave the injection unscored so
+    // a reply is never judged against context it was not shown.
+    if (!rendered) exitSilently()
+    if (Number.isInteger(ctx.sequence)) recordInjection(sessionId, ctx.sequence)
+    recordWarnedIds(sessionId, rendered.ids)
+    emitContext('UserPromptSubmit', rendered.text)
+  }
+  // No usable answer (older API, timeout): fall through to the two tiers.
+}
 
 // Tier 1 — deterministic rejected-option scan.
 const scan = await perceptionFetch('/veto-scan', perception, {

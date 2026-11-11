@@ -24,6 +24,7 @@ interface ReviewOptions {
   history?: boolean   // include invalidated decisions to show full lifecycle
   approveAll?: boolean // bulk-approve all reviewable decisions in current result set
   limit?:   number    // max decisions to show (default 20)
+  quarantined?: boolean // only what trust screening held back
 }
 
 interface StoredDecision {
@@ -98,22 +99,26 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   let decisions: StoredDecision[] = []
 
   try {
-    const res = await fetch(`${percUrl}/decisions?${params}`, {
-      headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
-    })
+    // --quarantined shows only what trust screening held back, so the usual
+    // feed is skipped and the quarantine feed below is the whole list.
+    if (!opts.quarantined) {
+      const res = await fetch(`${percUrl}/decisions?${params}`, {
+        headers: percKey ? { 'Authorization': `Bearer ${percKey}` } : {},
+      })
 
-    if (!res.ok) {
-      failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
+      if (!res.ok) {
+        failPerception(spinner, res.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
+      }
+
+      const data = await res.json() as { decisions: StoredDecision[] }
+      decisions  = data.decisions ?? []
     }
-
-    const data = await res.json() as { decisions: StoredDecision[] }
-    decisions  = data.decisions ?? []
 
     // Quarantined rows (write-time trust screening) are excluded from the
     // recent/all feeds server-side — they are injection feeds. Fetch them
     // separately so review remains the human release path. --history already
     // includes them inline; a session-scoped view stays session-scoped.
-    if (!opts.history && (!opts.session || opts.session === 'last')) {
+    if (opts.quarantined || (!opts.history && (!opts.session || opts.session === 'last'))) {
       try {
         const qParams = new URLSearchParams({
           project_id: info.id,
@@ -127,9 +132,14 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
           const qData = await qRes.json() as { decisions: StoredDecision[] }
           const seen  = new Set(decisions.map(d => d.id))
           decisions.push(...(qData.decisions ?? []).filter(d => !seen.has(d.id)))
+        } else if (opts.quarantined) {
+          // The only fetch of this run failed: say so instead of "all caught up".
+          failPerception(spinner, qRes.status, { cloud: isCloudInstall(), perceptionUrl: percUrl })
         }
-      } catch {
+      } catch (err) {
         // Older Perception without the quarantine surface — nothing to merge.
+        // With --quarantined it is the only source, so an unreachable server is an error.
+        if (opts.quarantined) throw err
       }
     }
 
@@ -149,6 +159,8 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
     if (opts.history) {
       console.log(chalk.dim(`  No decisions stored yet for ${chalk.bold(info.name)}.`))
       console.log(chalk.dim('  Run an agent session (Claude Code, Cursor, Codex, …) to start capturing memory.\n'))
+    } else if (opts.quarantined) {
+      console.log(chalk.green(`  ✓ Nothing is held by trust screening for ${chalk.bold(info.name)}.\n`))
     } else {
       console.log(chalk.green(`  ✓ All caught up — no decisions need review for ${chalk.bold(info.name)}.`))
       console.log(chalk.dim('  Run an agent session to capture more, or use --history to see all decisions.\n'))

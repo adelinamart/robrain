@@ -8,7 +8,7 @@
     {
       "name": "robrain",
       "source": "./plugins/claude-code",
-      "description": "Deterministic decision capture + pre-task veto warnings from your self-hosted RoBrain stack",
+      "description": "Deterministic decision capture + pre-task veto warnings from your self-hosted RoBrain stack or RoBrain cloud",
       "category": "productivity",
       "tags": ["memory", "decisions", "institutional-memory"],
       "license": "Apache-2.0"

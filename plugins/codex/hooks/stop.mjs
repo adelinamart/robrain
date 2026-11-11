@@ -14,7 +14,7 @@
 
 import {
   readStdin, parseHookInput, loadPerception, resolveProjectId,
-  perceptionFetch, extractLastTurn, loadPromptStash, exitSilently,
+  perceptionFetch, extractLastTurn, loadPromptStash, exitSilently, scorePendingInjections,
 } from './lib.mjs'
 
 const input = parseHookInput(await readStdin())
@@ -74,5 +74,10 @@ await perceptionFetch('/signals', perception, {
     },
   }),
 }, 8000)
+
+// RoBrain cloud: score what the shared prompt hook injected against this
+// reply. The prompt hook keys its injections "cc-<session>", so the same key
+// is used here; it only pairs the two calls.
+await scorePendingInjections(perception, sessionId, `cc-${sessionId}`.slice(0, 200), reply)
 
 exitSilently()

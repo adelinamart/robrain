@@ -15,6 +15,7 @@
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter robrain test",
+    "test:hooks": "node --test plugins/claude-code/hooks/lib.test.mjs",
     "synthesis:build": "pnpm --filter @robrain/synthesis build",
     "synthesis:run": "pnpm --filter @robrain/synthesis start",
     "synthesis:dry-run": "SYNTHESIS_DRY_RUN=true pnpm --filter @robrain/synthesis start",
