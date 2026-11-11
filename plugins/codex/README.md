@@ -10,6 +10,8 @@ The same three lifecycle hooks as the [Claude Code plugin](../claude-code/README
 
 Everything fails open: a dead Perception never blocks a Codex session.
 
+On a RoBrain cloud install the same hooks do more, exactly as in the Claude Code plugin: the prompt hook makes one call for ranked context, veto warnings and a required acknowledgement, and the stop hook scores the reply against what was injected. See [On RoBrain cloud](../claude-code/README.md#on-robrain-cloud).
+
 ## Install
 
 ```bash

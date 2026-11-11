@@ -7,8 +7,15 @@
 // same scan editor hooks run on UserPromptSubmit; the command is the manual
 // surface for non-hook editors, planning discussions, and CI.
 //
-// Exit codes: 0 = no prior rejection matches; 1 = at least one match
-// (scriptable: `robrain check "..." && apply`); 2 = could not scan.
+// With --conflicts it also asks RoBrain cloud for the semantic verdict
+// (POST /dry-run): does the proposal contradict a stored decision even
+// when it names no rejected option? One model call at most, so it is
+// opt-in. Self-hosted has no such route; the flag says so and the rejection
+// scan still decides the exit code.
+//
+// Exit codes: 0 = no prior rejection matches (and, with --conflicts, no
+// contradiction); 1 = at least one match or contradiction (scriptable:
+// `robrain check "..." && apply`); 2 = could not scan.
 
 import chalk from 'chalk'
 import { createSpinner } from '../lib/spinner.js'
@@ -16,6 +23,7 @@ import { cwd } from 'process'
 import { readConfig, isCloudInstall } from '../lib/config.js'
 import { failPerception, failPerceptionUnreachable } from '../lib/perception-errors.js'
 import { gatherProjectInfo } from '../lib/project.js'
+import { fetchConflictVerdict, printConflictVerdict } from './cloud.js'
 
 interface VetoMatch {
   id: string
@@ -40,7 +48,7 @@ export function formatDecidedBy(m: { author_email?: string | null; decided_at?: 
   return ''
 }
 
-export async function checkCommand(text: string): Promise<void> {
+export async function checkCommand(text: string, opts: { conflicts?: boolean } = {}): Promise<void> {
   console.log()
 
   const config = readConfig()
@@ -72,11 +80,23 @@ export async function checkCommand(text: string): Promise<void> {
     failPerceptionUnreachable(spinner, ctx, 2)
   }
 
+  // The semantic verdict runs before anything is printed so one spinner
+  // covers both calls and the two results read as one report.
+  let conflictCheck: Awaited<ReturnType<typeof fetchConflictVerdict>> | null = null
+  if (opts.conflicts) {
+    spinner.text = 'Checking for contradictions with stored decisions...'
+    conflictCheck = await fetchConflictVerdict(percUrl, percKey, info.id, text)
+  }
+
   spinner.stop()
+
+  const conflicted = reportConflictCheck(conflictCheck)
 
   if (matches.length === 0) {
     console.log(chalk.green('  ✓ No prior rejection matches this proposal.'))
     console.log(chalk.dim(`  Scanned rejected[] options across project ${info.id}.\n`))
+    if (conflicted === 'failed') process.exit(2)
+    if (conflicted === 'conflict') process.exit(1)
     return
   }
 
@@ -102,4 +122,23 @@ export async function checkCommand(text: string): Promise<void> {
   console.log(chalk.dim('  If circumstances changed, say so explicitly when re-proposing —'))
   console.log(chalk.dim('  or run `robrain review --history` to revisit the original decision.\n'))
   process.exit(1)
+}
+
+/**
+ * Print the --conflicts result ahead of the rejection scan's. 'none' when
+ * the flag was not given, the verdict is clean, or the server is
+ * self-hosted (said once, not an error).
+ */
+function reportConflictCheck(check: Awaited<ReturnType<typeof fetchConflictVerdict>> | null): 'none' | 'conflict' | 'failed' {
+  if (!check) return 'none'
+  if (check.status === 'self_hosted') {
+    console.log(chalk.dim('  --conflicts is a RoBrain cloud feature (semantic verdict against stored decisions).'))
+    console.log(chalk.dim('  Self-hosted ran the rejection scan only.\n'))
+    return 'none'
+  }
+  if (check.status === 'failed') {
+    console.log(chalk.red('  ✗ Could not get a conflict verdict') + chalk.dim(`  ${check.reason}\n`))
+    return 'failed'
+  }
+  return printConflictVerdict(check.verdict) ? 'conflict' : 'none'
 }

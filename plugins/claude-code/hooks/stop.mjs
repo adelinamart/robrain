@@ -6,9 +6,13 @@
 // including dedup against turns the Sensing MCP may have already recorded, so
 // running this alongside the CLAUDE.md protocol double-captures nothing.
 
+//
+// On RoBrain cloud it then scores what the prompt hook injected against the
+// reply (POST /effectiveness), so helpful and pushback counts accrue.
+
 import {
   readStdin, parseHookInput, loadPerception, resolveProjectId,
-  perceptionFetch, extractLastTurn, exitSilently,
+  perceptionFetch, extractLastTurn, exitSilently, scorePendingInjections,
 } from './lib.mjs'
 
 const input = parseHookInput(await readStdin())
@@ -44,5 +48,7 @@ await perceptionFetch('/signals', perception, {
     },
   }),
 }, 8000)
+
+await scorePendingInjections(perception, sessionId, `cc-${sessionId}`.slice(0, 200), turn.claudeReply)
 
 exitSilently()

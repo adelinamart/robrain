@@ -31,6 +31,7 @@ import { projectsListCommand, projectsMergeCommand, projectsCreateCommand, proje
 import { captureShowCommand, captureSetCommand, captureTestCommand, type CaptureSetOptions, type CaptureTestOptions } from './commands/capture.js'
 import { searchCommand, type SearchOptions } from './commands/search.js'
 import { rulesAddCommand, promoteCommand, type RulesAddOptions } from './commands/governance.js'
+import { auditCommand, lineageCommand, type AuditOptions } from './commands/cloud.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
@@ -53,13 +54,15 @@ program
   .option('-a, --all',          'Show all active decisions, not just the last session')
   .option('--history',          'Show full lifecycle including superseded decisions')
   .option('--approve-all',      'Bulk-approve every reviewable decision in the current result set')
+  .option('--quarantined',      'Show only decisions held by trust screening, to release or reject them one by one')
   .option('-l, --limit <n>',    'Max decisions to show (default: 20)', parseInt)
-  .action(async (opts: { session?: string; all?: boolean; history?: boolean; approveAll?: boolean; limit?: number }) => {
+  .action(async (opts: { session?: string; all?: boolean; history?: boolean; approveAll?: boolean; quarantined?: boolean; limit?: number }) => {
     await reviewCommand({
       session:    opts.session ?? 'last',
       all:        opts.all,
       history:    opts.history,
       approveAll: opts.approveAll,
+      quarantined: opts.quarantined,
       limit:      opts.limit,
     })
   })
@@ -94,8 +97,9 @@ program
 program
   .command('check <text>')
   .description('Scan a proposed change against prior rejections before committing to it (exit 1 on match)')
-  .action(async (text: string) => {
-    await checkCommand(text)
+  .option('--conflicts', 'RoBrain cloud: also ask whether it contradicts a stored decision that names no rejected option (one model call)')
+  .action(async (text: string, opts: { conflicts?: boolean }) => {
+    await checkCommand(text, opts)
   })
 
 // ── synth — Synthesis batch job ───────────────────────────────
@@ -294,6 +298,30 @@ program
   .requiredOption('--to <target>', 'production-agents (every production agent), tag:<tag> (every agent with that tag), or a project id')
   .action(async (decisionId: string, opts: { to: string }) => {
     await promoteCommand(decisionId, opts)
+  })
+
+// ── lineage — what a decision replaced and what replaced it (cloud) ──
+
+program
+  .command('lineage <decision-id>')
+  .description('RoBrain cloud: the history of one decision, oldest first: what it replaced, what replaced it, and what still stands')
+  .option('--json', 'Print the raw chain and relations as JSON')
+  .action(async (decisionId: string, opts: { json?: boolean }) => {
+    await lineageCommand(decisionId, opts)
+  })
+
+// ── audit — the governance ledger (cloud) ─────────────────────
+
+program
+  .command('audit')
+  .description('RoBrain cloud: who registered an agent, wrote or pushed a rule, or changed tags, the tool mapping or capture settings, newest first')
+  .option('-l, --limit <n>',    'Max entries (default: 30, max 200)', parseInt)
+  .option('--action <name>',    'Only one action: project_registered | rule_added | promoted | capture_settings_changed | tags_changed | tag_rules_changed')
+  .option('--project-id <id>',  'Only entries about this project (where it happened, or where a rule was pushed)')
+  .option('--before <date>',    'Only entries older than this date or timestamp (for paging)')
+  .option('--json',             'Print the raw entries as JSON')
+  .action(async (opts: AuditOptions) => {
+    await auditCommand(opts)
   })
 
 // ── projects — list / merge Perception project ids ────────────

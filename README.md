@@ -225,7 +225,7 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Who decided — author email and date on every decision, in review, search, the summary and veto warnings | ✓ git `user.email` | ✓ from the signed-in identity, never client-sent |
 | `npx robrain search` and hand-written rules (`rules add`, confidence 1.0, approved on insert) | ✓ | ✓ |
 | Production agent memory — a project per agent, org rules pushed by admins to all agents, one tag of agents, or one agent (`promote`); tags derived from the tools an agent uses (`tags map`) | — | ✓ |
-| Governance ledger — who registered, pushed, tagged or changed what (`memory_events`) | — | ✓ |
+| Governance ledger — who registered, pushed, tagged or changed what (`robrain audit`, dashboard) | — | ✓ |
 | Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
 | Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
 | Secrets redaction at capture and ingest | ✓ | ✓ |
@@ -237,15 +237,15 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | Calibrated extraction prompt (fewer false positives) | — | ✓ |
 | Calibrated 4-way contradiction taxonomy | — | ✓ |
 | Automatic injection at task boundaries | — | ✓ |
-| Deterministic veto scan (`POST /veto-scan`) | ✓ | — |
+| Deterministic veto scan (`robrain check`, `POST /veto-scan`) | ✓ | ✓ |
 | Pre-task `rejected[]` warning | Claude Code (plugin) + Codex (hooks) + Hermes (provider) | ✓ everywhere |
 | Disengagement protocol (⚠ acknowledgement) | — | ✓ |
-| Pre-commit conflict verdict (`/dry-run` structured check) | — | ✓ |
+| Pre-commit conflict verdict — does a proposal contradict a stored decision (`robrain check --conflicts`, `/dry-run`) | — | ✓ |
 | 5-signal relevance scorer | ✓ on retrieval (`GET /decisions?query=`) | ✓ applied automatically per task |
 | Conflict auto-resolution (guard-railed) + dashboard visualizations | — | ✓ |
 | Vetoes survive supersession — rejection history follows the newest decision | ✓ | ✓ full history merge |
 | Write-time supersession detection — "we switched X→Y" never dedups away | — | ✓ |
-| Decision lineage timeline (API + dashboard) | — | ✓ |
+| Decision lineage timeline (`robrain lineage`, API, dashboard) | — | ✓ |
 | Team memory — orgs, API keys, roles, scoped isolation | — | ✓ |
 | Web dashboard | — | ✓ |
 

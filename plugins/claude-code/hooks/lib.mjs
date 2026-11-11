@@ -50,22 +50,38 @@ function normalizeLoopbackUrl(url) {
 }
 
 /**
+ * True when the install talks to RoBrain cloud rather than a local stack.
+ * Same rule as the CLI (packages/cli/src/lib/config.ts isCloudInstall):
+ * `selfHosted` wins, otherwise a cloud login marks it. ROBRAIN_CLOUD=1|0
+ * overrides for setups that configure the hooks through the environment.
+ */
+export function isCloudConfig(cfg, env = process.env) {
+  const flag = env.ROBRAIN_CLOUD?.trim().toLowerCase()
+  if (flag === '1' || flag === 'true') return true
+  if (flag === '0' || flag === 'false') return false
+  if (!cfg || typeof cfg !== 'object' || cfg.selfHosted) return false
+  return Boolean(cfg.thin || cfg.token)
+}
+
+/**
  * Perception connection: env wins, then ~/.robrain/config.json (written by
- * `robrain up` / `robrain install`), then loopback default.
+ * `robrain up` / `robrain install`), then loopback default. `cloud` says
+ * whether the hooks may use the cloud-only routes (ranked context with a
+ * required acknowledgement, reply scoring); every caller still falls back
+ * to the self-hosted routes when one of them does not answer.
  */
 export function loadPerception() {
   let url = process.env.PERCEPTION_URL?.trim() || ''
   let key = process.env.PERCEPTION_API_KEY?.trim() || ''
-  if (!url || !key) {
-    try {
-      const cfg = JSON.parse(readFileSync(join(homedir(), '.robrain', 'config.json'), 'utf8'))
-      if (!url && typeof cfg.perceptionUrl === 'string') url = cfg.perceptionUrl.trim()
-      if (!key && typeof cfg.perceptionKey === 'string') key = cfg.perceptionKey.trim()
-    } catch {
-      // no config yet — fall through to defaults
-    }
+  let cfg = null
+  try {
+    cfg = JSON.parse(readFileSync(join(homedir(), '.robrain', 'config.json'), 'utf8'))
+    if (!url && typeof cfg.perceptionUrl === 'string') url = cfg.perceptionUrl.trim()
+    if (!key && typeof cfg.perceptionKey === 'string') key = cfg.perceptionKey.trim()
+  } catch {
+    // no config yet — fall through to defaults
   }
-  return { url: normalizeLoopbackUrl(url || 'http://127.0.0.1:3001'), key }
+  return { url: normalizeLoopbackUrl(url || 'http://127.0.0.1:3001'), key, cloud: isCloudConfig(cfg) }
 }
 
 /**
@@ -194,7 +210,8 @@ function hasOnlyToolResults(content) {
 // The same veto re-injected on every on-topic prompt is context spend for
 // zero new information — Control must never cost more context than it saves.
 
-const STATE_DIR = join(homedir(), '.robrain', 'state')
+// ROBRAIN_STATE_DIR relocates the state files (tests, sandboxes).
+const STATE_DIR = process.env.ROBRAIN_STATE_DIR?.trim() || join(homedir(), '.robrain', 'state')
 
 function warnedFile(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120)
@@ -238,6 +255,137 @@ function cleanupStateDir() {
     }
   } catch {
     // dir unreadable — skip
+  }
+}
+
+// ── Injection ledger (RoBrain cloud) ──────────────────────────
+// POST /context records one injection per call, keyed by (session_id,
+// sequence), and POST /effectiveness later scores the assistant reply
+// against it. The prompt hook records the returned sequence here and the
+// stop hook drains what is still unscored, so helpful and pushback counts
+// accrue without the model having to report back.
+
+function ledgerFile(sessionId) {
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120)
+  return join(STATE_DIR, `cc-ledger-${safe}.json`)
+}
+
+function loadLedger(sessionId) {
+  if (!sessionId) return []
+  try {
+    const entries = JSON.parse(readFileSync(ledgerFile(sessionId), 'utf8'))
+    return Array.isArray(entries)
+      ? entries.filter(e => Number.isInteger(e?.sequence) && typeof e?.scored === 'boolean')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function saveLedger(sessionId, entries) {
+  try {
+    mkdirSync(STATE_DIR, { recursive: true })
+    writeFileSync(ledgerFile(sessionId), JSON.stringify(entries.slice(-100)))
+    cleanupStateDir()
+  } catch {
+    // fail-open
+  }
+}
+
+/** Record an injection sequence returned by POST /context (idempotent). */
+export function recordInjection(sessionId, sequence) {
+  if (!sessionId || !Number.isInteger(sequence) || sequence < 1) return
+  const entries = loadLedger(sessionId)
+  if (entries.some(e => e.sequence === sequence)) return
+  entries.push({ sequence, scored: false })
+  saveLedger(sessionId, entries)
+}
+
+/** Unscored injection sequences, oldest first. */
+export function loadUnscoredInjections(sessionId) {
+  return loadLedger(sessionId).filter(e => !e.scored).map(e => e.sequence)
+}
+
+export function markInjectionScored(sessionId, sequence) {
+  const entries = loadLedger(sessionId)
+  const entry = entries.find(e => e.sequence === sequence)
+  if (!entry || entry.scored) return
+  entry.scored = true
+  saveLedger(sessionId, entries)
+}
+
+/** Most injections scored per Stop, newest first, to bound hook time. */
+const EFFECTIVENESS_MAX_PER_STOP = 2
+
+/**
+ * Score this session's unscored injections against the reply just given
+ * (RoBrain cloud; a no-op when nothing was injected). A sequence is marked
+ * scored only when the API answered, so a failed call is retried next turn.
+ */
+export async function scorePendingInjections(perception, sessionId, cloudSessionId, replyText) {
+  if (!perception?.cloud || !sessionId || !replyText) return
+  const pending = loadUnscoredInjections(sessionId).slice(-EFFECTIVENESS_MAX_PER_STOP).reverse()
+  for (const sequence of pending) {
+    const res = await perceptionFetch('/effectiveness', perception, {
+      method: 'POST',
+      body: JSON.stringify({ session_id: cloudSessionId, sequence, reply_text: replyText.slice(0, 60_000) }),
+    }, 5000)
+    if (res) markInjectionScored(sessionId, sequence)
+  }
+}
+
+// ── Rendering (RoBrain cloud context) ─────────────────────────
+
+/** One ranked memory as a compact line: `- [0.87] Chose X (over: Y: reason)`. */
+export function memoryLine(m) {
+  const over = (Array.isArray(m.rejected) ? m.rejected : [])
+    .slice(0, 2)
+    .map(r => (r.reason ? `${r.option}: ${r.reason}` : r.option))
+    .join('; ')
+  const score = typeof m.score === 'number' ? m.score.toFixed(2) : '?.??'
+  return `- [${score}] ${m.decision}${over ? ` (over: ${over})` : ''}`
+}
+
+/**
+ * Turn a POST /context answer into the lines to inject, skipping what this
+ * session has already been shown. Returns null when nothing new is left.
+ * The acknowledgement leads whenever the server demands one: it comes from
+ * a rejection nobody has reviewed yet, and the agent must put it to the
+ * user before going against it.
+ */
+export function renderCloudContext(ctx, warnedIds, maxMemories = 5) {
+  const memories = (Array.isArray(ctx?.memories) ? ctx.memories : [])
+    .filter(m => m?.id && !warnedIds.has(m.id))
+    .slice(0, maxMemories)
+  const warnings = (Array.isArray(ctx?.veto_warnings) ? ctx.veto_warnings : [])
+    .filter(w => w?.decision_id && typeof w.message === 'string' && !warnedIds.has(w.decision_id))
+  if (memories.length === 0 && warnings.length === 0) return null
+
+  const lines = []
+  // Only when a warning is actually shown: an acknowledgement for a veto
+  // this session already saw would repeat it on every on-topic prompt.
+  const ack = typeof ctx.required_acknowledgement === 'string' ? ctx.required_acknowledgement.trim() : ''
+  if (ack && warnings.some(w => w.reviewed === false)) {
+    lines.push(`⚠ ACKNOWLEDGEMENT REQUIRED: ${ack}`)
+    lines.push(
+      'Show this warning to the user word for word and wait for their explicit ' +
+      'confirmation before going ahead with the conflicting approach.',
+    )
+    lines.push('')
+  }
+  if (warnings.length > 0) {
+    lines.push('⚠ RoBrain: this task touches previously REJECTED approaches:')
+    for (const w of warnings) lines.push(`- ${w.message}`)
+    lines.push('Do not re-propose a rejected option without flagging the prior rejection and why circumstances changed.')
+  }
+  if (memories.length > 0) {
+    if (warnings.length > 0) lines.push('')
+    lines.push('RoBrain memory relevant to this task (ranked):')
+    for (const m of memories) lines.push(memoryLine(m))
+  }
+  return {
+    text: lines.join('\n'),
+    ids: [...memories.map(m => m.id), ...warnings.map(w => w.decision_id)],
   }
 }
 

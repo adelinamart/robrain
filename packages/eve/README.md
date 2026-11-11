@@ -61,7 +61,7 @@ circumstances changed.
 
 The provider talks to the RoBrain API. Point it at either:
 
-- **Rory Plans cloud** (hosted; reachable from deployed agents on Vercel): set `ROBRAIN_API_URL` to your Rory Plans API URL and `ROBRAIN_API_KEY` to an org API key (`rp_live_…`). On cloud, relevance comes from `POST /context` — planning-ranked, token-budgeted decisions plus server-side veto warnings, recorded in the injection ledger so effectiveness can be measured per session — in addition to the deterministic veto scan.
+- **Rory Plans cloud** (hosted; reachable from deployed agents on Vercel): set `ROBRAIN_API_URL` to `https://api.roryplans.ai` and `ROBRAIN_API_KEY` to a Rory Plans API token from your profile page (`rory_…`), or to an org API key (`rp_live_…`) if your org was issued one. Do not reuse the key `robrain install` saved in `~/.robrain/config.json`: every new install replaces it, which would cut the agent off. On cloud, relevance comes from `POST /context` — planning-ranked, token-budgeted decisions plus server-side veto warnings, recorded in the injection ledger so effectiveness can be measured per session — in addition to the deterministic veto scan.
 - **Self-hosted RoBrain** (open source): `ROBRAIN_API_URL=http://127.0.0.1:3001` for `eve dev` (the default), or the public URL of your own Perception for deployed agents. `PERCEPTION_API_URL` / `PERCEPTION_API_KEY` are honored as fallbacks, so an existing self-hosted setup needs no new variables. Relevance uses `GET /decisions?query=` (similarity-gated); the provider detects the missing `/context` route once per connection and falls back automatically.
 
 Either way, the agent needs a project. Give it a name and the provider creates one for it on first use:

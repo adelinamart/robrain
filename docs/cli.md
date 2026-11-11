@@ -393,6 +393,8 @@ All commands accept `--help` for full flag details. Repo-level `pnpm` scripts li
 | `npx robrain projects create <id> [--name <name>] [--tag <tag>]…` | Create a project that is not tied to one repository: a team can share one id across several repos (`ROBRAIN_PROJECT_ID`, or `--project-id` on `capture`, `search` and `rules`), or keep one per team. Upserts on both editions; on cloud it belongs to your org |
 | `npx robrain projects tag <id> [tags...]` | **RoBrain cloud.** Show or set a project's tags: what kind of agent it is (`email`, `support`, `eu`), so `promote --to tag:<tag>` reaches it. A production agent's effective tags are the declared ones plus the ones derived from the tools it uses (see `tags map`) minus the ones an admin removed with `--suppress <tag>` (`--unsuppress` undoes that). Changing a production agent's tags needs an admin key. Self-hosted Perception has no tags |
 | `npx robrain tags map [add\|remove "<tool pattern>" <tag>]` | **RoBrain cloud, admins.** The org's tool → tag mapping, e.g. `add "send_email*" email`, `add "calendar.*" scheduling`. An agent reports the tools it calls (the eve provider does this on every turn; the Rory Plans UI sends them at creation); once a tool matching a pattern has been used in three turns the tag applies, for agents registered later too. Patterns are tool names with `*` wildcards |
+| `npx robrain audit` | **RoBrain cloud.** The governance ledger, newest first: who registered an agent, wrote or pushed a rule, or changed tags, the tool mapping or capture settings, and when. Every org member can read it. `--action <name>`, `--project-id <id>`, `--limit <n>` (default 30, max 200), `--before <date>` to page back, `--json`. Self-hosted has no ledger and says so. |
+| `npx robrain lineage <decision-id>` | **RoBrain cloud.** The history of one decision, oldest first: what it replaced, what replaced it, and which still stand. `--json` prints the raw chain and relations. On self-hosted, `review --history` shows retired decisions next to their replacements. |
 
 ### Project ids: a naming convention
 
@@ -413,6 +415,7 @@ Which project a coding session writes to is the developer's choice per repo; wha
 | `npx robrain review --limit <n>` | Max decisions to fetch (default: **20**) |
 | `npx robrain review --history` | Show full decision lifecycle including superseded decisions |
 | `npx robrain review --approve-all` | Bulk-approve every reviewable decision in the current fetch (no prompts per row) |
+| `npx robrain review --quarantined` | Show only decisions held by trust screening, to release or reject one by one (they are never approved in bulk) |
 | `npx robrain export-memory` | Export approved decisions into Claude Code auto-memory files; optional **`--cwd`** / **`--project-id`** for non-interactive paths (Synthesis F2) |
 | `npx robrain export-memory --dry-run` | Preview the file plan without touching disk |
 | `npx robrain export-memory --include-unreviewed` | Also export decisions not yet approved (not recommended) |
@@ -432,6 +435,7 @@ Which project a coding session writes to is the developer's choice per repo; wha
 | `npx robrain inject --all` | Request up to **100** decisions (server cap): all **unreviewed** without `--query`, or a wider semantic pool with `--query` |
 | `npx robrain inject --limit <n>` | Cap how many decisions are returned (default: **5**) |
 | `npx robrain check "<proposal>"` | Pre-commit veto scan: does the proposal mention a previously **rejected** option? Deterministic word-boundary match against `rejected[]` (same scan the editor hooks run pre-task) — no LLM, sub-second. Exit **0** clean, **1** on match (scriptable: `robrain check "..." && apply`), **2** if Perception unreachable |
+| `npx robrain check "<proposal>" --conflicts` | **RoBrain cloud.** Also asks for the semantic conflict verdict: does the proposal contradict a stored decision even when it names no rejected option? Contradictions exit **1** like a rejection match; related decisions are listed as context. One model call at most, so it is opt-in. Self-hosted runs the rejection scan only and says so. |
 | `npx robrain doctor` | Run install diagnostics for editors, MCP wiring, and Perception connectivity |
 | `npx robrain explain <file>` | Answer "why does this code exist?" for any file |
 | `npx robrain explain <file> --why` | Full rationale + rejected alternatives per decision |
