@@ -321,7 +321,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     // Display only (status) — the thin client never embeds locally.
     ...(provisioned.embeddingProvider ? { embeddingProvider: provisioned.embeddingProvider } : {}),
     installedAt:       new Date().toISOString(),
-    version:           '2.6.1',
+    version:           '2.7.0',
   })
 
   spinner.succeed('MCP servers configured')
@@ -530,7 +530,7 @@ async function installSelfHosted(opts: InstallOptions): Promise<void> {
     ...(perceptionKey ? { perceptionKey } : {}),
     embeddingProvider: provider,
     installedAt:       new Date().toISOString(),
-    version:           '2.6.1',
+    version:           '2.7.0',
     selfHosted:        true,
   })
 
