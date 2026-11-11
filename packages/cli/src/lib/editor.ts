@@ -138,10 +138,14 @@ export function detectEditors(): DetectedEditor[] {
   return found
 }
 
+/**
+ * VS Code reads user-level MCP servers from `<User settings dir>/mcp.json`.
+ * `~/.vscode` is the extensions folder, not a settings dir: VS Code never
+ * reads an mcp.json placed there, so it is deliberately not a candidate.
+ */
 function getVSCodeSettingsPath(): string | null {
   const home = homedir()
   const candidates = [
-    join(home, '.vscode'),
     join(home, 'Library', 'Application Support', 'Code', 'User'),  // macOS
     join(home, '.config', 'Code', 'User'),                          // Linux
     join(home, 'AppData', 'Roaming', 'Code', 'User'),              // Windows
@@ -279,7 +283,16 @@ export function buildSensingMcpEnv(opts: McpWriteOptions): Record<string, string
   return env
 }
 
-export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void {
+/**
+ * Top-level key the client reads its server map from. Claude Code and Cursor
+ * use `mcpServers`; VS Code (Copilot) uses `servers` in mcp.json and ignores
+ * anything under `mcpServers`.
+ */
+export function mcpServersKey(editor?: Editor): 'mcpServers' | 'servers' {
+  return editor === 'copilot' ? 'servers' : 'mcpServers'
+}
+
+export function writeMcpConfig(configPath: string, opts: McpWriteOptions, editor?: Editor): void {
   // Codex CLI uses TOML at ~/.codex/config.toml — handled in a separate writer
   // because the file can contain unrelated TOML (model selection, sandbox prefs,
   // user-managed MCP entries) we must not lose.
@@ -305,7 +318,8 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
     }
   }
 
-  const mcpServers = (existing.mcpServers as Record<string, unknown>) ?? {}
+  const serversKey = mcpServersKey(editor)
+  const mcpServers = (existing[serversKey] as Record<string, unknown>) ?? {}
 
   const includeControl = opts.includeControl ?? true
 
@@ -331,7 +345,7 @@ export function writeMcpConfig(configPath: string, opts: McpWriteOptions): void 
     delete mcpServers['robrain-control']
   }
 
-  const updated = { ...existing, mcpServers }
+  const updated = { ...existing, [serversKey]: mcpServers }
 
   // Ensure parent directory exists
   const dir = dirname(configPath)
