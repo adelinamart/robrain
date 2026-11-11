@@ -2,25 +2,25 @@
 
 [![VetoBench](https://img.shields.io/badge/VetoBench-0%2F50_violations_·_receipts_in--repo-2ea44f)](#vetobench)
 
-**Shared memory across your team and your AI agents — with judgment!**
+**Shared memory, decision provenance, and architectural guardrails for multi-agent systems.**
 
-RoBrain isn't just another memory layer — it's the brain that helps you and your agents make better decisions and avoid costly mistakes.
+RoBrain isn't just another memory layer. It is the governance layer that was missing around AI agents: perimeter tools check who an agent is, but they cannot tell whether an agent is about to repeat a mistake the team already ruled out, or whether it is acting inside the team's constraints. RoBrain records what your team and its agents decided, what they rejected and why, who decided and when, and which rule reached which agent, and surfaces it before the agent acts again.
 
-Self-hosted on your own Postgres. Passive capture, structured vetoes, corpus-wide contradiction scans — nothing leaves your machine. Works with Claude Code, Cursor, GitHub Copilot (VS Code), Codex CLI, Hermes and more.
+Self-hosted on your own Postgres. Passive capture, structured vetoes, corpus-wide contradiction scans — nothing leaves your machine. Works with Claude Code, Cursor, GitHub Copilot (VS Code), Codex CLI, Hermes, and production agents built on Vercel's eve.
 
-Measured: without decision memory, a coding agent re-proposes an approach your team already rejected in up to **9 of 10** tasks. Through RoBrain's full pipeline: **0 of 50**, across five archived runs — [VetoBench](#vetobench).
+Measured: without the rejection in context, every frontier model we ran re-proposed an approach the team had already rejected, in **3 to 9 of 9** tasks per run. With RoBrain veto warnings in context: **0 of 159** across six models from four vendors, every answer naming the prior rejection — [VetoBench](#vetobench).
 
 ## What it is
 
-RoBrain records what your team and its agents decide — and the alternatives they ruled out — without anyone tagging anything by hand. Sensing captures session turns; Perception extracts each decision into Postgres, where every row can carry a structured `rejected[]` field.
+RoBrain records what your team and its agents decide — and the alternatives they ruled out — without anyone tagging anything by hand. Sensing captures session turns; Perception extracts each decision into Postgres, where every row can carry a structured `rejected[]` field, the author and date, and the session turn it came from.
 
-Most agent-memory tools stop at capture: they store what happened and hope you query it later. RoBrain adds judgment. Batch **Synthesis** reads the whole corpus to flag contradictions, stance drift, and recurring entities that no single session could see.
+Most agent-memory tools stop at capture: they store what happened and hope you query it later. RoBrain adds judgment and provenance. Batch **Synthesis** reads the whole corpus to flag contradictions, stance drift, and recurring entities that no single session could see. Every memory can be traced back: who decided it, when, from which turn, and (on cloud) who pushed it to which production agent.
 
 The point is the handoff. Someone makes a deliberate call in Cursor on Tuesday — say, keeping Perception on Hono instead of porting to Express. A new teammate opens Claude Code on Wednesday with no memory of it and asks to make exactly that change. RoBrain surfaces the recorded rationale before the agent steers down a path you already rejected — same Postgres store, same vetoes, captured passively.
 
 > The cost of forgetting a rejection isn't inefficiency. It's the auth bypass you already patched, the migration you already rolled back, the dependency you already removed for a CVE — re-suggested by an agent with no memory of why you said no.
 
-Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same architecture applies wherever agents make decisions that outlast a session.
+Coding is the first vertical because the feedback loops are tight — reverts, incidents, and rework make the cost of a forgotten rejection measurable. The same store now governs production agents: each agent built on [eve](packages/eve/README.md) gets its own memory project on first run, and the team pushes reviewed rules to it from the same RoBrain its coding agents use.
 
 How it works, the two pillars (capture + judgment), and the full walkthrough: [docs/concepts.md](docs/concepts.md#how-it-works).
 
@@ -195,6 +195,10 @@ A vector store retrieves what is *similar*; RoBrain also knows what was *rejecte
 
 Self-host when you want everything on your own infrastructure, free. Choose [Rory Plans cloud](#option-2--rory-plans-cloud-managed) when you want nothing to host and no API keys to manage — included with every paid Rory Plans plan, with memory shared across your team's org.
 
+### Does it work for production agents, not only coding agents?
+
+Yes. [`@robrain/eve`](packages/eve/README.md) is a memory provider for Vercel's eve agents: veto warnings and the project summary at turn start, capture at turn end, and a `check_prior_decisions` tool. Each agent gets its own memory project on first run. On Rory Plans cloud, admins push reviewed rules from the coding memory to one agent, one kind of agent (by tag) or all of them with `robrain promote`, and every push is recorded with who did it.
+
 ### How does RoBrain relate to Rory Plans?
 
 [Rory Plans](https://roryplans.ai) is the Cloud Office for humans and AI agents — where workflows are designed and humans and agents are orchestrated together. RoBrain is its open-source memory layer: standalone and self-hostable forever, managed as part of Rory Plans for teams.
@@ -298,7 +302,7 @@ Also on by default: secrets redaction (API keys, tokens, private keys, connectio
 - VetoBench (does memory stop rejected re-proposals? methodology + archived receipts) → [packages/vetobench/README.md](packages/vetobench/README.md)
 - Claude Code plugin (hook-based capture + veto warnings) → [plugins/claude-code/README.md](plugins/claude-code/README.md)
 - Codex CLI hooks (same lifecycle hooks, wired by `robrain install`) → [plugins/codex/README.md](plugins/codex/README.md)
-- eve memory provider (`@robrain/eve` — team decision memory for Vercel's eve agents via eve's memory-provider contract; verified on eve 0.82.0) → [packages/eve/README.md](packages/eve/README.md)
+- eve memory provider (`@robrain/eve` — team decision memory for Vercel's eve agents via eve's memory-provider contract; built on eve 0.82 to 0.84, typechecks against 1.0.0-rc.7) → [packages/eve/README.md](packages/eve/README.md)
 - eve raw-surfaces integration (dynamic instructions, veto tool, capture hook; predates eve's memory subsystem) → [plugins/eve/README.md](plugins/eve/README.md)
 - Hermes agent plugin (memory-provider, capture + veto warnings) → [integrations/hermes/robrain/README.md](integrations/hermes/robrain/README.md)
 

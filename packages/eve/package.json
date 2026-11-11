@@ -2,7 +2,7 @@
   "name": "@robrain/eve",
   "version": "0.3.0",
   "type": "module",
-  "description": "RoBrain memory provider for eve agents — team decision memory, including rejected alternatives, shared with your coding agents",
+  "description": "RoBrain memory provider for eve agents: shared memory, decision provenance, and architectural guardrails for multi-agent systems",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -50,7 +50,7 @@
     "test": "bun test src"
   },
   "peerDependencies": {
-    "eve": ">=0.82.0 <1",
+    "eve": ">=0.82.0 <2",
     "zod": ">=3.23.0"
   },
   "devDependencies": {

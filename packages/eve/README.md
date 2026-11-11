@@ -1,8 +1,14 @@
 # @robrain/eve
 
-RoBrain memory provider for [eve](https://eve.dev) agents. It gives a production agent the same memory your coding agents use: **the team's engineering decisions, including the alternatives you rejected and why** — so the agent stops re-proposing approaches your team already ruled out.
+RoBrain memory provider for [eve](https://eve.dev) agents. **Shared memory, decision provenance, and architectural guardrails for multi-agent systems:** it gives a production agent a reviewed memory of the team's engineering decisions, including the alternatives the team rejected and why, so the agent stops re-proposing approaches the team already ruled out.
 
-Other eve memory providers remember things about each *user* of the agent. RoBrain remembers what the *team that builds and runs the agent* decided. Because it's the same store your Claude Code, Cursor, and Codex sessions write to, a rejection recorded while building the agent reaches it in production, and a decision made while operating it reaches the engineer's next coding session.
+Other eve memory providers remember things about each *user* of the agent. RoBrain remembers what the *team that builds and runs the agent* decided, and who decided it. It is the same RoBrain your Claude Code, Cursor and Codex sessions write to: each agent gets its own memory project on first run, and an admin pushes a reviewed rule from the coding memory to one agent, one kind of agent or all of them with `robrain promote` (cloud). The copy keeps who decided it, when and why, and the push itself is recorded.
+
+## Why
+
+Perimeter tools check who an agent is. They cannot tell whether an agent is about to repeat a mistake the team already ruled out, or whether it is acting inside the team's constraints. RoBrain is that missing layer: every memory records who decided it, when, and from which session turn; a rule pushed to an agent keeps who pushed it and which decision it came from, so a team can trace why an agent took an approach, what was vetoed, and which constraints applied.
+
+Measured in [VetoBench](../vetobench/README.md): without the rejection in context, every frontier model we ran re-proposed a rejected approach, 3 to 9 of 9 tasks per run across claude-opus-4.8, muse-spark-1.1, gpt-5.5, gemini-3-pro-preview, claude-haiku-4-5 and gpt-4o. With RoBrain veto warnings in context: 0 of 159 cells, every one naming the prior rejection. Receipts are committed in the repo.
 
 ## What the provider does
 
@@ -146,7 +152,7 @@ eve fails a turn if a recall handler throws, so this provider never throws: an u
 
 ## Notes
 
-- Requires Node ≥ 24 (eve's floor). Builds on eve 0.82.0 through 0.84.0; 0.1.0 does not build on eve 0.84.0 or later, so use 0.1.1+.
+- Requires Node ≥ 24 (eve's floor). Builds on eve 0.82.0 through 0.84.0 and typechecks against eve 1.0.0-rc.7; 0.1.0 does not build on eve 0.84.0 or later, so use 0.1.1+.
 - Recalled content enters model context as user-role messages attributed to the slot, per eve's trust model — never as system instructions. (That placement is the one RoBrain's public benchmark, [VetoBench](../vetobench/README.md), measures; with rejections in context, 0 re-proposals in 159 of 159 tasks across six models.)
 - The provider partitions by RoBrain project; a slot bound to one `agent` or `projectId` shares memory across all scopes that reach it. Use the resolver form when scopes must not share.
 - Registration is fail-open: if the API is down on the first turn, the handler continues without memory and the next handler registers the project.
