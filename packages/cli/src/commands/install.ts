@@ -13,7 +13,7 @@
 import chalk    from 'chalk'
 import { createSpinner } from '../lib/spinner.js'
 import prompts  from 'prompts'
-import { readConfig, writeConfig, mergeConfig } from '../lib/config.js'
+import { readConfig, writeConfig, mergeConfig, resolveInstallId } from '../lib/config.js'
 import { validateToken, fetchProvisionedConfig, type ProvisionedConfig, type PlanRequirement } from '../lib/auth.js'
 import {
   resolveEditorsForInstall,
@@ -219,8 +219,12 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   spinner.succeed(`Authenticated as ${chalk.bold(authResult.email)}`)
 
   // ── Step 3: Fetch provisioned config ───────────────────────
+  // The install id gives this machine its own cloud key, so installing here
+  // leaves the user's other machines signed in. Saved in step 7 with the
+  // rest of the config.
+  const installId = resolveInstallId(readConfig())
   spinner.start('Fetching provisioned API config...')
-  const provision = await fetchProvisionedConfig(token)
+  const provision = await fetchProvisionedConfig(token, installId)
 
   // A valid login on a plan without RoBrain cloud arrives here: the token is
   // fine, there is simply nothing to provision. "Contact support" would be the
@@ -322,6 +326,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     ...(provisioned.embeddingProvider ? { embeddingProvider: provisioned.embeddingProvider } : {}),
     installedAt:       new Date().toISOString(),
     version:           '2.7.0',
+    installId,
   })
 
   spinner.succeed('MCP servers configured')

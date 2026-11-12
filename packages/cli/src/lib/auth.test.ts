@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { detectPlanRequirement } from './auth.js'
+import { detectPlanRequirement, fetchProvisionedConfig, INSTALL_ID_HEADER } from './auth.js'
 
 describe('detectPlanRequirement — entitlement vs. everything else', () => {
   it('reads 402 Payment Required as a plan problem', () => {
@@ -52,5 +52,57 @@ describe('detectPlanRequirement — entitlement vs. everything else', () => {
     const req = detectPlanRequirement(402, { error: 'plan_required', plan: 'free', required_plan: 'Teams' })
     assert.equal(req?.currentPlan, 'free')
     assert.equal(req?.requiredPlan, 'Teams')
+  })
+})
+
+describe('fetchProvisionedConfig — per-machine key request', () => {
+  const INSTALL = '0b1f6c1e-3c58-4e0e-9a55-0d4f6f0a7a11'
+  const PROVISIONED = {
+    perceptionUrl: 'https://api.example', planningUrl: 'https://api.example',
+    perceptionKey: 'rp_live_x', planningKey: 'rp_live_x', embeddingProvider: 'openai',
+  }
+
+  async function capture(run: () => Promise<unknown>, respond: () => Response): Promise<Headers> {
+    const realFetch = globalThis.fetch
+    let seen = new Headers()
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      seen = new Headers(init?.headers)
+      return respond()
+    }) as typeof fetch
+    try {
+      await run()
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    return seen
+  }
+
+  it('sends the install id so the cloud keeps one key per machine', async () => {
+    let result: Awaited<ReturnType<typeof fetchProvisionedConfig>> = {}
+    const headers = await capture(
+      async () => { result = await fetchProvisionedConfig('rory_token', INSTALL) },
+      () => new Response(JSON.stringify(PROVISIONED), { status: 200 }),
+    )
+    assert.equal(headers.get(INSTALL_ID_HEADER), INSTALL)
+    assert.equal(headers.get('Authorization'), 'Bearer rory_token')
+    assert.deepEqual(result.config, PROVISIONED)
+  })
+
+  it('omits the header when there is no install id', async () => {
+    const headers = await capture(
+      () => fetchProvisionedConfig('rory_token'),
+      () => new Response(JSON.stringify(PROVISIONED), { status: 200 }),
+    )
+    assert.equal(headers.has(INSTALL_ID_HEADER), false)
+  })
+
+  it('still reports a plan problem when the request carries an install id', async () => {
+    let result: Awaited<ReturnType<typeof fetchProvisionedConfig>> = {}
+    await capture(
+      async () => { result = await fetchProvisionedConfig('rory_token', INSTALL) },
+      () => new Response(JSON.stringify({ error: 'subscription_required' }), { status: 403 }),
+    )
+    assert.equal(result.config, undefined)
+    assert.ok(result.planRequired)
   })
 })

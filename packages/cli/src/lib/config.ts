@@ -4,6 +4,7 @@
 // Handles: API token, user info, Rory Plans API URL, project settings
 // ─────────────────────────────────────────────────────────────
 
+import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -26,6 +27,13 @@ export interface RoMemoryConfig {
   embeddingKey?:   string        // embedding API key
   installedAt?:    string        // ISO date of installation
   version?:        string        // CLI version at install time
+  /**
+   * Random id for this machine's install, created on first cloud install.
+   * Sent when asking for a cloud key so each machine gets its own key and
+   * installing on a second machine does not sign the first one out. It
+   * names the machine, not the account, so logout keeps it.
+   */
+  installId?:      string
 }
 
 /**
@@ -67,6 +75,20 @@ export function writeConfig(config: RoMemoryConfig): void {
 export function mergeConfig(updates: Partial<RoMemoryConfig>): void {
   const current = readConfig()
   writeConfig({ ...current, ...updates })
+}
+
+const INSTALL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Returns the install id in `config`, or a new random one when it is missing
+ * or malformed (the cloud API refuses anything that is not a UUID). Does not
+ * write: the caller saves it with the rest of the config once the install
+ * succeeds, so a refused install leaves no config file behind.
+ */
+export function resolveInstallId(config: RoMemoryConfig): string {
+  const existing = config.installId
+  if (typeof existing === 'string' && INSTALL_ID_RE.test(existing)) return existing.toLowerCase()
+  return randomUUID()
 }
 
 /** True if Rory cloud login, or OSS self-hosted install (no Rory token). */

@@ -40,6 +40,9 @@ type StubMode = 'ok' | 'plan_required'
 let validateMode: StubMode = 'ok'
 let provisionMode: StubMode = 'ok'
 
+/** Install ids the stub received on /robrain/provision, in request order. */
+const provisionInstallIds: Array<string | undefined> = []
+
 function resetStubModes(): void {
   validateMode = 'ok'
   provisionMode = 'ok'
@@ -96,6 +99,8 @@ const stub = createServer((req, res) => {
     return
   }
   if (req.url === '/robrain/provision') {
+    const sent = req.headers['x-robrain-install-id']
+    provisionInstallIds.push(Array.isArray(sent) ? sent[0] : sent)
     if (provisionMode === 'plan_required') {
       res.statusCode = 402
       res.end(JSON.stringify({ error: 'plan_required', plan: 'free', required_plan: 'Pro', trial_available: false }))
@@ -209,6 +214,27 @@ describe('cloud install (thin client)', () => {
 
     // Sensing bundle was materialized from the fake clone.
     assert.ok(existsSync(join(fakeHome, '.robrain', 'mcp', 'sensing', 'dist', 'index.js')))
+  })
+
+  it('asks for a per-machine key and reuses the same install id on reinstall', async () => {
+    resetStubModes()
+    clearConfigForTest()
+    provisionInstallIds.length = 0
+    const install = async (): Promise<void> => {
+      prompts.inject([new Error('unexpected prompt during cloud install')])
+      await installCommand({ token: 'test-token', editor: 'claude-code', repoRoot: fakeRepo, skipInitProject: true })
+    }
+    const savedId = (): unknown =>
+      (JSON.parse(readFileSync(join(fakeHome, '.robrain', 'config.json'), 'utf8')) as Record<string, unknown>).installId
+
+    await install()
+    const first = provisionInstallIds[0]
+    assert.match(first ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    assert.equal(savedId(), first)
+
+    await install()
+    assert.deepEqual(provisionInstallIds, [first, first])
+    assert.equal(savedId(), first)
   })
 
   it('buildCloudMcpOptions is thin and keeps the provisioned provider for display only', () => {
