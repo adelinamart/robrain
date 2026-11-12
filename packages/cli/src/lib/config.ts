@@ -78,16 +78,20 @@ export function mergeConfig(updates: Partial<RoMemoryConfig>): void {
 }
 
 const INSTALL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 /**
  * Returns the install id in `config`, or a new random one when it is missing
- * or malformed (the cloud API refuses anything that is not a UUID). Does not
+ * or malformed (the cloud API refuses anything that is not a UUID, and the
+ * all-zero UUID, which names no machine). Does not
  * write: the caller saves it with the rest of the config once the install
  * succeeds, so a refused install leaves no config file behind.
  */
 export function resolveInstallId(config: RoMemoryConfig): string {
   const existing = config.installId
-  if (typeof existing === 'string' && INSTALL_ID_RE.test(existing)) return existing.toLowerCase()
+  if (typeof existing === 'string' && INSTALL_ID_RE.test(existing) && existing !== NIL_UUID) {
+    return existing.toLowerCase()
+  }
   return randomUUID()
 }
 
