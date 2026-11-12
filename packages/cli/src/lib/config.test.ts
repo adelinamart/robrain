@@ -101,6 +101,10 @@ describe('install id — one per machine', () => {
 
   it('replaces a value the cloud API would refuse', () => {
     assert.match(resolveInstallId({ installId: 'my-laptop' }), UUID)
+    const zero = '00000000-0000-0000-0000-000000000000'
+    const replaced = resolveInstallId({ installId: zero })
+    assert.match(replaced, UUID)
+    assert.notEqual(replaced, zero)
   })
 
   it('does not write the config file', () => {
