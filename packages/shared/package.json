@@ -1,6 +1,6 @@
 {
   "name": "@robrain/shared",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "Shared database, embedding, and trust primitives for RoBrain",
   "author": "Rory Plans, Inc.",
   "license": "Apache-2.0",
