@@ -10,7 +10,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'robrain-config-'))
 process.env.HOME = fakeHome
 mkdirSync(join(fakeHome, '.robrain'), { recursive: true })
 
-const { splitCloudCredentials, clearCloudCredentials, readConfig } = await import('./config.js')
+const { splitCloudCredentials, clearCloudCredentials, readConfig, resolveInstallId } = await import('./config.js')
 
 after(() => rmSync(fakeHome, { recursive: true, force: true }))
 
@@ -80,5 +80,41 @@ describe('logout — clearCloudCredentials on disk', () => {
     assert.equal(onDisk.email, undefined)
     assert.equal(onDisk.perceptionKey, 'k')
     assert.equal(readConfig().selfHosted, true)
+  })
+})
+
+describe('install id — one per machine', () => {
+  const file = join(fakeHome, '.robrain', 'config.json')
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  const SAVED = '0b1f6c1e-3c58-4e0e-9a55-0d4f6f0a7a11'
+
+  it('reuses the saved id, so a reinstall replaces this machine\'s key and no other', () => {
+    assert.equal(resolveInstallId({ installId: SAVED }), SAVED)
+    assert.equal(resolveInstallId({ installId: SAVED.toUpperCase() }), SAVED)
+  })
+
+  it('makes a new random id when none is saved', () => {
+    const first = resolveInstallId({})
+    assert.match(first, UUID)
+    assert.notEqual(resolveInstallId({}), first)
+  })
+
+  it('replaces a value the cloud API would refuse', () => {
+    assert.match(resolveInstallId({ installId: 'my-laptop' }), UUID)
+  })
+
+  it('does not write the config file', () => {
+    rmSync(file, { force: true })
+    resolveInstallId(readConfig())
+    assert.throws(() => readFileSync(file, 'utf8'), /ENOENT/)
+  })
+
+  it('survives logout, since it names the machine and not the account', () => {
+    writeFileSync(file, JSON.stringify({ token: 't', email: 'a@b.c', thin: true, perceptionKey: 'k', installId: SAVED }))
+
+    const { cleared } = clearCloudCredentials()
+
+    assert.equal(cleared.includes('installId'), false)
+    assert.equal(readConfig().installId, SAVED)
   })
 })

@@ -119,16 +119,26 @@ export async function validateToken(token: string): Promise<AuthResult> {
   }
 }
 
+/** Header naming this machine's install, so the cloud keeps one key per machine. */
+export const INSTALL_ID_HEADER = 'X-RoBrain-Install-Id'
+
 /**
  * Fetch provisioned API config for this token. An account on a plan without
  * RoBrain cloud lands here (the token is valid — there is just nothing to
  * provision), so entitlement is reported rather than folded into a failure.
+ *
+ * `installId` scopes the returned key to this machine: asking again from the
+ * same machine replaces that machine's key only. Without it the cloud keeps
+ * a single key per user, and each install signs out the previous one.
  */
-export async function fetchProvisionedConfig(token: string): Promise<ProvisionResult> {
+export async function fetchProvisionedConfig(token: string, installId?: string): Promise<ProvisionResult> {
   try {
     const res = await fetch(`${RORY_API_BASE}/robrain/provision`, {
       method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...(installId ? { [INSTALL_ID_HEADER]: installId } : {}),
+      },
     })
 
     if (!res.ok) {
