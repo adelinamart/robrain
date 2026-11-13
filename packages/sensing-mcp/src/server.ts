@@ -71,7 +71,7 @@ function resolveSessionId(raw: string | null | undefined): string {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name:    'sensing-mcp',
-    version: '2.7.1',
+    version: '2.8.0',
   })
 
   // ─────────────────────────────────────────────────────────────
