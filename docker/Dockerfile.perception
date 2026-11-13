@@ -1,6 +1,11 @@
 # docker/Dockerfile.perception
 # Build context: repository root (see docker-compose build.context)
-FROM node:20-alpine AS builder
+# The builder runs on the machine doing the build, not on the target
+# platform. Its output is plain JavaScript (no native modules in the
+# Perception runtime dependencies), so one build serves every platform, and
+# the arm64 image no longer runs Node under QEMU emulation, where pnpm
+# crashes now and then ("Illegal instruction") and leaves the build hanging.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 WORKDIR /app
 RUN npm install -g pnpm@10.33.3
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
