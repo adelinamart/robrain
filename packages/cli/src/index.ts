@@ -32,6 +32,7 @@ import { captureShowCommand, captureSetCommand, captureTestCommand, type Capture
 import { searchCommand, type SearchOptions } from './commands/search.js'
 import { rulesAddCommand, promoteCommand, type RulesAddOptions } from './commands/governance.js'
 import { auditCommand, lineageCommand, type AuditOptions } from './commands/cloud.js'
+import { agentKeysCreateCommand, agentKeysListCommand, agentKeysRevokeCommand } from './commands/agent-keys.js'
 import { upCommand, downCommand, DEFAULT_IMAGE_REPO } from './commands/up.js'
 import { mcpCommand } from './commands/mcp.js'
 import { installHermesPlugin, resolveHermesHome } from './lib/hermes-plugin.js'
@@ -314,14 +315,45 @@ program
 
 program
   .command('audit')
-  .description('RoBrain cloud: who registered an agent, wrote or pushed a rule, or changed tags, the tool mapping or capture settings, newest first')
+  .description('RoBrain cloud: who registered an agent, wrote or pushed a rule, changed tags, the tool mapping or capture settings, or created or revoked an agent key, newest first')
   .option('-l, --limit <n>',    'Max entries (default: 30, max 200)', parseInt)
-  .option('--action <name>',    'Only one action: project_registered | rule_added | promoted | capture_settings_changed | tags_changed | tag_rules_changed')
+  .option('--action <name>',    'Only one action: project_registered | rule_added | promoted | capture_settings_changed | tags_changed | tag_rules_changed | agent_key_created | agent_key_revoked')
   .option('--project-id <id>',  'Only entries about this project (where it happened, or where a rule was pushed)')
   .option('--before <date>',    'Only entries older than this date, or the value the previous page printed')
   .option('--json',             'Print the raw entries as JSON')
   .action(async (opts: AuditOptions) => {
     await auditCommand(opts)
+  })
+
+// ── agent-keys — one key per production agent (cloud, admins) ──
+
+const agentKeysCmd = program
+  .command('agent-keys')
+  .description('RoBrain cloud, admins: keys for production agents. An agent key always acts as a member and stops working when the admin who created it loses access')
+
+agentKeysCmd
+  .command('create <name>')
+  .description('Create a key for one agent, e.g. support-bot. The key is printed once; set it as ROBRAIN_API_KEY where the agent runs')
+  .option('--json', 'Print the raw response as JSON (includes the key)')
+  .action(async (name: string, opts: { json?: boolean }) => {
+    await agentKeysCreateCommand(name, opts)
+  })
+
+agentKeysCmd
+  .command('list')
+  .description('List the org\'s agent keys: name, owner, when each was created and last used, and whether it still works')
+  .option('--all',  'Include revoked keys')
+  .option('--json', 'Print the keys as JSON')
+  .action(async (opts: { all?: boolean; json?: boolean }) => {
+    await agentKeysListCommand(opts)
+  })
+
+agentKeysCmd
+  .command('revoke <name-or-id>')
+  .description('Revoke an agent key by name or id. The agent using it gets 401 from then on')
+  .option('--json', 'Print the raw response as JSON')
+  .action(async (nameOrId: string, opts: { json?: boolean }) => {
+    await agentKeysRevokeCommand(nameOrId, opts)
   })
 
 // ── projects — list / merge Perception project ids ────────────

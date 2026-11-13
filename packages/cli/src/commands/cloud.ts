@@ -145,6 +145,7 @@ export async function lineageCommand(rawId: string, opts: { json?: boolean } = {
 
 export const AUDIT_ACTIONS = [
   'project_registered', 'rule_added', 'promoted', 'capture_settings_changed', 'tags_changed', 'tag_rules_changed',
+  'agent_key_created', 'agent_key_revoked',
 ] as const
 
 export interface AuditEvent {
@@ -201,6 +202,10 @@ export function describeAuditEvent(e: AuditEvent): string {
       const count = Array.isArray(detail.rules) ? detail.rules.length : 0
       return `changed the tool to tag mapping (${count} ${count === 1 ? 'rule' : 'rules'})`
     }
+    case 'agent_key_created':
+      return `created agent key ${str(detail.name) ?? 'unknown'}`
+    case 'agent_key_revoked':
+      return `revoked agent key ${str(detail.name) ?? 'unknown'}`
     default:
       return `${e.action.replace(/_/g, ' ')}${e.project_id ? ` in ${e.project_id}` : ''}`
   }
@@ -278,8 +283,8 @@ export async function auditCommand(opts: AuditOptions = {}): Promise<void> {
 
   console.log()
   if (payload.events.length === 0) {
-    console.log(chalk.dim('  Nothing recorded for this filter. Registering an agent, writing or pushing a rule, and'))
-    console.log(chalk.dim('  changing tags, the tool mapping or capture settings all land here.\n'))
+    console.log(chalk.dim('  Nothing recorded for this filter. Registering an agent, writing or pushing a rule, changing'))
+    console.log(chalk.dim('  tags, the tool mapping or capture settings, and creating or revoking an agent key all land here.\n'))
     return
   }
   const widest = Math.max(...payload.events.map(e => (e.actor_email ?? 'an API key').length))

@@ -90,11 +90,11 @@ On any paid Rory Plans plan, RoBrain runs without hosting anything:
 npx robrain install          # no flags — cloud mode
 ```
 
-Sign in at [roryplans.ai](https://roryplans.ai), create an API token on your profile page, and paste it when the installer asks. That's the whole setup: no Docker, no database, no LLM or embedding keys — extraction and search run on our side. Your editors (Claude Code, Cursor, Copilot, Codex CLI) are wired automatically, and teammates on your Rory Plans team share the same memory.
+Sign in at [roryplans.ai](https://roryplans.ai), create an API token on your profile page, and paste it when the installer asks. That's the whole setup: no Docker, no database, no LLM or embedding keys — extraction and search run on our side. Your editors (Claude Code, Cursor, Copilot, Codex CLI) are wired automatically, and teammates on your Rory Plans team share the same memory. Each machine you install on gets its own key, so setting up a second laptop does not sign out the first; a machine you have not used for 90 days is signed out the next time you install, and running the installer on it again brings it back.
 
 Every paid plan qualifies — individual standard or annual, Teams, and enterprise. Solo subscribers get a private memory space; teams share one. Self-hosting stays free and fully supported (see Install above); the [comparison table](#self-hosted-vs-rory-plans-cloud) shows what each tier adds.
 
-Cloud also governs memory for **production agents**: each agent gets its own project (the [eve provider](packages/eve/README.md) registers it on first run), org admins push rules to every production agent or to one kind of agent by tag (`npx robrain promote`), tags come from the tools an agent uses through an admin-kept mapping (`npx robrain tags map`), and every governance action is recorded with who did it. The commands are in the [CLI reference](docs/cli.md#cli-commands); self-hosted RoBrain keeps one project by design.
+Cloud also governs memory for **production agents**: each agent gets its own project (the [eve provider](packages/eve/README.md) registers it on first run), org admins push rules to every production agent or to one kind of agent by tag (`npx robrain promote`), tags come from the tools an agent uses through an admin-kept mapping (`npx robrain tags map`), and every governance action is recorded with who did it. An admin gives each agent its own key (`npx robrain agent-keys create`): it can read and capture but not change rules, and it stops working when that admin loses access. The commands are in the [CLI reference](docs/cli.md#cli-commands); self-hosted RoBrain keeps one project by design.
 
 ## Quickstart
 
@@ -226,6 +226,7 @@ Versus **Mem0**, **Cloudflare Agent Memory**, and **Claude Code Auto-Memory**: o
 | `npx robrain search` and hand-written rules (`rules add`, confidence 1.0, approved on insert) | ✓ | ✓ |
 | Production agent memory — a project per agent, org rules pushed by admins to all agents, one tag of agents, or one agent (`promote`); tags derived from the tools an agent uses (`tags map`) | — | ✓ |
 | Governance ledger — who registered, pushed, tagged or changed what (`robrain audit`, dashboard) | — | ✓ |
+| Keys for production agents — one per agent, created by an admin, always a member, ended when that admin loses access (`robrain agent-keys`) | — | ✓ |
 | Memory quality feedback — used/ignored counters, auto-demotion | ✓ | ✓ richer: helpful/pushback per injection |
 | Outcome linking — git reverts feed back into memory rank | ✓ | ✓ |
 | Secrets redaction at capture and ingest | ✓ | ✓ |

@@ -77,6 +77,16 @@ Look for `[Sensing] Perception API error: 401` or `always-on summary fetch faile
 
 Cursor and Claude Code cache the spawned MCP **child process** with its initial env. Closing a chat or window keeps that child alive with the old (empty) env. Use **`Cmd-Q`** on the editor entirely, then reopen.
 
+### RoBrain cloud: a machine or an agent suddenly gets 401
+
+On cloud each machine has its own key, and a few things end one on purpose:
+
+- **You installed again on that machine.** The old key was replaced; editors that were open keep the old one until restarted. Quit and reopen them.
+- **The machine sat unused for 90 days.** Its key is revoked the next time you install anywhere. Run `npx robrain install` on it again.
+- **You have more than ten machines.** The least recently used key is revoked. Run `npx robrain install` on the machine you need.
+- **Your subscription or team membership ended.** Keys stop until access is back, then run `npx robrain install`.
+- **A production agent's key stopped.** `npx robrain agent-keys list` says whether it was revoked or its owner lost access. An admin creates a new one with `npx robrain agent-keys create <name>` and updates the agent's `ROBRAIN_API_KEY`.
+
 ### Verifying a decision actually landed
 
 ```bash
