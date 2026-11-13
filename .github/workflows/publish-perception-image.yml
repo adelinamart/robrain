@@ -14,6 +14,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # A healthy run takes about three minutes. Fail a hung one instead of
+    # letting it sit until the six hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
