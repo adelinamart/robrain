@@ -1,6 +1,7 @@
 # RoBrain
 
 [![VetoBench](https://img.shields.io/badge/VetoBench-0%2F50_violations_·_receipts_in--repo-2ea44f)](#vetobench)
+[![Audited by AddonAudit](https://addonaudit.com/badges/io-github-adelinamart-robrain.svg)](https://addonaudit.com/addon/io-github-adelinamart-robrain/)
 
 **Shared memory, decision provenance, and architectural guardrails for multi-agent systems.**
 
