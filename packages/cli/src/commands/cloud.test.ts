@@ -58,6 +58,11 @@ test('lineageLines: oldest first, the asked-about decision marked, other relatio
   ])
 })
 
+test('describeAuditEvent: names the agent key that was created or revoked', () => {
+  assert.equal(describeAuditEvent(event({ action: 'agent_key_created', detail: { name: 'support-bot' } })), 'created agent key support-bot')
+  assert.equal(describeAuditEvent(event({ action: 'agent_key_revoked', detail: { name: 'support-bot' } })), 'revoked agent key support-bot')
+})
+
 test('describeAuditEvent: says where a rule went and what changed', () => {
   assert.equal(describeAuditEvent(event({ decision_id: 'd-1', detail: { to: 'production-agents' } })), 'pushed decision d-1 to every production agent')
   assert.equal(describeAuditEvent(event({ decision_id: 'd-1', detail: { to: 'tag:email' } })), 'pushed decision d-1 to agents tagged email')
