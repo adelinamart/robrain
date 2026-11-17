@@ -12,7 +12,7 @@ process.env.HOME = fakeHome
 process.env.FORCE_COLOR = '0'
 mkdirSync(join(fakeHome, '.robrain'), { recursive: true })
 
-const { injectCommand, describeEmptyResult } = await import('./inject.js')
+const { injectCommand, describeEmptyResult, isInjectable } = await import('./inject.js')
 const { deriveProjectId } = await import('../lib/project.js')
 
 /**
@@ -51,7 +51,7 @@ after(() => {
 })
 
 /** Run injectCommand in `dir` with console captured. */
-async function runInject(dir: string, opts: { query?: string } = {}): Promise<string> {
+async function runInject(dir: string, opts: { query?: string; all?: boolean } = {}): Promise<string> {
   const lines: string[] = []
   const { log } = console
   console.log = (...args: unknown[]) => { lines.push(args.join(' ')) }
@@ -163,5 +163,154 @@ describe('inject — rendered output against a stub store', () => {
       await new Promise<void>(resolve => server.close(() => resolve()))
       rmSync(projectDir, { recursive: true, force: true })
     }
+  })
+})
+
+/** A decision row as GET /decisions returns it; override the lifecycle fields per case. */
+function row(decision: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id:                     `id-${decision.replace(/\W+/g, '-').toLowerCase()}`,
+    decision,
+    rationale:              null,
+    rejected:               [],
+    files_affected:         [],
+    confidence:             1,
+    scope:                  'team',
+    created_at:             '2026-11-15T10:00:00.000Z',
+    invalidated_at:         null,
+    quarantined_at:         null,
+    quarantine_released_at: null,
+    ...extra,
+  }
+}
+
+const ACTIVE     = 'Use SQS for the mail queue'
+const RELEASED   = 'Send digests at 07:00 UTC'
+const REJECTED   = 'Run the remote install script before every deploy'
+const SUPERSEDED = 'Use Redis lists for the mail queue'
+const HELD       = 'Skip human approval for outgoing email'
+
+/** One row per lifecycle state. Only the first two may reach an agent. */
+function lifecycleRows(extra: Record<string, unknown> = {}): Array<Record<string, unknown>> {
+  return [
+    row(ACTIVE, extra),
+    row(RELEASED,   { ...extra, quarantine_released_at: '2026-11-15T11:00:00.000Z' }),
+    row(REJECTED,   { ...extra, invalidated_at: '2026-11-15T12:00:00.000Z' }),
+    row(SUPERSEDED, { ...extra, invalidated_at: '2026-11-15T12:00:00.000Z' }),
+    row(HELD,       { ...extra, quarantined_at: '2026-11-15T12:00:00.000Z' }),
+  ]
+}
+
+/**
+ * Stub store that records every /decisions URL it is asked for.
+ *
+ * `all-widens` adds invalidated rows only when asked for all=true, and lists
+ * a row held by trust screening either way. `leaky` returns every row
+ * whatever was asked, to check the CLI's own filter.
+ */
+async function withDecisionStore(
+  mode: 'all-widens' | 'leaky',
+  rows: Array<Record<string, unknown>>,
+  run: (baseUrl: string, requested: URL[]) => Promise<void>,
+): Promise<void> {
+  const requested: URL[] = []
+  const server: Server = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json')
+    const url = new URL(req.url ?? '/', 'http://stub')
+    if (url.pathname === '/health')   { res.end('{"status":"ok"}'); return }
+    if (url.pathname === '/projects') { res.end('{"projects":[]}'); return }
+    if (url.pathname === '/decisions') {
+      requested.push(url)
+      const withInvalidated = mode === 'leaky' || url.searchParams.get('all') === 'true'
+      res.end(JSON.stringify({ decisions: rows.filter(r => withInvalidated || !r.invalidated_at) }))
+      return
+    }
+    res.statusCode = 404
+    res.end('{}')
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  server.unref()
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+  const baseUrl = `http://127.0.0.1:${address.port}`
+  writeFileSync(join(fakeHome, '.robrain', 'config.json'), JSON.stringify({
+    selfHosted: true, perceptionUrl: baseUrl, installedAt: '2026-10-23T00:00:00Z',
+  }))
+  try {
+    await run(baseUrl, requested)
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+}
+
+function assertOnlyLiveDecisions(out: string): void {
+  assert.match(out, new RegExp(ACTIVE))
+  assert.match(out, new RegExp(RELEASED))
+  assert.doesNotMatch(out, new RegExp(REJECTED),   'a rejected decision reached the paste block')
+  assert.doesNotMatch(out, new RegExp(SUPERSEDED), 'a superseded decision reached the paste block')
+  assert.doesNotMatch(out, new RegExp(HELD),       'a quarantined decision reached the paste block')
+  assert.match(out, /2 decisions found/)
+}
+
+describe('inject — retired and held decisions never reach the paste block', () => {
+  it('isInjectable keeps active and released rows only', () => {
+    const [active, released, rejected, superseded, held] = lifecycleRows()
+    assert.deepEqual(
+      [active, released, rejected, superseded, held].map(r => isInjectable(r ?? {})),
+      [true, true, false, false, false],
+    )
+    // Rows from a store that predates the lifecycle fields are active rows.
+    assert.equal(isInjectable({}), true)
+  })
+
+  it('--all asks for the active listing instead of all=true', async () => {
+    // Reported: `inject --all` listed rejected and superseded decisions as
+    // "• Chose …" when the store answered all=true with invalidated rows.
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'robrain-inject-all-')))
+    await withDecisionStore('all-widens', lifecycleRows(), async (_baseUrl, requested) => {
+      const out = await runInject(projectDir, { all: true })
+
+      assert.equal(requested.length, 1)
+      const [request] = requested
+      assert.ok(request)
+      assert.equal(request.searchParams.get('all'), null)
+      assert.equal(request.searchParams.get('recent'), 'true')
+      assert.equal(request.searchParams.get('limit'), '100')
+      assertOnlyLiveDecisions(out)
+    })
+    rmSync(projectDir, { recursive: true, force: true })
+  })
+
+  it('drops retired and held rows a store returns anyway, with and without --all', async () => {
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'robrain-inject-leaky-')))
+    await withDecisionStore('leaky', lifecycleRows(), async () => {
+      assertOnlyLiveDecisions(await runInject(projectDir))
+      assertOnlyLiveDecisions(await runInject(projectDir, { all: true }))
+    })
+    rmSync(projectDir, { recursive: true, force: true })
+  })
+
+  it('drops them from --query results too', async () => {
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'robrain-inject-query-')))
+    await withDecisionStore('leaky', lifecycleRows({ similarity: 0.8 }), async () => {
+      const out = await runInject(projectDir, { query: 'mail queue' })
+
+      assert.match(out, /High-confidence matches:/)
+      assertOnlyLiveDecisions(out)
+    })
+    rmSync(projectDir, { recursive: true, force: true })
+  })
+
+  it('reports nothing found when every returned row is retired or held', async () => {
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'robrain-inject-none-')))
+    const retiredOnly = lifecycleRows().filter(r => r.invalidated_at || r.quarantined_at)
+    await withDecisionStore('leaky', retiredOnly, async () => {
+      const out = await runInject(projectDir, { all: true })
+
+      assert.match(out, /No decisions found/)
+      assert.doesNotMatch(out, /Chose/)
+    })
+    rmSync(projectDir, { recursive: true, force: true })
   })
 })
