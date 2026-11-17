@@ -60,6 +60,8 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     source_turn_sequence?: number | null
     source_excerpt?:       string | null
     similarity?:    number
+    invalidated_at?: string | null
+    quarantined_at?: string | null
   }> = []
 
   try {
@@ -70,9 +72,10 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     })
     if (query) {
       params.set('query', query)
-    } else if (opts.all) {
-      params.set('all', 'true')
     } else {
+      // Always `recent`, never `all`: --all only raises the limit (fetchLimit
+      // above). Self-hosted Perception answers the two alike (unreviewed +
+      // active), and `all` is not a promise of active rows on every store.
       params.set('recent', 'true')
     }
     if (files.length > 0) params.set('boost_files', files.join(','))
@@ -86,7 +89,7 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     }
 
     const data = await res.json() as { decisions: typeof decisions }
-    decisions  = data.decisions ?? []
+    decisions  = (data.decisions ?? []).filter(isInjectable)
 
     // If files provided, boost file-overlapping decisions to top
     if (files.length > 0) {
@@ -205,6 +208,17 @@ export async function injectCommand(opts: InjectOptions): Promise<void> {
     console.log(chalk.dim('  Want automatic injection without pasting?'))
     console.log(chalk.dim('  → ') + chalk.cyan('roryplans.ai') + chalk.dim(' — Control MCP injects at every task boundary\n'))
   }
+}
+
+/**
+ * Whether a row may be pasted into an agent as a current decision.
+ *
+ * Rejected and superseded rows carry invalidated_at; rows that trust screening
+ * is holding carry quarantined_at (a release clears it). The paste block is
+ * filtered here instead of relying on every store to leave them out.
+ */
+export function isInjectable(d: { invalidated_at?: string | null; quarantined_at?: string | null }): boolean {
+  return !d.invalidated_at && !d.quarantined_at
 }
 
 /** Total active decisions for the project, or undefined when the store cannot say. */
