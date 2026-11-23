@@ -51,7 +51,12 @@ export async function explainCommand(
     created_at:     string
     supersedes_id:  string | null
     invalidated_at: string | null
+    quarantined_at?: string | null
   }> = []
+  // True when nothing is linked to the path and `decisions` holds the store's
+  // nearest matches instead. They are shown as related context, never as the
+  // history of this file.
+  let relatedOnly = false
 
   try {
     // Search by file overlap + semantic query on the file path
@@ -75,16 +80,22 @@ export async function explainCommand(
 
     const data = await res.json() as { decisions: typeof decisions }
 
+    // A decision that trust screening is holding is never shown.
+    const found = (data.decisions ?? []).filter(d => !d.quarantined_at)
+
     // Filter to decisions actually involving this file or path prefix
-    decisions = (data.decisions ?? []).filter(d =>
+    decisions = found.filter(d =>
       d.files_affected.some(f =>
         f.includes(normalisedPath) || normalisedPath.includes(f)
       )
     )
 
-    // If no file matches, fall back to semantic results
+    // If no file matches, fall back to semantic results. Those say nothing
+    // about this file, so only decisions still in force are kept: a superseded
+    // one belongs in the history of its own file, not in related context.
     if (decisions.length === 0) {
-      decisions = data.decisions ?? []
+      decisions   = found.filter(d => !d.invalidated_at)
+      relatedOnly = decisions.length > 0
     }
 
   } catch {
@@ -105,7 +116,12 @@ export async function explainCommand(
   const lines: string[] = []
 
   console.log(chalk.bold(`  ${normalisedPath}`))
-  console.log(chalk.dim(`  ${decisions.length} decision${decisions.length === 1 ? '' : 's'} found\n`))
+  if (relatedOnly) {
+    console.log(chalk.dim('  No decisions are linked to this path.'))
+    console.log(chalk.dim(`  ${decisions.length} related by topic, not about this file:\n`))
+  } else {
+    console.log(chalk.dim(`  ${decisions.length} decision${decisions.length === 1 ? '' : 's'} found\n`))
+  }
 
   for (const d of decisions) {
     const date  = new Date(d.created_at).toLocaleDateString('en-US', {
@@ -169,7 +185,9 @@ export async function explainCommand(
   // ── Copy to clipboard ──────────────────────────────────────
   if (opts.copy) {
     const output = [
-      `# Why does ${normalisedPath} exist?`,
+      relatedOnly
+        ? `# No decisions are linked to ${normalisedPath}. Related by topic, not about this file:`
+        : `# Why does ${normalisedPath} exist?`,
       ...lines,
     ].join('\n')
 
